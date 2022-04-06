@@ -1,0 +1,13 @@
+{
+   "environment"           : "dev",
+   "db_token"              : "jX9kIcwkRUAZg_BV9rMjIuPlDkDwR2o0JcipK15I7bc2HRw8toCn-pbbhMbZeTReDeVZTXOF-_AKqHlTvfl_LA==",
+   "order_send_interval"   : 20,
+   "api_endpoint"          : "wss://api-dev.leverex.io",
+   "login_endpoint"        : "https://login-dev.leverex.io",
+   "target_product"        : "xbtusd_rf",
+   "min_cash_amount"       : 100,
+   "dealing_clients"       : 1,
+   "dealing_client_image"  : "trading_dealer",
+   "trading_clients"       : 0,
+   "trading_client_image"  : "trading_client"
+}
