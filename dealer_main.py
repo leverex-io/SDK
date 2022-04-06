@@ -32,12 +32,7 @@ class SampleDealer(MarketEventListener):
       tight_ask = cutoff_price + 30 + random.randrange(10)
       tight_bid = cutoff_price - 30 - random.randrange(10)
 
-      # print(f'Sending price update: {bid} : {ask}')
-
-      submit_prices_request = {
-         'submit_prices' : {
-            'product_type' : self.target_product,
-            'prices' : [
+      self.sendOffer([
             {
                'volume' : '0.1',
                'ask'    : str(tight_ask),
@@ -48,11 +43,45 @@ class SampleDealer(MarketEventListener):
                'ask'    : str(ask),
                'bid'    : str(bid)
             }
-            ]
-         }
-      }
+            ])
 
-      self.send(submit_prices_request)
+################################################################################
+class TestDealer(MarketEventListener):
+   def __init__(self):
+      super().__init__()
+      self.cutoff_price = 0
+
+   def onMarketData(self, data):
+      #push an offer every minute, for TTL testing purposes
+
+      self.cutoff_price = float(data['market_data']['live_cutoff'])
+      return
+
+   async def updateOffer(self):
+      while True:
+         if self.cutoff_price == 0:
+            await asyncio.sleep(1)
+
+         ask = self.cutoff_price + 50
+         bid = self.cutoff_price - 50
+
+         tight_ask = self.cutoff_price + 30 + random.randrange(10)
+         tight_bid = self.cutoff_price - 30 - random.randrange(10)
+
+         self.sendOffer([
+               {
+                  'volume' : '0.1',
+                  'ask'    : str(tight_ask),
+                  'bid'    : str(tight_bid)
+               },
+               {
+                  'volume' : '1',
+                  'ask'    : str(ask),
+                  'bid'    : str(bid)
+               }
+               ])
+
+         await asyncio.sleep(60)
 
 ################################################################################
 if __name__ == '__main__':

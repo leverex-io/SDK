@@ -8,6 +8,7 @@ class MarketEventListener(object):
    target_product = 'xbtusd_rf'
    min_cash_amount = 1000
 
+   #############################################################################
    def __init__(self):
       self.balance_awaitable = False
       self.sender = None
@@ -29,8 +30,24 @@ class MarketEventListener(object):
       logging.info("Dealing for product {}, with min cash set to: {}".format(
          self.target_product, self.min_cash_amount))
 
+   #############################################################################
    def send(self, data):
       self.sender.queue(json.dumps(data))
+
+   #############################################################################
+   def sendOffer(self, offers):
+      prices = []
+      for offer in offers:
+         prices.append(offer)
+
+      submit_prices_request = {
+         'submit_prices' : {
+            'product_type' : self.target_product,
+            'prices' : prices
+         }
+      }
+
+      self.send(submit_prices_request)
 
    #############################################################################
    def onMarketData(self, data):
