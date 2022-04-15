@@ -1,4 +1,4 @@
-FROM ubuntu:focal-20210713
+FROM python:3.10-slim-bullseye
 
 RUN apt-get update \
     && apt-get install --no-install-recommends --no-install-suggests -y python3-pip wget \
@@ -29,6 +29,6 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 
 WORKDIR /usr/app
 
-ADD *.py ./
+COPY . .
 
-CMD [ "python", "./trading_dealer.py" ]
+CMD [ "python", "./dealer_main.py" ]
