@@ -90,7 +90,7 @@ class MarketEventListener(object):
 
    #############################################################################
    def onOrderUpdateInner(self, data):
-      logging.info('Order update: {}'.format(update))
+      logging.info('Order update: {}'.format(data))
       self.onOrderUpdate(data)
 
    ########
