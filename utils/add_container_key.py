@@ -4,7 +4,7 @@ import sys
 import json
 import asyncio
 
-from login_service_client import LoginServiceClient, LoginServiceClientWS
+from login_connection import LoginServiceClientWS
 
 def add_container_keys_to_env(keys_path, skip_sms):
    settings_file=os.path.join(keys_path, 'config.json')
