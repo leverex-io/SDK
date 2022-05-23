@@ -54,7 +54,7 @@ if [ $? -ne 0 ]; then
    exit 1
 fi
 
-pipenv run python add_container_key.py --keys_path $keys_dir --autheid
+python add_container_key.py --keys_path $keys_dir --autheid
 if [ $? -ne 0 ]; then
    echo "ERROR: failed to add and confirm key on login service"
    exit 1
