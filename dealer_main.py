@@ -4,46 +4,59 @@ import json
 import os
 import websockets.exceptions
 import random
+import argparse
 
 from trader_core.api_connection import AsyncApiConnection
 from trader_core.market_event_listener import MarketEventListener
 from trader_core.login_connection import LoginServiceClientWS
 
-home = "uat/dealer_usd"
-
 ################################################################################
 class SampleDealer(MarketEventListener):
+   threshold_volume = 0.05
+
    def __init__(self):
       super().__init__()
+      self.spread_per_btc = 60 + random.randrange(100)
+      self.counter = 0
 
    def onMarketData(self, data):
-      #return bogus price on each cutoff price update
+      self.counter += 1
+      if self.counter % 5 != 0:
+         return
 
-      cutoff_price = float(data['market_data']['live_cutoff'])
-      if cutoff_price == 0:
+      #return bogus price on each index price update
+      index_price = float(data['market_data']['live_cutoff'])
+      if index_price == 0:
          return
 
       if not self.balance_awaitable:
          return
 
-      ask = cutoff_price + 50
-      bid = cutoff_price - 50
+      #figure out volume to quote based on free cash
+      #index_price will be used as an approximation of session open price
+      session_im = index_price / 10
+      max_vol = (self.freeCash / session_im) * 0.9
+      offers = []
 
-      tight_ask = cutoff_price + 30 + random.randrange(10)
-      tight_bid = cutoff_price - 30 - random.randrange(10)
+      #create offers based on spread per volume, halve volume of successive
+      #offers until thresold_volume is reached
+      current_vol = max_vol
+      while current_vol > self.threshold_volume:
+         offers.append(
+            {
+               'volume' : str(current_vol),
+               'ask'    : str(index_price + self.spread_per_btc * current_vol),
+               'bid'    : str(index_price - self.spread_per_btc * current_vol)
+            })
 
-      self.sendOffer([
-            {
-               'volume' : '0.1',
-               'ask'    : str(tight_ask),
-               'bid'    : str(tight_bid)
-            },
-            {
-               'volume' : '1',
-               'ask'    : str(ask),
-               'bid'    : str(bid)
-            }
-            ])
+         current_vol = current_vol / 2
+
+      #send the offers
+      self.sendOffer(offers)
+
+   async def updateOffer(self):
+      await asyncio.sleep(60)
+      pass
 
 ################################################################################
 class TestDealer(MarketEventListener):
@@ -62,26 +75,26 @@ class TestDealer(MarketEventListener):
          if self.cutoff_price == 0:
             await asyncio.sleep(1)
 
-         ask = self.cutoff_price + 50
-         bid = self.cutoff_price - 50
+         ask = self.cutoff_price + 500
+         bid = self.cutoff_price - 500
 
          tight_ask = self.cutoff_price + 30 + random.randrange(10)
          tight_bid = self.cutoff_price - 30 - random.randrange(10)
 
          self.sendOffer([
                {
-                  'volume' : '0.1',
+                  'volume' : '0.05',
                   'ask'    : str(tight_ask),
                   'bid'    : str(tight_bid)
                },
                {
-                  'volume' : '1',
+                  'volume' : '0.2',
                   'ask'    : str(ask),
                   'bid'    : str(bid)
                }
                ])
 
-         await asyncio.sleep(60)
+         await asyncio.sleep(45)
 
 ################################################################################
 if __name__ == '__main__':
@@ -89,6 +102,15 @@ if __name__ == '__main__':
       "%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s"
    )
    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+
+   input_parser = argparse.ArgumentParser()
+   input_parser.add_argument('--datadir',
+      help='path to running folder',
+      required=True,
+      action='store')
+
+   args = input_parser.parse_args()
+   home = args.datadir
 
    # load settings
    with open('{}/config.json'.format(home)) as json_file:

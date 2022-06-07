@@ -75,9 +75,11 @@ class AsyncApiConnection(object):
          readTask = asyncio.create_task(self.readLoop())
          writeTask = asyncio.create_task(self.writeLoop())
          cycleTask = asyncio.create_task(self.cycleSession())
+         updateTask = asyncio.create_task(self.listener.updateOffer())
          await readTask
          await writeTask
          await cycleTask
+         await updateTask
 
    async def readLoop(self):
       balance_awaitable = False
@@ -92,10 +94,6 @@ class AsyncApiConnection(object):
 
          elif 'load_balance' in update:
             self.listener.onLoadBalanceInner(update)
-
-         elif 'get_deposit_info' in update:
-            logging.info('Deposit info:{}'.format(update['get_deposit_info']))
-            self.loadBalances()
 
          elif 'subscribe' in update:
             if not update['subscribe']['success']:

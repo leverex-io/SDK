@@ -6,12 +6,13 @@ from trader_core.product_mapping import get_product_info
 ################################################################################
 class MarketEventListener(object):
    target_product = 'xbtusd_rf'
-   min_cash_amount = 1000
+   min_cash_amount = 100
 
    #############################################################################
    def __init__(self):
       self.balance_awaitable = False
       self.sender = None
+      self.freeCash = 0.0
 
       #config
       min_cash_amount_str = os.environ.get('MIN_CASH_AMOUNT')
@@ -59,14 +60,9 @@ class MarketEventListener(object):
       for balanceInfo in data['load_balance']['balances']:
          logging.info('Balance updated: {} {}'.format(balanceInfo['balance'], balanceInfo['currency']))
          if balanceInfo['currency'] == self.product_info.cash_ccy():
-            if float(balanceInfo['balance']) < self.min_cash_amount:
+            self.freeCash = float(balanceInfo['balance'])
+            if self.freeCash < self.min_cash_amount:
                logging.error(f'{self.product_info.cash_ccy()} balance is too small. Min amount {self.min_cash_amount}')
-               # get deposit ref
-               get_deposit_ref = {
-                  'get_deposit_info' : {}
-               }
-
-               self.send(get_deposit_ref)
             else:
                self.balance_awaitable = True
 

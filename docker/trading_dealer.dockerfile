@@ -31,4 +31,4 @@ WORKDIR /usr/app
 
 COPY . .
 
-CMD [ "python", "./dealer_main.py" ]
+CMD [ "python", "./dealer_main.py", "--datadir=dev/dealer_usd" ]
