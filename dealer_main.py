@@ -12,7 +12,7 @@ from trader_core.login_connection import LoginServiceClientWS
 
 ################################################################################
 class SampleDealer(MarketEventListener):
-   threshold_volume = 0.05
+   threshold_volume = 0.01
 
    def __init__(self):
       super().__init__()
@@ -50,6 +50,8 @@ class SampleDealer(MarketEventListener):
             })
 
          current_vol = current_vol / 2
+         if len(offers) >= 5:
+            break
 
       #send the offers
       self.sendOffer(offers)
