@@ -93,7 +93,7 @@ class AsyncApiConnection(object):
             self.listener.onMarketData(update)
 
          elif 'load_balance' in update:
-            self.listener.onLoadBalanceInner(update)
+            self.listener.onLoadBalance(update['load_balance']['balances'])
 
          elif 'subscribe' in update:
             if not update['subscribe']['success']:

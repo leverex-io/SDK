@@ -19,6 +19,8 @@ class HedgingDealer():
       self.bitfinex_config = configuration['bitfinex']
       self.id = 123
 
+      self.bitfinex_balances = None
+
       if 'log_level' in self.bitfinex_config:
          bitfinex_log_level = self.bitfinex_config['log_level']
 
@@ -43,15 +45,18 @@ class HedgingDealer():
       self.leverex_connection = AsyncApiConnection(self.login_client, self)
 
       self.target_product = 'xbtusd_rf'
+      self.leverex_balances = None
 
    def on_bitfinex_authenticated(self, auth_message):
-      print('================= Authenticated to bitfinex: {} {}'.format(self.id, auth_message))
+      print('================= Authenticated to bitfinex')
 
    def on_bitfinex_balance_updated(self, data):
       print(f'======= on_bitfinex_balance_updated: {data}')
 
    def on_bitfinex_wallet_snapshot(self, data):
       print(f'======= on_bitfinex_wallet_snapshot: {data}')
+      for wallet in data:
+         print(f'======= on_bitfinex_wallet_snapshot: {wallet}')
 
    def on_bitfinex_wallet_update(self, data):
       print(f'======= on_bitfinex_wallet_update: {data}')
@@ -69,10 +74,12 @@ class HedgingDealer():
       pass
 
    def onMarketData(self, update):
+      print('onMarketData: {}'.format(update))
       pass
 
-   def onLoadBalanceInner(self, update):
-      print('Balance loaded {}'.format(update))
+   def onLoadBalance(self, balances):
+      print('Balance loaded {}'.format(balances))
+
 
    def onSubmitPrices(self, update):
       pass

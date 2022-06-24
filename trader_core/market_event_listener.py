@@ -56,8 +56,9 @@ class MarketEventListener(object):
       pass
 
    #############################################################################
-   def onLoadBalanceInner(self, data):
-      for balanceInfo in data['load_balance']['balances']:
+   def onLoadBalance(self, balances):
+      #override me
+      for balanceInfo in balances:
          logging.info('Balance updated: {} {}'.format(balanceInfo['balance'], balanceInfo['currency']))
          if balanceInfo['currency'] == self.product_info.cash_ccy():
             self.freeCash = float(balanceInfo['balance'])
@@ -65,13 +66,6 @@ class MarketEventListener(object):
                logging.error(f'{self.product_info.cash_ccy()} balance is too small. Min amount {self.min_cash_amount}')
             else:
                self.balance_awaitable = True
-
-      self.onLoadBalance(data)
-
-   ########
-   def onLoadBalance(self, data):
-      #override me
-      pass
 
    #############################################################################
    def onSubmitPrices(self, data):
