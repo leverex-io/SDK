@@ -1,0 +1,15 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+bitfinex-api-py = "==2.0.1"
+requests = "==2.26.0"
+websockets = "==8.1"
+jwcrypto = "==1.0"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
