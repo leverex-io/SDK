@@ -11,7 +11,6 @@ class MarketEventListener(object):
    #############################################################################
    def __init__(self):
       self.balance_awaitable = False
-      self.sender = None
       self.freeCash = 0.0
 
       #config
@@ -33,7 +32,8 @@ class MarketEventListener(object):
 
    #############################################################################
    def send(self, data):
-      self.sender.queue(json.dumps(data))
+      # will be set by API connection
+      pass
 
    #############################################################################
    def sendOffer(self, offers):

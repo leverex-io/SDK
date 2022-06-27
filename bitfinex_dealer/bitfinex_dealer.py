@@ -12,15 +12,29 @@ from bfxapi import Client
 from trader_core.login_connection import LoginServiceClientWS
 from trader_core.api_connection import AsyncApiConnection
 
+from bitfinx_order_book import AggregationOrderBook
+
 class HedgingDealer():
    def __init__(self, configuration):
+      self.hedging_settings = configuration['hedging_settings']
+
       # setup bitfinex connection
-      bitfinex_log_level = 'INFO'
+      self.bitfinex_book = AggregationOrderBook()
+
       self.bitfinex_config = configuration['bitfinex']
-      self.id = 123
 
       self.bitfinex_balances = None
+      self.bitfinex_futures_hedging_product = self.hedging_settings['bitfinex_futures_hedging_product']
 
+      self.bitfinex_order_book_len = 100
+      if 'bitfinex_order_book_len' in self.hedging_settings:
+         self.bitfinex_order_book_len = self.hedging_settings['bitfinex_order_book_len']
+
+      self.bitfinex_order_book_aggregation = 'P0'
+      if 'bitfinex_order_book_aggregation' in self.hedging_settings:
+         self.bitfinex_order_book_aggregation = self.hedging_settings['bitfinex_order_book_aggregation']
+
+      bitfinex_log_level = 'INFO'
       if 'log_level' in self.bitfinex_config:
          bitfinex_log_level = self.bitfinex_config['log_level']
 
@@ -34,6 +48,8 @@ class HedgingDealer():
       self.bfx.ws.on('balance_update', self.on_bitfinex_balance_updated)
       self.bfx.ws.on('wallet_snapshot', self.on_bitfinex_wallet_snapshot)
       self.bfx.ws.on('wallet_update', self.on_bitfinex_wallet_update)
+      self.bfx.ws.on('order_book_update', self.on_bitfinex_order_book_update)
+      self.bfx.ws.on('order_book_snapshot', self.on_bitfinex_order_book_snapshot)
 
       # setup leverex connection
       # 'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
@@ -47,8 +63,21 @@ class HedgingDealer():
       self.target_product = 'xbtusd_rf'
       self.leverex_balances = None
 
-   def on_bitfinex_authenticated(self, auth_message):
+
+   async def on_bitfinex_authenticated(self, auth_message):
       print('================= Authenticated to bitfinex')
+      # subscribe to order book
+      await self.bfx.ws.subscribe('book', self.bitfinex_futures_hedging_product,
+                                  len=self.bitfinex_order_book_len,
+                                  prec=self.bitfinex_order_book_aggregation)
+
+   def on_bitfinex_order_book_update(self, data):
+      self.bitfinex_book.process_update(data['data'])
+      print('on_bitfinex_order_book_update : {}'.format(self.bitfinex_book))
+
+   def on_bitfinex_order_book_snapshot(self, data):
+      self.bitfinex_book.setup_from_snapshot(data['data'])
+      print('on_bitfinex_order_book_snapshot : {}'.format(self.bitfinex_book))
 
    def on_bitfinex_balance_updated(self, data):
       print(f'======= on_bitfinex_balance_updated: {data}')
@@ -104,6 +133,7 @@ if __name__ == '__main__':
    required_settings = {
       'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
       'bitfinex' : ['api_key', 'api_secret'],
+      'hedging_settings' : ['bitfinex_futures_hedging_product']
    }
 
    with open(args.config_file) as json_config_file:
