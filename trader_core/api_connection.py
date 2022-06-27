@@ -10,6 +10,40 @@ import websockets.exceptions
 import logging
 from datetime import datetime, timedelta
 
+class PriceOffer():
+   def __init__(self, volume, ask=None, bid=None):
+      self._volume = volume
+      self._ask = ask
+      self._bid = bid
+
+   @property
+   def volume(self):
+      return self._volume
+
+   @property
+   def ask(self):
+      return self._ask
+
+   @property
+   def bid(self):
+      return self._bid
+
+   def to_map(self):
+      if self._ask is None and self._bid is None:
+         return None
+
+      result = {}
+
+      result['volume'] = str(self._volume)
+      if self._ask is not None:
+         result['ask'] = str(self._ask)
+      if self._bid is not None:
+         result['bid'] = str(self._bid)
+
+      return result
+
+PriceOffers = list[PriceOffer]
+
 class AsyncApiConnection(object):
    def __init__(self, login_client, listener):
 
@@ -34,6 +68,20 @@ class AsyncApiConnection(object):
          'load_balance' : {}
       }
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
+
+   def submit_offers(self, target_product: str, offers: PriceOffers):
+      price_offers = [offer.to_map() for offer in offers if offer.to_map() is not None]
+
+      submit_prices_request = {
+         'submit_prices' : {
+            'product_type' : target_product,
+            'prices' : price_offers
+         }
+      }
+
+      print(f'submit_offers : {price_offers}')
+
+      self.write_queue.put_nowait(json.dumps(submit_prices_request))
 
    async def login(self, service_url):
       #get token from login server
@@ -60,16 +108,10 @@ class AsyncApiConnection(object):
       async with websockets.connect(service_url) as self.websocket:
          await self.login(service_url)
 
+         self.listener.on_authorized()
+
          # load balances
          self.loadBalances()
-
-         # subscribe to prices
-         subscribeRequest = {
-            'subscribe' : {
-               'product_type' : self.listener.target_product
-            }
-         }
-         self.write_queue.put_nowait(json.dumps(subscribeRequest))
 
          #start the loops
          readTask = asyncio.create_task(self.readLoop())

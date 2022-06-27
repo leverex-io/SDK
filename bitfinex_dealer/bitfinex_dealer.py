@@ -10,7 +10,7 @@ sys.path.append('..')
 from bfxapi import Client
 
 from trader_core.login_connection import LoginServiceClientWS
-from trader_core.api_connection import AsyncApiConnection
+from trader_core.api_connection import AsyncApiConnection, PriceOffer
 
 from bitfinx_order_book import AggregationOrderBook
 
@@ -25,6 +25,9 @@ class HedgingDealer():
 
       self.bitfinex_balances = None
       self.bitfinex_futures_hedging_product = self.hedging_settings['bitfinex_futures_hedging_product']
+      self.fixed_volume = self.hedging_settings['fixed_volume']
+      self.price_ratio = self.hedging_settings['price_ratio']
+      self.leverex_product = self.hedging_settings['leverex_product']
 
       self.bitfinex_order_book_len = 100
       if 'bitfinex_order_book_len' in self.hedging_settings:
@@ -60,8 +63,7 @@ class HedgingDealer():
                                        dump_communication=True)
       self.leverex_connection = AsyncApiConnection(self.login_client, self)
 
-      self.target_product = 'xbtusd_rf'
-      self.leverex_balances = None
+      self.leverex_balances = {}
 
 
    async def on_bitfinex_authenticated(self, auth_message):
@@ -73,11 +75,10 @@ class HedgingDealer():
 
    def on_bitfinex_order_book_update(self, data):
       self.bitfinex_book.process_update(data['data'])
-      print('on_bitfinex_order_book_update : {}'.format(self.bitfinex_book))
+      self.submit_offers()
 
    def on_bitfinex_order_book_snapshot(self, data):
       self.bitfinex_book.setup_from_snapshot(data['data'])
-      print('on_bitfinex_order_book_snapshot : {}'.format(self.bitfinex_book))
 
    def on_bitfinex_balance_updated(self, data):
       print(f'======= on_bitfinex_balance_updated: {data}')
@@ -100,7 +101,24 @@ class HedgingDealer():
       # asyncio.run(self.leverex_connection.run(service_url=self.leverex_config['api_endpoint']))
 
    async def updateOffer(self):
-      pass
+      print('===============  updateOffer')
+
+   def submit_offers(self):
+      if len(self.leverex_balances) == 0:
+         return
+      ask = self.bitfinex_book.get_aggregated_ask_price(self.fixed_volume)
+      bid = self.bitfinex_book.get_aggregated_bid_price(self.fixed_volume)
+
+      if ask is not None and bid is not None:
+         print('Submitting offer')
+         offer = PriceOffer(volume=self.fixed_volume, ask=ask.price, bid=bid.price)
+         self.leverex_connection.submit_offers(target_product=self.leverex_product, offers=[offer])
+      else:
+         print('Book is not loaded')
+
+   def on_authorized(self):
+      print('======= Authorized to leverex')
+      self.submit_offers()
 
    def onMarketData(self, update):
       print('onMarketData: {}'.format(update))
@@ -108,9 +126,11 @@ class HedgingDealer():
 
    def onLoadBalance(self, balances):
       print('Balance loaded {}'.format(balances))
-
+      for balance_info in balances:
+         self.leverex_balances[balance_info['currency']] = float(balance_info['balance'])
 
    def onSubmitPrices(self, update):
+      print(f'======= onSubmitPrices: {update}')
       pass
 
    def onOrderUpdateInner(self, update):
@@ -133,7 +153,7 @@ if __name__ == '__main__':
    required_settings = {
       'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
       'bitfinex' : ['api_key', 'api_secret'],
-      'hedging_settings' : ['bitfinex_futures_hedging_product']
+      'hedging_settings' : ['leverex_product', 'bitfinex_futures_hedging_product', 'fixed_volume', 'price_ratio']
    }
 
    with open(args.config_file) as json_config_file:

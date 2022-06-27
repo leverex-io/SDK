@@ -44,7 +44,7 @@ class AggregationOrderBook():
 
    def setup_from_snapshot(self, snapshot_data):
       for entry in snapshot_data:
-         self._add_entry(PriceBookEntry(entry))
+         self._set_entry(PriceBookEntry(entry))
 
    def process_update(self, update):
       entry = PriceBookEntry(update)
@@ -52,41 +52,39 @@ class AggregationOrderBook():
       if entry.order_count == 0:
          self._remove_entry(entry)
       else:
-         self._add_entry(entry)
+         self._set_entry(entry)
 
-   def _add_entry(self, entry: PriceBookEntry):
+   def _set_entry(self, entry: PriceBookEntry):
       if entry.is_ask:
          target_book = self._asks
       else:
          target_book = self._bids
 
-      if entry.price in target_book:
-         target_book[entry.price] += entry.volume
-      else:
-         target_book[entry.price] = entry.volume
+      target_book[entry.price] = entry.volume
 
    def _remove_entry(self, entry: PriceBookEntry):
+
       if entry.is_ask:
          target_book = self._asks
       else:
          target_book = self._bids
 
-      target_book[entry.price] -= entry.volume
-
-      if target_book[entry.price] == 0:
-         target_book.pop(entry.price)
+      c = target_book.pop(entry.price)
 
    def get_aggregated_ask_price(self, target_volume):
-      offers = sorted(self._asks.values())
+      offers = sorted(self._asks.items())
       return self._get_aggregated_offer(offers, target_volume)
 
    def get_aggregated_bid_price(self, target_volume):
-      offers = sorted(self._bids.values(), reverse=True)
+      offers = sorted(self._bids.items(), reverse=True)
       return self._get_aggregated_offer(offers, target_volume)
 
    def _get_aggregated_offer(self, offers, target_volume):
       total_volume = 0
       total_cost = 0
+
+      if len(offers) == 0:
+         return None
 
       for offer in offers:
          price = offer[0]
