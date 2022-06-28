@@ -73,9 +73,9 @@ class HedgingDealer():
                                   len=self.bitfinex_order_book_len,
                                   prec=self.bitfinex_order_book_aggregation)
 
-   def on_bitfinex_order_book_update(self, data):
+   async def on_bitfinex_order_book_update(self, data):
       self.bitfinex_book.process_update(data['data'])
-      self.submit_offers()
+      await self.submit_offers()
 
    def on_bitfinex_order_book_snapshot(self, data):
       self.bitfinex_book.setup_from_snapshot(data['data'])
@@ -103,22 +103,21 @@ class HedgingDealer():
    async def updateOffer(self):
       print('===============  updateOffer')
 
-   def submit_offers(self):
+   async def submit_offers(self):
       if len(self.leverex_balances) == 0:
          return
       ask = self.bitfinex_book.get_aggregated_ask_price(self.fixed_volume)
       bid = self.bitfinex_book.get_aggregated_bid_price(self.fixed_volume)
 
       if ask is not None and bid is not None:
-         print('Submitting offer')
-         offer = PriceOffer(volume=self.fixed_volume, ask=ask.price, bid=bid.price)
-         self.leverex_connection.submit_offers(target_product=self.leverex_product, offers=[offer])
+         offer = PriceOffer(volume=self.fixed_volume, ask=ask.price*(1+self.price_ratio), bid=bid.price*(1-self.price_ratio))
+         await self.leverex_connection.submit_offers(target_product=self.leverex_product, offers=[offer])
       else:
          print('Book is not loaded')
 
    def on_authorized(self):
       print('======= Authorized to leverex')
-      self.submit_offers()
+      asyncio.create_task(self.submit_offers())
 
    def onMarketData(self, update):
       print('onMarketData: {}'.format(update))
@@ -130,7 +129,6 @@ class HedgingDealer():
          self.leverex_balances[balance_info['currency']] = float(balance_info['balance'])
 
    def onSubmitPrices(self, update):
-      print(f'======= onSubmitPrices: {update}')
       pass
 
    def onOrderUpdateInner(self, update):

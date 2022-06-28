@@ -69,7 +69,7 @@ class AsyncApiConnection(object):
       }
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
 
-   def submit_offers(self, target_product: str, offers: PriceOffers):
+   async def submit_offers(self, target_product: str, offers: PriceOffers):
       price_offers = [offer.to_map() for offer in offers if offer.to_map() is not None]
 
       submit_prices_request = {
@@ -79,9 +79,7 @@ class AsyncApiConnection(object):
          }
       }
 
-      print(f'submit_offers : {price_offers}')
-
-      self.write_queue.put_nowait(json.dumps(submit_prices_request))
+      await self.websocket.send(json.dumps(submit_prices_request))
 
    async def login(self, service_url):
       #get token from login server
