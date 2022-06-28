@@ -1,3 +1,7 @@
 live/
 uat/
 __pycache__/
+dealer.release/
+dealer.debug/
+build_dealer/
+*.pem

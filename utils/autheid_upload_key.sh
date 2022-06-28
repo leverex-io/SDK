@@ -44,19 +44,24 @@ elif [ "$1" = "live" ]; then
    api_endpoint="wss://api-live.leverex.io"
    echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
 else
-   echo "{\"email\":\"$3\"}" >> $config_file
+   echo "ERROR: undefined environment: $1"
+   rm -r $1/$2
+   exit 1
 fi
 
 # generate private key and save
 openssl ecparam -name prime256v1 -genkey -noout -out $private_key_file
 if [ $? -ne 0 ]; then
    echo "ERROR: failed to create private key"
+   rm -r $1/$2
    exit 1
 fi
 
-pipenv run python add_container_key.py --keys_path $keys_dir --autheid
+pipenv install -r requirements.txt --python "3.9"
+
+pipenv run python add_container_key.py --keys_path $keys_dir
 if [ $? -ne 0 ]; then
    echo "ERROR: failed to add and confirm key on login service"
+   rm -r $1/$2
    exit 1
 fi
-exit 0

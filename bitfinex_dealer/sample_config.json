@@ -1,0 +1,25 @@
+{
+   "leverex" :
+   {
+      "api_endpoint" : "wss://api-dev.leverex.io",
+      "login_endpoint" : "wss://login-dev.leverex.io/ws/v1/websocket",
+      "email" : "user@email.com",
+      "key_file_path" : "key.pem"
+   },
+   "bitfinex" :
+   {
+      "api_key" : "API_KEY",
+      "api_secret" : "API_SECRET",
+      "log_level" : "INFO"
+   },
+   "hedging_settings" :
+   {
+      "leverex_product" : "xbtusd_rf",
+      "bitfinex_futures_hedging_product" : "tBTCUSD",
+      "bitfinex_order_book_len" : 100,
+      "bitfinex_order_book_aggregation" : "P0",
+      "fixed_volume" : 0.025,
+      "price_ratio" : 0.002
+   },
+   "log_level" : "INFO"
+}

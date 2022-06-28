@@ -11,15 +11,16 @@ class MarketEventListener(object):
    #############################################################################
    def __init__(self):
       self.balance_awaitable = False
-      self.sender = None
       self.freeCash = 0.0
 
       #config
+      self.min_cash_amount = min_cash_amount
       min_cash_amount_str = os.environ.get('MIN_CASH_AMOUNT')
       if min_cash_amount_str is not None and len(min_cash_amount_str) != 0:
          self.min_cash_amount = int(min_cash_amount_str)
 
       target_product_from_env = os.environ.get('TARGET_PRODUCT')
+      self.target_product = target_product
       if target_product_from_env is not None and len(target_product_from_env) != 0:
          self.target_product = target_product_from_env
 
@@ -33,7 +34,19 @@ class MarketEventListener(object):
 
    #############################################################################
    def send(self, data):
-      self.sender.queue(json.dumps(data))
+      # will be set by API connection
+      pass
+
+   def on_authorized(self):
+      self.subscribe_to_product(self.target_product)
+
+   def subscribe_to_product(self, target_product):
+      subscribeRequest = {
+         'subscribe' : {
+            'product_type' : target_product
+         }
+      }
+      self.send(subscribe)
 
    #############################################################################
    def sendOffer(self, offers):
@@ -56,8 +69,9 @@ class MarketEventListener(object):
       pass
 
    #############################################################################
-   def onLoadBalanceInner(self, data):
-      for balanceInfo in data['load_balance']['balances']:
+   def onLoadBalance(self, balances):
+      #override me
+      for balanceInfo in balances:
          logging.info('Balance updated: {} {}'.format(balanceInfo['balance'], balanceInfo['currency']))
          if balanceInfo['currency'] == self.product_info.cash_ccy():
             self.freeCash = float(balanceInfo['balance'])
@@ -65,13 +79,6 @@ class MarketEventListener(object):
                logging.error(f'{self.product_info.cash_ccy()} balance is too small. Min amount {self.min_cash_amount}')
             else:
                self.balance_awaitable = True
-
-      self.onLoadBalance(data)
-
-   ########
-   def onLoadBalance(self, data):
-      #override me
-      pass
 
    #############################################################################
    def onSubmitPrices(self, data):

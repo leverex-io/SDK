@@ -18,9 +18,12 @@ class ProductInfo():
       return self._rolling
 
 def get_product_info(product_name):
-   if product_name == 'xbteur_rf':
-      return ProductInfo(product_name=product_name, cash_ccy='EUR', margin_ccy='EURP', rolling = True)
    if product_name == 'xbtusd_rf':
       return ProductInfo(product_name=product_name, cash_ccy='USD', margin_ccy='USDP', rolling = True)
+   if product_name == 'ethusd_rf':
+      return ProductInfo(product_name=product_name, cash_ccy='USD', margin_ccy='eth_usd', rolling = True)
 
    return None
+
+def get_platform_products():
+   return ['xbtusd_rf', 'ethusd_rf']
