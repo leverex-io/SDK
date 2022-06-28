@@ -4,8 +4,11 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+requests = "==2.26.0"
+websockets = "==8.1"
+jwcrypto = "==1.0"
 
 [dev-packages]
 
 [requires]
-python_version = "3.10"
+python_version = "3.9"
