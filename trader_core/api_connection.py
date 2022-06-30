@@ -1,7 +1,3 @@
-# env variables
-# API_ENDPOINT
-# API_KEY
-
 import asyncio
 import json
 import time
@@ -9,6 +5,11 @@ import websockets
 import websockets.exceptions
 import logging
 from datetime import datetime, timedelta
+
+from .login_connection import LoginServiceClientWS
+
+LOGIN_ENDPOINT="wss://login-live.leverex.io/ws/v1/websocket"
+API_ENDPOINT="wss://api-live.leverex.io"
 
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None):
@@ -45,23 +46,28 @@ class PriceOffer():
 PriceOffers = list[PriceOffer]
 
 class AsyncApiConnection(object):
-   def __init__(self, login_client, listener):
+   def __init__(self, api_endpoint=API_ENDPOINT, login_endpoint=LOGIN_ENDPOINT,
+                customer_email=None, key_file_path=None, dump_communication=False):
 
-      self.login_client = login_client
+      self._dump_communication = dump_communication
+
+      self._login_client = None
       self.access_token = None
+
+      self._api_endpoint = api_endpoint
+      self._login_endpoint = login_endpoint
+
+      if key_file_path is not None and customer_email is not None:
+         self._login_client = LoginServiceClientWS(email=customer_email,
+                                                  private_key_path=key_file_path,
+                                                  login_endpoint=login_endpoint,
+                                                  dump_communication=dump_communication)
+
       self.websocket = None
       self.listener = None
-      self.setListener(listener)
 
       #setup write queue
       self.write_queue = asyncio.Queue()
-
-   def setListener(self, listener):
-      self.listener = listener
-
-      def send_data(data):
-         self.write_queue.put_nowait(json.dumps(data))
-      self.listener.send = send_data
 
    def loadBalances(self):
       loadBalanceRequest = {
@@ -81,10 +87,25 @@ class AsyncApiConnection(object):
 
       await self.websocket.send(json.dumps(submit_prices_request))
 
-   async def login(self, service_url):
+   async def subscribe_session_open(self, target_product: str):
+      subscribe_request = {
+         'session_open' : {
+            'product_type' : target_product
+         }
+      }
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def subscribe_to_product(self, target_product: str):
+      subscribe_request = {
+         'subscribe' : {
+            'product_type' : target_product
+         }
+      }
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def login(self):
       #get token from login server
-      logging.info("logging in")
-      access_token_info = await self.login_client.get_access_token(service_url)
+      access_token_info = await self._login_client.get_access_token(self._api_endpoint)
 
       #submit to service
       self.access_token = access_token_info
@@ -100,26 +121,37 @@ class AsyncApiConnection(object):
       if not loginResult['authorize']['success']:
          raise Exception("Login failed")
 
-      logging.info("logged in")
+   async def run(self, listener):
+      self.listener = listener
 
-   async def run(self, service_url):
-      async with websockets.connect(service_url) as self.websocket:
-         await self.login(service_url)
+      def send_data(data):
+         self.write_queue.put_nowait(json.dumps(data))
+      self.listener.send = send_data
 
-         self.listener.on_authorized()
+      async with websockets.connect(self._api_endpoint) as self.websocket:
+         self.listener.on_connected()
 
-         # load balances
-         self.loadBalances()
+         if self._login_client is not None:
+            await self.login(self._api_endpoint)
+            self.listener.on_authorized()
+
+            # load balances
+            self.loadBalances()
 
          #start the loops
-         readTask = asyncio.create_task(self.readLoop())
-         writeTask = asyncio.create_task(self.writeLoop())
-         cycleTask = asyncio.create_task(self.cycleSession())
-         updateTask = asyncio.create_task(self.listener.updateOffer())
+         readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
+         writeTask = asyncio.create_task(self.writeLoop(), name="Leverex write task")
+
+         if self._login_client is not None:
+            cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
+            updateTask = asyncio.create_task(self.listener.updateOffer(), name="Leverex update offers taks")
+
          await readTask
          await writeTask
-         await cycleTask
-         await updateTask
+
+         if self._login_client is not None:
+            await cycleTask
+            await updateTask
 
    async def readLoop(self):
       balance_awaitable = False
@@ -130,7 +162,7 @@ class AsyncApiConnection(object):
          update = json.loads(data)
 
          if 'market_data' in update:
-            self.listener.onMarketData(update)
+            self.listener.on_market_data(update['market_data'])
 
          elif 'load_balance' in update:
             self.listener.onLoadBalance(update['load_balance']['balances'])
@@ -144,6 +176,12 @@ class AsyncApiConnection(object):
 
          elif 'order_update' in update:
             self.listener.onOrderUpdateInner(update)
+
+         elif 'session_closed' in update:
+            self.listener.on_session_closed(update['session_closed'])
+
+         elif 'session_open' in update:
+            self.listener.on_session_open(update['session_open'])
 
          elif 'authorize' in update:
             if not update['authorize']['success']:
@@ -165,8 +203,8 @@ class AsyncApiConnection(object):
          await asyncio.sleep(self.access_token['expires_in'] * 0.9)
 
          #cycle token with login server
-         logging.info("Updating token")
-         self.access_token = await self.login_client.update_access_token(
+         logging.info("================= Updating token")
+         self.access_token = await self._login_client.update_access_token(
             self.access_token['access_token'])
 
          #send to service

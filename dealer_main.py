@@ -19,7 +19,7 @@ class SampleDealer(MarketEventListener):
       self.spread_per_btc = 60 + random.randrange(100)
       self.counter = 0
 
-   def onMarketData(self, data):
+   def on_market_data(self, data):
       self.counter += 1
       if self.counter % 5 != 0:
          return
@@ -66,7 +66,7 @@ class TestDealer(MarketEventListener):
       super().__init__()
       self.cutoff_price = 0
 
-   def onMarketData(self, data):
+   def on_market_data(self, data):
       #push an offer every minute, for TTL testing purposes
 
       self.cutoff_price = float(data['market_data']['live_cutoff'])

@@ -64,7 +64,7 @@ class MarketEventListener(object):
       self.send(submit_prices_request)
 
    #############################################################################
-   def onMarketData(self, data):
+   def on_market_data(self, data):
       #override me
       pass
 

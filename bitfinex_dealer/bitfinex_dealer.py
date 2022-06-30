@@ -115,13 +115,15 @@ class HedgingDealer():
       else:
          print('Book is not loaded')
 
+   def on_connected(self):
+      print('======= Connected to leverex')
+
    def on_authorized(self):
       print('======= Authorized to leverex')
       asyncio.create_task(self.submit_offers())
 
-   def onMarketData(self, update):
-      print('onMarketData: {}'.format(update))
-      pass
+   def on_market_data(self, update):
+      print('on_market_data: {}'.format(update))
 
    def onLoadBalance(self, balances):
       print('Balance loaded {}'.format(balances))
