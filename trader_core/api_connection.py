@@ -132,7 +132,8 @@ class AsyncApiConnection(object):
          self.listener.on_connected()
 
          if self._login_client is not None:
-            await self.login(self._api_endpoint)
+            await self.login()
+
             self.listener.on_authorized()
 
             # load balances

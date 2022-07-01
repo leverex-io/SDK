@@ -9,7 +9,6 @@ sys.path.append('..')
 
 from bfxapi import Client
 
-from trader_core.login_connection import LoginServiceClientWS
 from trader_core.api_connection import AsyncApiConnection, PriceOffer
 
 from bitfinx_order_book import AggregationOrderBook
@@ -41,27 +40,26 @@ class HedgingDealer():
       if 'log_level' in self.bitfinex_config:
          bitfinex_log_level = self.bitfinex_config['log_level']
 
-      self.bfx = Client(
+      self._bfx = Client(
         API_KEY=self.bitfinex_config['api_key'],
         API_SECRET=self.bitfinex_config['api_secret'],
         logLevel=bitfinex_log_level
       )
 
-      self.bfx.ws.on('authenticated', self.on_bitfinex_authenticated)
-      self.bfx.ws.on('balance_update', self.on_bitfinex_balance_updated)
-      self.bfx.ws.on('wallet_snapshot', self.on_bitfinex_wallet_snapshot)
-      self.bfx.ws.on('wallet_update', self.on_bitfinex_wallet_update)
-      self.bfx.ws.on('order_book_update', self.on_bitfinex_order_book_update)
-      self.bfx.ws.on('order_book_snapshot', self.on_bitfinex_order_book_snapshot)
+      self._bfx.ws.on('authenticated', self.on_bitfinex_authenticated)
+      self._bfx.ws.on('balance_update', self.on_bitfinex_balance_updated)
+      self._bfx.ws.on('wallet_snapshot', self.on_bitfinex_wallet_snapshot)
+      self._bfx.ws.on('wallet_update', self.on_bitfinex_wallet_update)
+      self._bfx.ws.on('order_book_update', self.on_bitfinex_order_book_update)
+      self._bfx.ws.on('order_book_snapshot', self.on_bitfinex_order_book_snapshot)
 
       # setup leverex connection
       # 'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
-      self.leverex_config = configuration['leverex']
-      self.login_client = LoginServiceClientWS(email=self.leverex_config['email'],
-                                       login_endpoint=self.leverex_config['login_endpoint'],
-                                       private_key_path=self.leverex_config['key_file_path'],
-                                       dump_communication=True)
-      self.leverex_connection = AsyncApiConnection(self.login_client, self)
+      self._leverex_config = configuration['leverex']
+      self._leverex_connection = AsyncApiConnection(customer_email=self._leverex_config['email'],
+                                                    api_endpoint=self._leverex_config['api_endpoint'],
+                                                    login_endpoint=self._leverex_config['login_endpoint'],
+                                                    key_file_path=self._leverex_config['key_file_path'],)
 
       self.leverex_balances = {}
 
@@ -69,7 +67,7 @@ class HedgingDealer():
    async def on_bitfinex_authenticated(self, auth_message):
       print('================= Authenticated to bitfinex')
       # subscribe to order book
-      await self.bfx.ws.subscribe('book', self.bitfinex_futures_hedging_product,
+      await self._bfx.ws.subscribe('book', self.bitfinex_futures_hedging_product,
                                   len=self.bitfinex_order_book_len,
                                   prec=self.bitfinex_order_book_aggregation)
 
@@ -92,13 +90,13 @@ class HedgingDealer():
       print(f'======= on_bitfinex_wallet_update: {data}')
 
    async def run(self):
-      await asyncio.gather(self.bfx.ws.get_task_executable(),
-                           self.leverex_connection.run(service_url=self.leverex_config['api_endpoint']))
+      await asyncio.gather(self._bfx.ws.get_task_executable(),
+                           self._leverex_connection.run(self))
 
       # loop = asyncio.new_event_loop()
-      # loop.run_until_complete(self.bfx.ws.get_task_executable())
+      # loop.run_until_complete(self._bfx.ws.get_task_executable())
 
-      # asyncio.run(self.leverex_connection.run(service_url=self.leverex_config['api_endpoint']))
+      # asyncio.run(self._leverex_connection.run(service_url=self._leverex_config['api_endpoint']))
 
    async def updateOffer(self):
       print('===============  updateOffer')
@@ -111,7 +109,7 @@ class HedgingDealer():
 
       if ask is not None and bid is not None:
          offer = PriceOffer(volume=self.fixed_volume, ask=ask.price*(1+self.price_ratio), bid=bid.price*(1-self.price_ratio))
-         await self.leverex_connection.submit_offers(target_product=self.leverex_product, offers=[offer])
+         await self._leverex_connection.submit_offers(target_product=self.leverex_product, offers=[offer])
       else:
          print('Book is not loaded')
 
