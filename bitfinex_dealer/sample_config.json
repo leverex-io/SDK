@@ -15,9 +15,11 @@
    "hedging_settings" :
    {
       "leverex_product" : "xbtusd_rf",
-      "bitfinex_futures_hedging_product" : "tBTCUSD",
+      "bitfinex_orderbook_product" : "tXBTUSD",
+      "bitfinex_futures_hedging_product" : "tTESTBTCF0:TESTUSDTF0",
       "bitfinex_order_book_len" : 100,
       "bitfinex_order_book_aggregation" : "P0",
+      "bitfinex_leverage": 10,
       "fixed_volume" : 0.025,
       "price_ratio" : 0.002
    },

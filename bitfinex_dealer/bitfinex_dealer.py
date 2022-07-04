@@ -9,7 +9,7 @@ sys.path.append('..')
 
 from bfxapi import Client
 
-from trader_core.api_connection import AsyncApiConnection, PriceOffer
+from trader_core.api_connection import AsyncApiConnection, PriceOffer, Order
 
 from bitfinx_order_book import AggregationOrderBook
 
@@ -23,7 +23,9 @@ class HedgingDealer():
       self.bitfinex_config = configuration['bitfinex']
 
       self.bitfinex_balances = None
+      self.bitfinex_orderbook_product = self.hedging_settings['bitfinex_orderbook_product']
       self.bitfinex_futures_hedging_product = self.hedging_settings['bitfinex_futures_hedging_product']
+      self.bitfinex_leverage = self.hedging_settings['bitfinex_leverage']
       self.fixed_volume = self.hedging_settings['fixed_volume']
       self.price_ratio = self.hedging_settings['price_ratio']
       self.leverex_product = self.hedging_settings['leverex_product']
@@ -67,7 +69,7 @@ class HedgingDealer():
    async def on_bitfinex_authenticated(self, auth_message):
       print('================= Authenticated to bitfinex')
       # subscribe to order book
-      await self._bfx.ws.subscribe('book', self.bitfinex_futures_hedging_product,
+      await self._bfx.ws.subscribe('book', self.bitfinex_orderbook_product,
                                   len=self.bitfinex_order_book_len,
                                   prec=self.bitfinex_order_book_aggregation)
 
@@ -131,7 +133,22 @@ class HedgingDealer():
    def onSubmitPrices(self, update):
       pass
 
-   def onOrderUpdateInner(self, update):
+   async def _create_bitfinex_order(self, leverex_order):
+      price = order.price
+      quantity = order.quantity
+
+      await self._bfx.ws.submit_order(symbol=self.bitfinex_futures_hedging_product,
+                                      leverage=self.bitfinex_leverage,
+                                      price=price,
+                                      amount=quantity,
+                                      market_type=Order.Type.MARKET)
+
+   def on_order_created(self, order):
+      if order.is_trade_position:
+         # create order on bitfinex
+         asyncio.create_task(self._create_bitfinex_order(order))
+
+   def on_order_filled(self, update):
       pass
 
 def main(configuration):
@@ -151,7 +168,12 @@ if __name__ == '__main__':
    required_settings = {
       'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
       'bitfinex' : ['api_key', 'api_secret'],
-      'hedging_settings' : ['leverex_product', 'bitfinex_futures_hedging_product', 'fixed_volume', 'price_ratio']
+      'hedging_settings' : ['leverex_product',
+                            'bitfinex_futures_hedging_product',
+                            'bitfinex_orderbook_product',
+                            'fixed_volume',
+                            'price_ratio',
+                            'bitfinex_leverage']
    }
 
    with open(args.config_file) as json_config_file:

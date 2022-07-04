@@ -92,13 +92,10 @@ class MarketEventListener(object):
          raise Exception('Submit prices failed with reason : {}'.format(rejectReason))
 
    #############################################################################
-   def onOrderUpdateInner(self, data):
-      logging.info('Order update: {}'.format(data))
-      self.onOrderUpdate(data)
-
-   ########
-   def onOrderUpdate(self, data):
+   def on_order_created(self, orders):
       #override me
       pass
 
-
+   def on_order_filled(self, orders):
+      #override me
+      pass

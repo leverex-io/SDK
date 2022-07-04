@@ -11,6 +11,96 @@ from .login_connection import LoginServiceClientWS
 LOGIN_ENDPOINT="wss://login-live.leverex.io/ws/v1/websocket"
 API_ENDPOINT="wss://api-live.leverex.io"
 
+ORDER_ACTION_CREATED = 1
+ORDER_ACTION_UPDATED = 2
+
+ORDER_STATUS_PENDING = 1
+ORDER_STATUS_FILLED  = 2
+
+SIDE_BUY    = 1
+SIDE_SELL   = 2
+
+ORDER_TYPE_TRADE_POSITION                 = 0
+ORDER_TYPE_NORMAL_ROLLOVER_POSITION       = 1
+ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION   = 2
+ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION    = 3
+
+class Order():
+   def __init__(self, data):
+      self._id = data['id']
+      self._status = int(data['status'])
+      self._timestamp = data['timestamp']
+      self._product_type = data['product_type']
+      self._side = int(data['side'])
+      self._quantity = float(data['quantity'])
+      self._price = float(data['price'])
+      self._cut_off_price = float(data['cut_off_price'])
+      self._trade_im = data['trade_im']
+      self._trade_pnl = data['trade_pnl']
+      self._reference_exposure = data['reference_exposure']
+      self._session_id = int(data['session_id'])
+      self._rollover_type = data['rollover_type']
+      self._fee = data['fee']
+
+   @property
+   def id(self):
+      return self._id
+
+   @property
+   def is_filled(self):
+      return self._status == ORDER_STATUS_FILLED
+
+   @property
+   def timestamp(self):
+      return self._timestamp
+
+   @property
+   def product_type(self):
+      return self._product_type
+
+   @property
+   def is_sell(self):
+      return self._side == SIDE_SELL
+
+   @property
+   def quantity(self):
+      return self._quantity
+
+   @property
+   def price(self):
+      return self._price
+
+   @property
+   def cut_off_price(self):
+      return self._cut_off_price
+
+   @property
+   def trade_im(self):
+      return self._trade_im
+
+   @property
+   def trade_pnl(self):
+      return self._trade_pnl
+
+   @property
+   def total_net_exposure(self):
+      if self.is_trade_position:
+         return self._reference_exposure
+      return self.quantity
+
+   @property
+   def session_id(self):
+      return self._session_id
+
+   @property
+   def is_trade_position(self):
+      return self._rollover_type == ORDER_TYPE_TRADE_POSITION
+
+   @property
+   def fee(self):
+      return self._fee
+
+
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None):
       self._volume = volume
@@ -176,7 +266,12 @@ class AsyncApiConnection(object):
             self.listener.onSubmitPrices(update)
 
          elif 'order_update' in update:
-            self.listener.onOrderUpdateInner(update)
+            order = Order(update['order_update']['order'])
+            action = int(update['order_update']['action'])
+            if action == ORDER_ACTION_CREATED:
+               self.listener.on_order_created(order)
+            elif action == ORDER_ACTION_UPDATED:
+               self.listener.on_order_filled(order)
 
          elif 'session_closed' in update:
             self.listener.on_session_closed(update['session_closed'])
