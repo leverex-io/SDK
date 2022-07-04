@@ -8,8 +8,9 @@ import sys
 sys.path.append('..')
 
 from bfxapi import Client
+from bfxapi import Order as BitfinexOrder
 
-from trader_core.api_connection import AsyncApiConnection, PriceOffer, Order
+from trader_core.api_connection import AsyncApiConnection, PriceOffer
 
 from bitfinx_order_book import AggregationOrderBook
 
@@ -55,6 +56,14 @@ class HedgingDealer():
       self._bfx.ws.on('order_book_update', self.on_bitfinex_order_book_update)
       self._bfx.ws.on('order_book_snapshot', self.on_bitfinex_order_book_snapshot)
 
+      self._bfx.ws.on('order_new', self._on_bitfinex_order_new)
+      self._bfx.ws.on('order_confirmed', self._on_bitfinex_order_confirmed)
+      self._bfx.ws.on('order_closed', self._on_bitfinex_order_closed)
+      self._bfx.ws.on('positions_new', self._on_bitfinex_positions_new)
+      self._bfx.ws.on('positions_update', self._on_bitfinex_positions_update)
+      self._bfx.ws.on('positions_close', self._on_bitfinex_positions_close)
+      self._bfx.ws.on('margin_info_update', self._on_bitfinex_margin_info_update)
+
       # setup leverex connection
       # 'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
       self._leverex_config = configuration['leverex']
@@ -91,6 +100,28 @@ class HedgingDealer():
    def on_bitfinex_wallet_update(self, data):
       print(f'======= on_bitfinex_wallet_update: {data}')
 
+
+   async def _on_bitfinex_order_new(self, order):
+      pass
+
+   async def _on_bitfinex_order_confirmed(self, order):
+      pass
+
+   async def _on_bitfinex_order_closed(self, order):
+      pass
+
+   async def _on_bitfinex_positions_new(self, data):
+      print(f'======= on_bitfinex_positions_new: {data}')
+
+   async def _on_bitfinex_positions_update(self, data):
+      print(f'======= on_bitfinex_positions_update: {data}')
+
+   async def _on_bitfinex_positions_close(self, data):
+      print(f'======= on_bitfinex_positions_close: {data}')
+
+   async def _on_bitfinex_margin_info_update(self, data):
+      print(f'======= on_bitfinex_margin_info_update: {data}')
+
    async def run(self):
       await asyncio.gather(self._bfx.ws.get_task_executable(),
                            self._leverex_connection.run(self))
@@ -106,6 +137,7 @@ class HedgingDealer():
    async def submit_offers(self):
       if len(self.leverex_balances) == 0:
          return
+
       ask = self.bitfinex_book.get_aggregated_ask_price(self.fixed_volume)
       bid = self.bitfinex_book.get_aggregated_bid_price(self.fixed_volume)
 
@@ -134,15 +166,23 @@ class HedgingDealer():
       pass
 
    async def _create_bitfinex_order(self, leverex_order):
-      price = order.price
-      quantity = order.quantity
+      price = leverex_order.price
+      # negative amount is sell, positive is buy
+      # we need to invert leverex side here
+      if leverex_order.is_sell:
+         quantity = leverex_order.quantity
+      else:
+         quantity = -leverex_order.quantity
+
+      logging.debug(f'Submitting order to bitfinex {quantity}@{price}')
 
       await self._bfx.ws.submit_order(symbol=self.bitfinex_futures_hedging_product,
                                       leverage=self.bitfinex_leverage,
                                       price=price,
                                       amount=quantity,
-                                      market_type=Order.Type.MARKET)
+                                      market_type=BitfinexOrder.Type.MARKET)
 
+   # position matched on leverex
    def on_order_created(self, order):
       if order.is_trade_position:
          # create order on bitfinex
