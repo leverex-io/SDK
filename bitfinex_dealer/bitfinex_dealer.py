@@ -5,12 +5,16 @@ import logging
 import os
 import sys
 
+import uvicorn
+from fastapi import FastAPI
+
 sys.path.append('..')
 
 from bfxapi import Client
 from bfxapi import Order as BitfinexOrder
 
 from trader_core.api_connection import AsyncApiConnection, PriceOffer
+from trader_core.product_mapping import get_product_info
 
 from bitfinx_order_book import AggregationOrderBook
 
@@ -30,6 +34,13 @@ class HedgingDealer():
       self.fixed_volume = self.hedging_settings['fixed_volume']
       self.price_ratio = self.hedging_settings['price_ratio']
       self.leverex_product = self.hedging_settings['leverex_product']
+
+      product_info = get_product_info(self.leverex_product)
+      if product_info is None:
+         raise Exception(f'Could not get info on product {self.leverex_product}')
+
+      self._target_ccy_product = product_info.cash_ccy
+      self._target_margin_product = product_info.margin_ccy
 
       self.bitfinex_order_book_len = 100
       if 'bitfinex_order_book_len' in self.hedging_settings:
@@ -73,7 +84,37 @@ class HedgingDealer():
                                                     key_file_path=self._leverex_config['key_file_path'],)
 
       self.leverex_balances = {}
+      self._bitfinex_balances = {}
 
+      self._app = FastAPI()
+
+      self._app.get('/')(self.report_api_entry)
+      self._app.get('/balance')(self.report_balance)
+
+      self._app.get('/leverex/current_session')(self.report_current_session)
+
+      config = uvicorn.Config(self._app, port=configuration['status_server']['port'], log_level="info")
+      self._status_server = uvicorn.Server(config)
+
+   async def report_api_entry(self):
+      return {
+         '/balance' : 'current state balance',
+         '/leverex/current_session' : 'info on current session'
+         }
+
+   async def report_current_session(self):
+      session_info = {}
+      # IM
+      # open price
+      # net exposure
+      return {}
+
+   async def report_balance(self):
+      leverex_balances = {}
+      leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances[self._target_ccy_product], self._target_ccy_product)
+      leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances[self._target_margin_product], self._target_margin_product)
+
+      return { 'leverex' : leverex_balances, 'bitfinex' : self._bitfinex_balances}
 
    async def on_bitfinex_authenticated(self, auth_message):
       print('================= Authenticated to bitfinex')
@@ -90,16 +131,18 @@ class HedgingDealer():
       self.bitfinex_book.setup_from_snapshot(data['data'])
 
    def on_bitfinex_balance_updated(self, data):
-      print(f'======= on_bitfinex_balance_updated: {data}')
+      self._bitfinex_balances['USD total'] = float(data[0])
+      self._bitfinex_balances['USD Net'] = float(data[1])
 
-   def on_bitfinex_wallet_snapshot(self, data):
-      print(f'======= on_bitfinex_wallet_snapshot: {data}')
-      for wallet in data:
-         print(f'======= on_bitfinex_wallet_snapshot: {wallet}')
+   def on_bitfinex_wallet_snapshot(self, wallets_snapshot):
+      for wallet in wallets_snapshot:
+         self.on_bitfinex_wallet_update(wallet)
 
-   def on_bitfinex_wallet_update(self, data):
-      print(f'======= on_bitfinex_wallet_update: {data}')
+   def on_bitfinex_wallet_update(self, wallet):
+      if wallet.type not in self._bitfinex_balances:
+         self._bitfinex_balances[wallet.type] = {}
 
+      self._bitfinex_balances[wallet.type][wallet.currency] = wallet.balance
 
    async def _on_bitfinex_order_new(self, order):
       pass
@@ -123,8 +166,14 @@ class HedgingDealer():
       print(f'======= on_bitfinex_margin_info_update: {data}')
 
    async def run(self):
-      await asyncio.gather(self._bfx.ws.get_task_executable(),
-                           self._leverex_connection.run(self))
+      bitfinex_task = asyncio.create_task(self._bfx.ws.get_task_executable())
+      leverex_task = asyncio.create_task(self._leverex_connection.run(self))
+
+      await self._status_server.serve()
+
+      # await asyncio.gather(self._status_server.serve(),
+      #                      self._bfx.ws.get_task_executable(),
+      #                      self._leverex_connection.run(self))
 
       # loop = asyncio.new_event_loop()
       # loop.run_until_complete(self._bfx.ws.get_task_executable())
@@ -174,7 +223,7 @@ class HedgingDealer():
       else:
          quantity = -leverex_order.quantity
 
-      logging.debug(f'Submitting order to bitfinex {quantity}@{price}')
+      logging.info(f'Submitting order to bitfinex {quantity}@{price}')
 
       await self._bfx.ws.submit_order(symbol=self.bitfinex_futures_hedging_product,
                                       leverage=self.bitfinex_leverage,
@@ -206,6 +255,7 @@ if __name__ == '__main__':
    args = input_parser.parse_args()
 
    required_settings = {
+      'status_server' : ['port'],
       'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
       'bitfinex' : ['api_key', 'api_secret'],
       'hedging_settings' : ['leverex_product',

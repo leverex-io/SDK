@@ -8,6 +8,8 @@ bitfinex-api-py = "==2.0.1"
 requests = "==2.26.0"
 websockets = "==8.1"
 jwcrypto = "==1.0"
+uvicorn = "==0.18.2"
+fastapi = "==0.78.0"
 
 [dev-packages]
 

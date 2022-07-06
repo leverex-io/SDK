@@ -1,4 +1,7 @@
 {
+   "status_server" : {
+      "port" : 8000
+   },
    "leverex" :
    {
       "api_endpoint" : "wss://api-dev.leverex.io",
