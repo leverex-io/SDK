@@ -26,10 +26,10 @@ class SessionMonitor():
       print('on_market_data: live cutoff {}, indicative prices {} : {}'.format(update['live_cutoff'], update['bid'], update['ask']))
 
    def on_session_open(self, update):
-      print('Session opened: {} ( {} ) @ {}. Will be closed at {}'.format(update['product_type'],
-                                                                          update['session_id'],
-                                                                          update['last_cut_off_price'],
-                                                                          datetime.fromtimestamp(update['cut_off_at'])))
+      print('Session opened: {} ( {} ) @ {}. Will be closed at {}'.format(update.product_type,
+                                                                          update.session_id,
+                                                                          update.last_cut_off_price,
+                                                                          update.cut_off_at))
    def on_session_closed(self, update):
       print('Session {} ( {} ) closed'.format(update['product_type'], update['session_id']))
 

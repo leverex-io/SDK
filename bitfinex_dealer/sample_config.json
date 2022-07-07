@@ -23,7 +23,6 @@
       "bitfinex_order_book_len" : 100,
       "bitfinex_order_book_aggregation" : "P0",
       "bitfinex_leverage": 10,
-      "fixed_volume" : 0.025,
       "price_ratio" : 0.002
    },
    "log_level" : "INFO"

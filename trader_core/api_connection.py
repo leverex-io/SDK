@@ -4,7 +4,10 @@ import time
 import websockets
 import websockets.exceptions
 import logging
+import time
 from datetime import datetime, timedelta
+
+from typing import Callable
 
 from .login_connection import LoginServiceClientWS
 
@@ -24,6 +27,14 @@ ORDER_TYPE_TRADE_POSITION                 = 0
 ORDER_TYPE_NORMAL_ROLLOVER_POSITION       = 1
 ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION   = 2
 ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION    = 3
+
+class SessionInfo():
+   def __init__(self, data):
+      self.product_type = data['product_type']
+      self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
+      self.last_cut_off_price = float(data['last_cut_off_price'])
+      self.session_id = data['session_id']
+      self.previous_session_id = data['previous_session_id']
 
 class Order():
    def __init__(self, data):
@@ -159,11 +170,40 @@ class AsyncApiConnection(object):
       #setup write queue
       self.write_queue = asyncio.Queue()
 
+      self._requests_cb = {}
+
+   async def _call_cb(self, cb, *args, **kwargs):
+      if asyncio.iscoroutinefunction(cb):
+         await cb(*args, **kwargs)
+      else:
+         cb(*args, **kwargs)
+
+   def _generate_reference_id(self):
+      return str(round(time.time() * 1000000))
+
    def loadBalances(self):
       loadBalanceRequest = {
          'load_balance' : {}
       }
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
+
+   # callback(orders: list[Order] )
+   async def load_open_positions(self, target_product, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      load_positions_request = {
+         'load_orders' : {
+            'product_type' : target_product,
+            'reference' : reference
+         }
+      }
+
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         self._requests_cb[reference] = functools.partial(self.listener.on_load_positions, target_product=target_product)
+
+      await self.websocket.send(json.dumps(load_positions_request))
 
    async def submit_offers(self, target_product: str, offers: PriceOffers):
       price_offers = [offer.to_map() for offer in offers if offer.to_map() is not None]
@@ -224,7 +264,10 @@ class AsyncApiConnection(object):
          if self._login_client is not None:
             await self.login()
 
-            self.listener.on_authorized()
+            if asyncio.iscoroutinefunction(self.listener.on_authorized):
+               await self.listener.on_authorized()
+            else:
+               self.listener.on_authorized()
 
             # load balances
             self.loadBalances()
@@ -265,6 +308,19 @@ class AsyncApiConnection(object):
          elif 'submit_prices' in update:
             self.listener.onSubmitPrices(update)
 
+         elif 'load_orders' in update:
+            orders = [Order(order_data) for order_data in update['load_orders']['orders']]
+            reference = update['load_orders']['reference']
+
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               if asyncio.iscoroutinefunction(cb):
+                  await cb(orders=orders)
+               else:
+                  cb(orders=orders)
+            else:
+               logging.error(f'load_orders response with reference:{reference} is not expected')
+
          elif 'order_update' in update:
             order = Order(update['order_update']['order'])
             action = int(update['order_update']['action'])
@@ -274,15 +330,14 @@ class AsyncApiConnection(object):
                self.listener.on_order_filled(order)
 
          elif 'session_closed' in update:
-            self.listener.on_session_closed(update['session_closed'])
+            await self._call_cb(self.listener.on_session_closed, SessionInfo(update['session_closed']))
 
          elif 'session_open' in update:
-            self.listener.on_session_open(update['session_open'])
+            await self._call_cb(self.listener.on_session_open, SessionInfo(update['session_open']))
 
          elif 'authorize' in update:
             if not update['authorize']['success']:
                raise Exception('Failed to renew session token')
-            logging.info('Session token renewed')
          elif 'logout' in update:
             raise Exception('ERROR: we got a logout message. Closing connection')
          else:
@@ -299,7 +354,6 @@ class AsyncApiConnection(object):
          await asyncio.sleep(self.access_token['expires_in'] * 0.9)
 
          #cycle token with login server
-         logging.info("================= Updating token")
          self.access_token = await self._login_client.update_access_token(
             self.access_token['access_token'])
 
@@ -310,4 +364,4 @@ class AsyncApiConnection(object):
             }
          }
 
-         self.write_queue.put_nowait(json.dumps(auth_request))
+         await self.websocket.send(json.dumps(auth_request))
