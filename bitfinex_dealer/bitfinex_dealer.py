@@ -107,9 +107,11 @@ class HedgingDealer():
 
    async def report_balance(self):
       leverex_balances = {}
-      leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances[self._target_ccy_product], self._target_ccy_product)
-      leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances[self._target_margin_product], self._target_margin_product)
-      leverex_balances['Net exposure'] = '{} {}'.format(self._net_exposure, self._target_crypto_ccy)
+
+      if len(self.leverex_balances) != 0:
+         leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances[self._target_ccy_product], self._target_ccy_product)
+         leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances[self._target_margin_product], self._target_margin_product)
+         leverex_balances['Net exposure'] = '{} {}'.format(self._net_exposure, self._target_crypto_ccy)
 
       return { 'leverex' : leverex_balances, 'bitfinex' : self._bitfinex_balances}
 
@@ -136,6 +138,7 @@ class HedgingDealer():
 
    async def on_bitfinex_order_book_update(self, data):
       self.bitfinex_book.process_update(data['data'])
+
       await self.submit_offers()
 
    def on_bitfinex_order_book_snapshot(self, data):
@@ -189,16 +192,51 @@ class HedgingDealer():
       # loop = asyncio.new_event_loop()
       # loop.run_until_complete(self._bfx.ws.get_task_executable())
 
-      # asyncio.run(self._leverex_connection.run(service_url=self._leverex_config['api_endpoint']))
-
    async def updateOffer(self):
       print('===============  updateOffer =========')
 
+# leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances[self._target_ccy_product], self._target_ccy_product)
+# leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances[self._target_margin_product], self._target_margin_product)
+# leverex_balances['Net exposure'] = '{} {}'.format(self._net_exposure, self._target_crypto_ccy)
+
+   def _get_buying_power(self):
+      if self._target_ccy_product in self.leverex_balances:
+         return self.leverex_balances[self._target_ccy_product]
+
+      return 0
+
+   def _get_margin_reserved(self):
+      if self._target_margin_product in self.leverex_balances:
+         return self.leverex_balances[self._target_margin_product]
+
+      return 0
+
+   def _get_net_exposure(self):
+      return self._net_exposure
+
+   def _get_max_exposure(self):
+      # no info on session. either closed or not loaded yet
+      if self._current_session_info is None:
+         return 0
+
+      max_margin = (self._get_margin_reserved() + self._get_buying_power()) / 2
+
+      return max_margin / self._current_session_info.last_cut_off_price
+
    def get_ask_offer_volume(self):
-      return 0.1
+      max_exposure = self._get_max_exposure()
+      if max_exposure == 0:
+         return 0
+
+      return max_exposure + self._get_net_exposure()
 
    def get_bid_offer_volume(self):
-      return 0.01
+      max_exposure = self._get_max_exposure()
+
+      if max_exposure == 0:
+         return 0
+
+      return max_exposure - self._get_net_exposure()
 
    async def submit_offers(self):
       if len(self.leverex_balances) == 0:
@@ -207,10 +245,19 @@ class HedgingDealer():
       ask_volume = self.get_ask_offer_volume()
       bid_volume = self.get_bid_offer_volume()
 
+      if ask_volume == 0 or bid_volume == 0:
+         return
+
       ask = self.bitfinex_book.get_aggregated_ask_price(ask_volume)
       bid = self.bitfinex_book.get_aggregated_bid_price(bid_volume)
 
       if ask is not None and bid is not None:
+         # if bitfinex could not cover requested volume
+         if ask.volume < ask_volume:
+            ask_volume = ask.volume
+         if bid.volume < bid_volume:
+            bid_volume = bid.volume
+
          ask_price = ask.price*(1+self.price_ratio)
          bid_price = bid.price*(1-self.price_ratio)
 

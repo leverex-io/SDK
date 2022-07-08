@@ -94,7 +94,7 @@ class AggregationOrderBook():
          total_volume += volume
          total_cost += cost
 
-         if total_volume > volume:
+         if total_volume > target_volume:
             break
 
       return Offer(total_cost/total_volume, total_volume)
