@@ -92,7 +92,7 @@ class HedgingDealer():
       self._app.get('/api/balance')(self.report_balance)
       self._app.get('/api/leverex/session_info')(self.report_session_info)
 
-      config = uvicorn.Config(self._app, port=configuration['status_server']['port'], log_level="info")
+      config = uvicorn.Config(self._app, host='0.0.0.0', port=configuration['status_server']['port'], log_level="debug")
       self._status_server = uvicorn.Server(config)
 
       self._positions = {}

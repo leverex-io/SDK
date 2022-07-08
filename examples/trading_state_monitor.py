@@ -31,7 +31,7 @@ class SessionMonitor():
                                                                           update.last_cut_off_price,
                                                                           update.cut_off_at))
    def on_session_closed(self, update):
-      print('Session {} ( {} ) closed'.format(update['product_type'], update['session_id']))
+      print('Session {} ( {} ) closed'.format(update.product_type, update.session_id))
 
 def main():
    monitor = SessionMonitor()

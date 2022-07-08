@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  bfnx_dealer:
+    container_name: "bitfinex_dealer"
+    image: bitfinex_dealer:latest
+    build:
+      context: ..
+      dockerfile: bitfinex_dealer/bitfinex_dealer.Dockerfile
+    volumes:
+      - ./sample_config.json:/usr/dealer_app/bitfinex_dealer/sample_config.json:ro
+      - ./dauma_key.pem:/usr/dealer_app/bitfinex_dealer/dauma_key.pem:ro
+    ports:
+      - "127.0.0.1:8000:8000"

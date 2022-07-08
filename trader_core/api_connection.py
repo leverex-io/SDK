@@ -28,13 +28,18 @@ ORDER_TYPE_NORMAL_ROLLOVER_POSITION       = 1
 ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION   = 2
 ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION    = 3
 
-class SessionInfo():
+class SessionOpenInfo():
    def __init__(self, data):
       self.product_type = data['product_type']
       self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
       self.last_cut_off_price = float(data['last_cut_off_price'])
       self.session_id = data['session_id']
       self.previous_session_id = data['previous_session_id']
+
+class SessionCloseInfo():
+   def __init__(self, data):
+      self.product_type = data['product_type']
+      self.session_id = data['session_id']
 
 class Order():
    def __init__(self, data):
@@ -330,10 +335,10 @@ class AsyncApiConnection(object):
                self.listener.on_order_filled(order)
 
          elif 'session_closed' in update:
-            await self._call_cb(self.listener.on_session_closed, SessionInfo(update['session_closed']))
+            await self._call_cb(self.listener.on_session_closed, SessionCloseInfo(update['session_closed']))
 
          elif 'session_open' in update:
-            await self._call_cb(self.listener.on_session_open, SessionInfo(update['session_open']))
+            await self._call_cb(self.listener.on_session_open, SessionOpenInfo(update['session_open']))
 
          elif 'authorize' in update:
             if not update['authorize']['success']:
