@@ -9,6 +9,6 @@ services:
       dockerfile: bitfinex_dealer/bitfinex_dealer.Dockerfile
     volumes:
       - ./sample_config.json:/usr/dealer_app/bitfinex_dealer/sample_config.json:ro
-      - ./dauma_key.pem:/usr/dealer_app/bitfinex_dealer/dauma_key.pem:ro
+      - ./key.pem:/usr/dealer_app/bitfinex_dealer/key.pem:ro
     ports:
       - "127.0.0.1:8000:8000"
