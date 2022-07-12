@@ -207,23 +207,45 @@ class HedgingDealer():
    async def _on_bitfinex_order_closed(self, order):
       pass
 
-   def _update_position(self, position):
+   async def _set_collateral_on_position(self, product, target_collateral):
+      await self._bfx.rest.set_derivative_collateral(symbol=product, collateral=target_collateral)
+
+   async def _update_position(self, position):
       self._bitfinex_positions[position.symbol] = position
+
+      # check collateral
+      if position.symbol == self.bitfinex_futures_hedging_product and position.collateral is not None:
+         amount = abs(position.amount)
+         current_collateral = position.collateral
+
+         if position.amount < 0:
+            price = self.bitfinex_book.get_aggregated_bid_price(amount)
+         else:
+            price = self.bitfinex_book.get_aggregated_ask_price(amount)
+
+         if price is None:
+            print(f'ERROR: could not estimate closing price')
+            return
+
+         min_collateral = amount * price.price * 0.1
+         if current_collateral <= min_collateral:
+            target_collateral = amount * price.price * 0.15
+
+            print(f'Setting colateral to {target_collateral} from {current_collateral} for {self.bitfinex_futures_hedging_product}')
+            await self._set_collateral_on_position(self.bitfinex_futures_hedging_product, target_collateral)
 
    async def _on_bitfinex_position_snapshot(self, raw_data):
       for data in raw_data[2]:
          position = Position.from_raw_rest_position(data)
-         self._update_position(position)
+         await self._update_position(position)
 
    async def _on_bitfinex_position_new(self, data):
-      print(f'======= _on_bitfinex_position_new: {data}')
       position = Position.from_raw_rest_position(data[2])
-      self._update_position(position)
+      await self._update_position(position)
 
    async def _on_bitfinex_position_update(self, data):
-      print(f'======= _on_bitfinex_position_update: {data}')
       position = Position.from_raw_rest_position(data[2])
-      self._update_position(position)
+      await self._update_position(position)
 
    async def _on_bitfinex_position_close(self, data):
       position = Position.from_raw_rest_position(data[2])
