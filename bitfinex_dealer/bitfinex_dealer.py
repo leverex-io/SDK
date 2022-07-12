@@ -109,8 +109,8 @@ class HedgingDealer():
       leverex_balances = {}
 
       if len(self.leverex_balances) != 0:
-         leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances[self._target_ccy_product], self._target_ccy_product)
-         leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances[self._target_margin_product], self._target_margin_product)
+         leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances(self._target_ccy_product, 'Not loaded'), self._target_ccy_product)
+         leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances(self._target_margin_product, 'Not loaded'), self._target_margin_product)
          leverex_balances['Net exposure'] = '{} {}'.format(self._net_exposure, self._target_crypto_ccy)
 
       return { 'leverex' : leverex_balances, 'bitfinex' : self._bitfinex_balances}
