@@ -12,6 +12,7 @@ sys.path.append('..')
 
 from bfxapi import Client
 from bfxapi import Order as BitfinexOrder
+from bfxapi.models import Position
 
 from trader_core.api_connection import AsyncApiConnection, PriceOffer
 from trader_core.product_mapping import get_product_info
@@ -70,9 +71,10 @@ class HedgingDealer():
       self._bfx.ws.on('order_new', self._on_bitfinex_order_new)
       self._bfx.ws.on('order_confirmed', self._on_bitfinex_order_confirmed)
       self._bfx.ws.on('order_closed', self._on_bitfinex_order_closed)
-      self._bfx.ws.on('positions_new', self._on_bitfinex_positions_new)
-      self._bfx.ws.on('positions_update', self._on_bitfinex_positions_update)
-      self._bfx.ws.on('positions_close', self._on_bitfinex_positions_close)
+      self._bfx.ws.on('position_snapshot', self._on_bitfinex_position_snapshot)
+      self._bfx.ws.on('position_new', self._on_bitfinex_position_new)
+      self._bfx.ws.on('position_update', self._on_bitfinex_position_update)
+      self._bfx.ws.on('position_close', self._on_bitfinex_position_close)
       self._bfx.ws.on('margin_info_update', self._on_bitfinex_margin_info_update)
 
       # setup leverex connection
@@ -91,6 +93,7 @@ class HedgingDealer():
       self._app.get('/')(self.report_api_entry)
       self._app.get('/api/balance')(self.report_balance)
       self._app.get('/api/leverex/session_info')(self.report_session_info)
+      self._app.get('/api/bitfinex/position')(self.report_bitfinex_position)
 
       config = uvicorn.Config(self._app, host='0.0.0.0', port=configuration['status_server']['port'], log_level="debug")
       self._status_server = uvicorn.Server(config)
@@ -99,21 +102,58 @@ class HedgingDealer():
       self._net_exposure = 0.0
       self._current_session_info = None
 
+      self._bitfinex_positions = { self.bitfinex_futures_hedging_product : None }
+
    async def report_api_entry(self):
       return {
          '/api/balance' : 'current state balance',
-         '/api/leverex/session_info' : 'info on current session on leverex'
+         '/api/leverex/session_info' : 'info on current session on leverex',
+         '/api/bitfinex/position'  : 'info on current position on bitfinex'
          }
 
    async def report_balance(self):
       leverex_balances = {}
 
       if len(self.leverex_balances) != 0:
-         leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances(self._target_ccy_product, 'Not loaded'), self._target_ccy_product)
-         leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances(self._target_margin_product, 'Not loaded'), self._target_margin_product)
+         leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances.get(self._target_ccy_product, 'Not loaded'), self._target_ccy_product)
+         leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances.get(self._target_margin_product, 'Not loaded'), self._target_margin_product)
          leverex_balances['Net exposure'] = '{} {}'.format(self._net_exposure, self._target_crypto_ccy)
 
-      return { 'leverex' : leverex_balances, 'bitfinex' : self._bitfinex_balances}
+      bitfinex_balances = self._bitfinex_balances.copy()
+
+      position_info = self._bitfinex_positions[self.bitfinex_futures_hedging_product]
+      if position_info is None:
+         bitfinex_balances['position'] = 'Closed'
+      else:
+         bitfinex_balances['position'] = position_info.amount
+
+      return { 'leverex' : leverex_balances, 'bitfinex' : bitfinex_balances}
+
+   async def report_bitfinex_position(self):
+      response = {}
+
+      print(f'type {type(self._bitfinex_positions)} and len {len(self._bitfinex_positions)}')
+
+      for info in self._bitfinex_positions.items():
+         product = info[0]
+         position = info[1]
+
+         if position is None:
+            response[product] = 'Closed'
+         else:
+            position_info = {}
+
+            position_info['amount'] = position.amount
+            position_info['base price'] = position.base_price
+            position_info['liquidation price'] = position.liquidation_price
+            position_info['leverage'] = position.leverage
+            position_info['type'] = 'Derivatives position' if position.type == 1 else 'Margin position'
+            position_info['Collateral'] = position.collateral
+            position_info['Collateral MIN'] = position.collateral_min
+
+            response[position.symbol] = position_info
+
+      return response
 
    async def report_session_info(self):
       session_info = {}
@@ -167,14 +207,28 @@ class HedgingDealer():
    async def _on_bitfinex_order_closed(self, order):
       pass
 
-   async def _on_bitfinex_positions_new(self, data):
-      print(f'======= on_bitfinex_positions_new: {data}')
+   def _update_position(self, position):
+      self._bitfinex_positions[position.symbol] = position
 
-   async def _on_bitfinex_positions_update(self, data):
-      print(f'======= on_bitfinex_positions_update: {data}')
+   async def _on_bitfinex_position_snapshot(self, raw_data):
+      for data in raw_data[2]:
+         position = Position.from_raw_rest_position(data)
+         self._update_position(position)
 
-   async def _on_bitfinex_positions_close(self, data):
-      print(f'======= on_bitfinex_positions_close: {data}')
+   async def _on_bitfinex_position_new(self, data):
+      print(f'======= _on_bitfinex_position_new: {data}')
+      position = Position.from_raw_rest_position(data[2])
+      self._update_position(position)
+
+   async def _on_bitfinex_position_update(self, data):
+      print(f'======= _on_bitfinex_position_update: {data}')
+      position = Position.from_raw_rest_position(data[2])
+      self._update_position(position)
+
+   async def _on_bitfinex_position_close(self, data):
+      position = Position.from_raw_rest_position(data[2])
+      print(f'Position closed for {position.symbol}')
+      self._bitfinex_positions[position.symbol] = None
 
    async def _on_bitfinex_margin_info_update(self, data):
       print(f'======= on_bitfinex_margin_info_update: {data}')
