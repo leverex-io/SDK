@@ -271,10 +271,6 @@ class HedgingDealer():
    async def updateOffer(self):
       logging.info('===============  updateOffer =========')
 
-# leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances[self._target_ccy_product], self._target_ccy_product)
-# leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances[self._target_margin_product], self._target_margin_product)
-# leverex_balances['Net exposure'] = '{} {}'.format(self._net_exposure, self._target_crypto_ccy)
-
    def _get_buying_power(self):
       if self._target_ccy_product in self.leverex_balances:
          return self.leverex_balances[self._target_ccy_product]
@@ -397,6 +393,9 @@ class HedgingDealer():
 
       logging.info(f'Submitting order to bitfinex {quantity}@{price}')
 
+      await self._send_bitfinex_order_request(price, quantity)
+
+   async def _send_bitfinex_order_request(self, price, quantity):
       await self._bfx.ws.submit_order(symbol=self.bitfinex_futures_hedging_product,
                                       leverage=self.bitfinex_leverage,
                                       price=price,
@@ -416,7 +415,20 @@ class HedgingDealer():
          if order.is_trade_position:
             # create order on bitfinex
             asyncio.create_task(self._create_bitfinex_order(order))
+         else:
+            # rollover position
+            # validate position size against net exposure on
+            if self._bitfinex_positions[self.bitfinex_futures_hedging_product] is not None:
+               # position and exposure should be of same sign
+               bitfinex_position_size = self._bitfinex_positions[self.bitfinex_futures_hedging_product].amount
+               leverex_exposure = order.quantity if order.is_sell else -order.quantity
+
+               if leverex_exposure != bitfinex_position_size:
+                  asyncio.create_task(self._send_bitfinex_order_request(price=order.price, quantity=(leverex_exposure - bitfinex_position_size)))
+
+
          self.store_active_order(order)
+
 
    def on_order_filled(self, order):
       if order.product_type == self.leverex_product:
