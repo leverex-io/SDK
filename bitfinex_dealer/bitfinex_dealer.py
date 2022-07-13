@@ -132,7 +132,7 @@ class HedgingDealer():
    async def report_bitfinex_position(self):
       response = {}
 
-      print(f'type {type(self._bitfinex_positions)} and len {len(self._bitfinex_positions)}')
+      logging.info(f'type {type(self._bitfinex_positions)} and len {len(self._bitfinex_positions)}')
 
       for info in self._bitfinex_positions.items():
          product = info[0]
@@ -168,7 +168,7 @@ class HedgingDealer():
 
 
    async def on_bitfinex_authenticated(self, auth_message):
-      print('================= Authenticated to bitfinex')
+      logging.info('================= Authenticated to bitfinex')
       # subscribe to order book
       await self._bfx.ws.subscribe('book', self.bitfinex_orderbook_product,
                                   len=self.bitfinex_order_book_len,
@@ -224,14 +224,14 @@ class HedgingDealer():
             price = self.bitfinex_book.get_aggregated_ask_price(amount)
 
          if price is None:
-            print(f'ERROR: could not estimate closing price')
+            logging.error(f'ERROR: could not estimate closing price')
             return
 
          min_collateral = amount * price.price * 0.1
          if current_collateral <= min_collateral:
             target_collateral = amount * price.price * 0.15
 
-            print(f'Setting colateral to {target_collateral} from {current_collateral} for {self.bitfinex_futures_hedging_product}')
+            logging.info(f'Setting colateral to {target_collateral} from {current_collateral} for {self.bitfinex_futures_hedging_product}')
             await self._set_collateral_on_position(self.bitfinex_futures_hedging_product, target_collateral)
 
    async def _on_bitfinex_position_snapshot(self, raw_data):
@@ -249,11 +249,11 @@ class HedgingDealer():
 
    async def _on_bitfinex_position_close(self, data):
       position = Position.from_raw_rest_position(data[2])
-      print(f'Position closed for {position.symbol}')
+      logging.info(f'Position closed for {position.symbol}')
       self._bitfinex_positions[position.symbol] = None
 
    async def _on_bitfinex_margin_info_update(self, data):
-      print(f'======= on_bitfinex_margin_info_update: {data}')
+      logging.info(f'======= on_bitfinex_margin_info_update: {data}')
 
    async def run(self):
       bitfinex_task = asyncio.create_task(self._bfx.ws.get_task_executable())
@@ -269,7 +269,7 @@ class HedgingDealer():
       # loop.run_until_complete(self._bfx.ws.get_task_executable())
 
    async def updateOffer(self):
-      print('===============  updateOffer =========')
+      logging.info('===============  updateOffer =========')
 
 # leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances[self._target_ccy_product], self._target_ccy_product)
 # leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances[self._target_margin_product], self._target_margin_product)
@@ -348,7 +348,7 @@ class HedgingDealer():
 
          await self._leverex_connection.submit_offers(target_product=self.leverex_product, offers=offers)
       else:
-         print('Book is not loaded')
+         logging.info('Book is not loaded')
 
    def on_connected(self):
       pass
@@ -358,10 +358,10 @@ class HedgingDealer():
       await self._leverex_connection.subscribe_session_open(self.leverex_product)
 
    def on_market_data(self, update):
-      print('on_market_data: {}'.format(update))
+      logging.info('on_market_data: {}'.format(update))
 
    def onLoadBalance(self, balances):
-      print('Balance loaded {}'.format(balances))
+      logging.info('Balance loaded {}'.format(balances))
       for balance_info in balances:
          self.leverex_balances[balance_info['currency']] = float(balance_info['balance'])
 
@@ -377,7 +377,7 @@ class HedgingDealer():
          self._current_session_info = None
 
    async def on_positions_loaded(self, orders):
-      print(f'======== {len(orders)} posiions loaded')
+      logging.info(f'======== {len(orders)} posiions loaded')
       for order in orders:
          self.store_active_order(order)
 
