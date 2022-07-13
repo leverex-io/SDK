@@ -312,7 +312,9 @@ class HedgingDealer():
       if max_exposure == 0:
          return 0
 
-      return max_exposure - self._get_net_exposure()
+      bid_volume = max_exposure - self._get_net_exposure()
+      if bid_volume < 0:
+         return 0
 
    async def submit_offers(self):
       if len(self.leverex_balances) == 0:
@@ -321,7 +323,7 @@ class HedgingDealer():
       ask_volume = self.get_ask_offer_volume()
       bid_volume = self.get_bid_offer_volume()
 
-      if ask_volume == 0 or bid_volume == 0:
+      if ask_volume == 0 and bid_volume == 0:
          return
 
       ask = self.bitfinex_book.get_aggregated_ask_price(ask_volume)
