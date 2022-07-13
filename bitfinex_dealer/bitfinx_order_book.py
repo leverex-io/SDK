@@ -80,6 +80,9 @@ class AggregationOrderBook():
       return self._get_aggregated_offer(offers, target_volume)
 
    def _get_aggregated_offer(self, offers, target_volume):
+      if target_volume == 0:
+         return None
+
       total_volume = 0
       total_cost = 0
 

@@ -316,6 +316,8 @@ class HedgingDealer():
       if bid_volume < 0:
          return 0
 
+      return bid_volume
+
    async def submit_offers(self):
       if len(self.leverex_balances) == 0:
          return
