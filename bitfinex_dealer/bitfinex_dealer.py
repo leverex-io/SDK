@@ -296,8 +296,9 @@ class HedgingDealer():
          return 0
 
       max_margin = (self._get_margin_reserved() + self._get_buying_power()) / 2
+      margin_rate = self._current_session_info.last_cut_off_price / 10
 
-      return max_margin / self._current_session_info.last_cut_off_price
+      return max_margin / margin_rate
 
    def get_ask_offer_volume(self):
       max_exposure = self._get_max_exposure()
