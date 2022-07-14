@@ -102,6 +102,9 @@ class HedgingDealer():
       self._net_exposure = 0.0
       self._current_session_info = None
 
+      self._bitfinex_position_loaded = False
+      self._leverex_orders_loaded = False
+
       self._bitfinex_positions = { self.bitfinex_futures_hedging_product : None }
 
    async def report_api_entry(self):
@@ -238,6 +241,7 @@ class HedgingDealer():
       for data in raw_data[2]:
          position = Position.from_raw_rest_position(data)
          await self._update_position(position)
+      await self._on_bitfinex_positions_loaded()
 
    async def _on_bitfinex_position_new(self, data):
       position = Position.from_raw_rest_position(data[2])
@@ -378,12 +382,12 @@ class HedgingDealer():
          self._current_session_info = None
 
    async def on_positions_loaded(self, orders):
-      logging.info(f'======== {len(orders)} posiions loaded')
       for order in orders:
          self.store_active_order(order)
+      await self._on_leverex_positions_loaded()
+      logging.info(f'======== {len(orders)} posiions loaded')
 
    async def _create_bitfinex_order(self, leverex_order):
-      price = leverex_order.price
       # negative amount is sell, positive is buy
       # we need to invert leverex side here
       if leverex_order.is_sell:
@@ -391,19 +395,26 @@ class HedgingDealer():
       else:
          quantity = -leverex_order.quantity
 
-      logging.info(f'Submitting order to bitfinex {quantity}@{price}')
+      logging.info(f'Submitting order to bitfinex {quantity}')
 
-      await self._send_bitfinex_order_request(price, quantity)
+      await self._send_bitfinex_order_request(quantity)
 
-   async def _send_bitfinex_order_request(self, price, quantity):
+   async def _send_bitfinex_order_request(self, quantity):
       await self._bfx.ws.submit_order(symbol=self.bitfinex_futures_hedging_product,
                                       leverage=self.bitfinex_leverage,
-                                      price=price,
+                                      # this is a market order. price is ignored
+                                      price=None,
                                       amount=quantity,
                                       market_type=BitfinexOrder.Type.MARKET)
 
    def store_active_order(self, order):
       self._positions[order.id] = order
+
+      if not order.is_trade_position:
+         # this position is rollover position
+         # and it carries full exposure for a session
+         self._net_exposure = 0
+
       if order.is_sell:
          self._net_exposure = self._net_exposure - order.quantity
       else:
@@ -412,23 +423,33 @@ class HedgingDealer():
    # position matched on leverex
    def on_order_created(self, order):
       if order.product_type == self.leverex_product:
+         self.store_active_order(order)
          if order.is_trade_position:
             # create order on bitfinex
             asyncio.create_task(self._create_bitfinex_order(order))
          else:
-            # rollover position
-            # validate position size against net exposure on
-            if self._bitfinex_positions[self.bitfinex_futures_hedging_product] is not None:
-               # position and exposure should be of same sign
-               bitfinex_position_size = self._bitfinex_positions[self.bitfinex_futures_hedging_product].amount
-               leverex_exposure = order.quantity if order.is_sell else -order.quantity
+            asyncio.create_task(self._validate_position_size())
 
-               if leverex_exposure != bitfinex_position_size:
-                  asyncio.create_task(self._send_bitfinex_order_request(price=order.price, quantity=(leverex_exposure - bitfinex_position_size)))
+   async def _on_bitfinex_positions_loaded(self):
+      self._bitfinex_position_loaded = True
+      await self._validate_position_size()
 
+   async def _on_leverex_positions_loaded(self):
+      self._leverex_orders_loaded = True
+      await self._validate_position_size()
 
-         self.store_active_order(order)
+   async def _validate_position_size(self):
+      if self._bitfinex_position_loaded and self._leverex_orders_loaded:
+         bitfinex_position_size = 0
+         if self._bitfinex_positions[self.bitfinex_futures_hedging_product] is not None:
+            bitfinex_position_size = self._bitfinex_positions[self.bitfinex_futures_hedging_product].amount
 
+         inverted_leverex_exposure = -self._net_exposure
+         if inverted_leverex_exposure != bitfinex_position_size:
+            correction_quantity = inverted_leverex_exposure - bitfinex_position_size
+            logging.info(f'Unexpected hedging position size: Leverex {inverted_leverex_exposure} != {bitfinex_position_size}. Correction order quantity {correction_quantity}')
+            await self._send_bitfinex_order_request(quantity=correction_quantity)
+            logging.info('============================')
 
    def on_order_filled(self, order):
       if order.product_type == self.leverex_product:
