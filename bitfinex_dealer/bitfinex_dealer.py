@@ -135,8 +135,6 @@ class HedgingDealer():
    async def report_bitfinex_position(self):
       response = {}
 
-      logging.info(f'type {type(self._bitfinex_positions)} and len {len(self._bitfinex_positions)}')
-
       for info in self._bitfinex_positions.items():
          product = info[0]
          position = info[1]
@@ -451,7 +449,9 @@ class HedgingDealer():
          logging.info(f'[_validate_position_size] position : {bitfinex_position_size}, Net exposure {self._net_exposure}')
 
          inverted_leverex_exposure = -self._net_exposure
-         if inverted_leverex_exposure != bitfinex_position_size:
+         position_diference = abs(inverted_leverex_exposure - bitfinex_position_size)
+         # NOTE: acceptable difference 0.00001
+         if position_diference > 0.00001:
             correction_quantity = inverted_leverex_exposure - bitfinex_position_size
             logging.info(f'Unexpected hedging position size: Leverex {inverted_leverex_exposure} != {bitfinex_position_size}. Correction order quantity {correction_quantity}')
             await self._send_bitfinex_order_request(quantity=correction_quantity)
