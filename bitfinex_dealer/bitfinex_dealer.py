@@ -413,12 +413,15 @@ class HedgingDealer():
       if not order.is_trade_position:
          # this position is rollover position
          # and it carries full exposure for a session
+         logging.info('[store_active_order] Net exposure reseted before rollover')
          self._net_exposure = 0
 
       if order.is_sell:
          self._net_exposure = self._net_exposure - order.quantity
       else:
          self._net_exposure = self._net_exposure + order.quantity
+
+      logging.info(f'[store_active_order] Net exposure : {self._net_exposure}')
 
    # position matched on leverex
    def on_order_created(self, order):
@@ -428,6 +431,7 @@ class HedgingDealer():
             # create order on bitfinex
             asyncio.create_task(self._create_bitfinex_order(order))
          else:
+            logging.info(f'[on_order_created] get rollover position {order.amount} {order._rollover_type}')
             asyncio.create_task(self._validate_position_size())
 
    async def _on_bitfinex_positions_loaded(self):
@@ -443,6 +447,8 @@ class HedgingDealer():
          bitfinex_position_size = 0
          if self._bitfinex_positions[self.bitfinex_futures_hedging_product] is not None:
             bitfinex_position_size = self._bitfinex_positions[self.bitfinex_futures_hedging_product].amount
+
+         logging.info(f'[_validate_position_size] position : {bitfinex_position_size}, Net exposure {self._net_exposure}')
 
          inverted_leverex_exposure = -self._net_exposure
          if inverted_leverex_exposure != bitfinex_position_size:
