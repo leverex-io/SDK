@@ -22,7 +22,9 @@
       "bitfinex_futures_hedging_product" : "tTESTBTCF0:TESTUSDTF0",
       "bitfinex_order_book_len" : 100,
       "bitfinex_order_book_aggregation" : "P0",
-      "bitfinex_leverage": 10,
+      "min_bitfinex_leverage" : 10,
+      "bitfinex_leverage": 15,
+      "max_bitfinex_leverage" : 20,
       "price_ratio" : 0.002
    },
    "log_level" : "INFO"

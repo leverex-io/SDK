@@ -31,7 +31,9 @@ class HedgingDealer():
       self.bitfinex_balances = None
       self.bitfinex_orderbook_product = self.hedging_settings['bitfinex_orderbook_product']
       self.bitfinex_futures_hedging_product = self.hedging_settings['bitfinex_futures_hedging_product']
+      self.min_bitfinex_leverage = self.hedging_settings['min_bitfinex_leverage']
       self.bitfinex_leverage = self.hedging_settings['bitfinex_leverage']
+      self.max_bitfinex_leverage = self.hedging_settings['max_bitfinex_leverage']
       self.price_ratio = self.hedging_settings['price_ratio']
       self.leverex_product = self.hedging_settings['leverex_product']
 
@@ -228,9 +230,10 @@ class HedgingDealer():
             logging.error(f'ERROR: could not estimate closing price')
             return
 
-         min_collateral = amount * price.price * 0.1
-         if current_collateral <= min_collateral:
-            target_collateral = amount * price.price * 0.15
+         min_collateral = amount * price.price * self.min_bitfinex_leverage / 100
+         max_collateral = amount * price.price * self.max_bitfinex_leverage / 100
+         if current_collateral <= min_collateral or max_collateral <= current_collateral:
+            target_collateral = amount * price.price * self.bitfinex_leverage / 100
 
             logging.info(f'Setting colateral to {target_collateral} from {current_collateral} for {self.bitfinex_futures_hedging_product}')
             await self._set_collateral_on_position(self.bitfinex_futures_hedging_product, target_collateral)
@@ -490,7 +493,9 @@ if __name__ == '__main__':
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',
                             'price_ratio',
-                            'bitfinex_leverage']
+                            'min_bitfinex_leverage',
+                            'bitfinex_leverage',
+                            'max_bitfinex_leverage']
    }
 
    with open(args.config_file) as json_config_file:
