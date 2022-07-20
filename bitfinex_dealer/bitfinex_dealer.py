@@ -227,7 +227,6 @@ class HedgingDealer():
             price = self.bitfinex_book.get_aggregated_ask_price(amount)
 
          if price is None:
-            logging.error(f'ERROR: could not estimate closing price')
             return
 
          min_collateral = amount * price.price * self.min_bitfinex_leverage / 100
@@ -263,15 +262,9 @@ class HedgingDealer():
    async def run(self):
       bitfinex_task = asyncio.create_task(self._bfx.ws.get_task_executable())
       leverex_task = asyncio.create_task(self._leverex_connection.run(self))
+      status_server_task = asyncio.create_task(self._status_server.serve())
 
-      await self._status_server.serve()
-
-      # await asyncio.gather(self._status_server.serve(),
-      #                      self._bfx.ws.get_task_executable(),
-      #                      self._leverex_connection.run(self))
-
-      # loop = asyncio.new_event_loop()
-      # loop.run_until_complete(self._bfx.ws.get_task_executable())
+      done, pending = await asyncio.wait([bitfinex_task, leverex_task, status_server_task], return_when=asyncio.FIRST_COMPLETED)
 
    async def updateOffer(self):
       logging.info('===============  updateOffer =========')
