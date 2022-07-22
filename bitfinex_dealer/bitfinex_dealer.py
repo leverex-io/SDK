@@ -7,6 +7,7 @@ import sys
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
 sys.path.append('..')
 
@@ -30,6 +31,7 @@ class HedgingDealer():
 
       self.bitfinex_balances = None
       self.bitfinex_orderbook_product = self.hedging_settings['bitfinex_orderbook_product']
+      self.bitfinex_margin_wallet = self.hedging_settings['bitfinex_margin_wallet']
       self.bitfinex_futures_hedging_product = self.hedging_settings['bitfinex_futures_hedging_product']
       self.min_bitfinex_leverage = self.hedging_settings['min_bitfinex_leverage']
       self.bitfinex_leverage = self.hedging_settings['bitfinex_leverage']
@@ -110,19 +112,34 @@ class HedgingDealer():
       self._bitfinex_positions = { self.bitfinex_futures_hedging_product : None }
 
    async def report_api_entry(self):
-      return {
-         '/api/balance' : 'current state balance',
-         '/api/leverex/session_info' : 'info on current session on leverex',
-         '/api/bitfinex/position'  : 'info on current position on bitfinex'
-         }
+      html_content = """
+       <html>
+           <head>
+               <title>Delaer API</title>
+           </head>
+           <body>
+               <p><a href="/api/balance">current state balance</a></p>
+               <p><a href="/api/leverex/session_info">info on current session on leverex</a></p>
+               <p><a href="/api/bitfinex/position">info on current position on bitfinex</a></p>
+           </body>
+       </html>
+       """
+      return HTMLResponse(content=html_content, status_code=200)
 
    async def report_balance(self):
       leverex_balances = {}
+
+      portfolio = None
+      leverex_total = None
+      bitfinex_total = None
 
       if len(self.leverex_balances) != 0:
          leverex_balances['Buying power'] = '{} {}'.format(self.leverex_balances.get(self._target_ccy_product, 'Not loaded'), self._target_ccy_product)
          leverex_balances['Margin'] = '{} {}'.format(self.leverex_balances.get(self._target_margin_product, 'Not loaded'), self._target_margin_product)
          leverex_balances['Net exposure'] = '{} {}'.format(self._net_exposure, self._target_crypto_ccy)
+
+         leverex_total = self._get_buying_power() + self._get_margin_reserved()
+         leverex_balances['total'] = leverex_total
 
       bitfinex_balances = self._bitfinex_balances.copy()
 
@@ -132,7 +149,14 @@ class HedgingDealer():
       else:
          bitfinex_balances['position'] = position_info.amount
 
-      return { 'leverex' : leverex_balances, 'bitfinex' : bitfinex_balances}
+      if 'margin' in self._bitfinex_balances:
+         if self.bitfinex_margin_wallet in self._bitfinex_balances['margin']:
+            bitfinex_total = float(self._bitfinex_balances['margin'][self.bitfinex_margin_wallet]['total'])
+
+      if bitfinex_total is not None and leverex_total is not None:
+         portfolio = bitfinex_total + leverex_total
+
+      return { 'leverex' : leverex_balances, 'bitfinex' : bitfinex_balances, 'portfolio' : portfolio}
 
    async def report_bitfinex_position(self):
       response = {}
@@ -199,7 +223,21 @@ class HedgingDealer():
       if wallet.type not in self._bitfinex_balances:
          self._bitfinex_balances[wallet.type] = {}
 
-      self._bitfinex_balances[wallet.type][wallet.currency] = wallet.balance
+      total_balance = wallet.balance
+      if wallet.balance_available is not None:
+         free_balance = wallet.balance_available
+         reserved_balance = wallet.balance - wallet.balance_available
+      else:
+         free_balance = None
+         reserved_balance = None
+
+      balances = {}
+
+      balances['total'] = total_balance
+      balances['free'] = free_balance
+      balances['reserved'] = reserved_balance
+
+      self._bitfinex_balances[wallet.type][wallet.currency] = balances
 
    async def _on_bitfinex_order_new(self, order):
       pass
@@ -485,6 +523,7 @@ if __name__ == '__main__':
       'hedging_settings' : ['leverex_product',
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',
+                            'bitfinex_margin_wallet',
                             'price_ratio',
                             'min_bitfinex_leverage',
                             'bitfinex_leverage',

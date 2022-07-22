@@ -20,6 +20,7 @@
       "leverex_product" : "xbtusd_rf",
       "bitfinex_orderbook_product" : "tTESTBTCF0:TESTUSDTF0",
       "bitfinex_futures_hedging_product" : "tTESTBTCF0:TESTUSDTF0",
+      "bitfinex_margin_wallet" : "TESTUSDTF0",
       "bitfinex_order_book_len" : 100,
       "bitfinex_order_book_aggregation" : "P0",
       "min_bitfinex_leverage" : 10,
