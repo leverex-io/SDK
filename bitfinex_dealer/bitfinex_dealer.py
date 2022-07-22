@@ -425,7 +425,7 @@ class HedgingDealer():
             # create order on bitfinex
             asyncio.create_task(self._create_bitfinex_order(order))
          else:
-            logging.info(f'[on_order_created] get rollover position {order.amount} {order._rollover_type}')
+            logging.info(f'[on_order_created] get rollover position {order.quantity} {order._rollover_type}')
             asyncio.create_task(self._validate_position_size())
 
    async def _on_bitfinex_positions_loaded(self):
