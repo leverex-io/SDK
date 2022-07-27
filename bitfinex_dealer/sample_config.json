@@ -29,5 +29,9 @@
       "max_bitfinex_leverage" : 20,
       "price_ratio" : 0.002
    },
+   "rebalance_settings" :
+   {
+      "bitfinex_method" : "TETHERUSL"
+   },
    "log_level" : "INFO"
 }

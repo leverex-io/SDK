@@ -22,8 +22,7 @@ from trader_core.product_mapping import get_product_info
 from bitfinx_order_book import AggregationOrderBook
 
 class DepositWithdrawAddresses():
-   def __init__(self, market_name):
-      self._market_name = market_name
+   def __init__(self):
       self._deposit_address = None
       self._withdraw_address = None
 
@@ -140,6 +139,8 @@ class HedgingDealer():
       self._rebalance_enabled = False
       self._rebalance_disable_reason = "Address info not loaded"
 
+      self._rebalance_method = configuration['rebalance_settings']['bitfinex_method']
+
    def _validate_rebalance_feature_state(self):
       if self._leverex_deposit_addresses is None:
          self._rebalance_enabled = False
@@ -156,7 +157,7 @@ class HedgingDealer():
          self._rebalance_disable_reason = "Leverex deposit addresses info not loaded"
          return
 
-      if len(self._leverex_deposit_addresses.get_deposit_address()):
+      if len(self._leverex_deposit_addresses.get_deposit_address()) == 0:
          self._rebalance_enabled = False
          self._rebalance_disable_reason = "Leverex deposit addresses is empty"
          return
@@ -171,7 +172,7 @@ class HedgingDealer():
          self._rebalance_disable_reason = "Bitfinex deposit addresses info not loaded"
          return
 
-      if len(self._bitfinex_deposit_addresses.get_deposit_address()):
+      if len(self._bitfinex_deposit_addresses.get_deposit_address()) == 0:
          self._rebalance_enabled = False
          self._rebalance_disable_reason = "Bitfinex deposit addresses is empty"
          return
@@ -307,12 +308,18 @@ class HedgingDealer():
 
    async def on_bitfinex_authenticated(self, auth_message):
       logging.info('================= Authenticated to bitfinex')
+
+      if self._bitfinex_deposit_addresses is None:
+         self._bitfinex_deposit_addresses = DepositWithdrawAddresses()
+
+         deposit_address = await self._bfx.rest.get_wallet_deposit_address(wallet='exchange', method=self._rebalance_method)
+         self._bitfinex_deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
+         self._validate_rebalance_feature_state()
+
       # subscribe to order book
       await self._bfx.ws.subscribe('book', self.bitfinex_orderbook_product,
                                   len=self.bitfinex_order_book_len,
                                   prec=self.bitfinex_order_book_aggregation)
-
-
 
    async def on_bitfinex_order_book_update(self, data):
       self.bitfinex_book.process_update(data['data'])
@@ -552,7 +559,7 @@ class HedgingDealer():
       if self._leverex_deposit_addresses is None:
          self._leverex_deposit_addresses = DepositWithdrawAddresses()
 
-      self._leverex_deposit_addresses.set_withdraw_addresses(addresses, note)
+      self._leverex_deposit_addresses.set_withdraw_addresses(addresses)
       self._validate_rebalance_feature_state()
 
    async def _create_bitfinex_order(self, leverex_order):
@@ -664,6 +671,7 @@ if __name__ == '__main__':
       'status_server' : ['port'],
       'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
       'bitfinex' : ['api_key', 'api_secret'],
+      'rebalance_settings' : ['bitfinex_method'],
       'hedging_settings' : ['leverex_product',
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',

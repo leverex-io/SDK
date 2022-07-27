@@ -360,7 +360,7 @@ class AsyncApiConnection(object):
             reference = update['submit_prices']['reference']
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               self._call_listener_cb(cb, update)
+               await self._call_listener_cb(cb, update)
             else:
                logging.error(f'submit_prices response with unregistered request reference:{reference}')
 
@@ -374,7 +374,7 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               self._call_listener_cb(cb, addresses=addresses)
+               await self._call_listener_cb(cb, addresses=addresses)
             else:
                logging.error(f'load_addresses response with unregistered request reference:{reference}')
 
@@ -385,7 +385,7 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               self._call_listener_cb(cb, address=address)
+               await self._call_listener_cb(cb, address=address)
             else:
                logging.error(f'load_deposit_address response with unregistered request reference:{reference}')
 
@@ -396,7 +396,7 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               self._call_listener_cb(cb, orders=orders)
+               await self._call_listener_cb(cb, orders=orders)
             else:
                logging.error(f'load_orders response with unregistered request  reference:{reference}')
 
