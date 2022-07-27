@@ -14,6 +14,7 @@ sys.path.append('..')
 from bfxapi import Client
 from bfxapi import Order as BitfinexOrder
 from bfxapi.models import Position
+from bfxapi.models import Notification
 
 from trader_core.api_connection import AsyncApiConnection, PriceOffer
 from trader_core.product_mapping import get_product_info
@@ -23,6 +24,10 @@ from bitfinx_order_book import AggregationOrderBook
 class HedgingDealer():
    def __init__(self, configuration):
       self.hedging_settings = configuration['hedging_settings']
+
+      self._overseer_mode = False
+      if 'overseer_mode' in self.hedging_settings:
+         self._overseer_mode = bool(self.hedging_settings['overseer_mode'])
 
       # setup bitfinex connection
       self.bitfinex_book = AggregationOrderBook()
@@ -249,10 +254,16 @@ class HedgingDealer():
       pass
 
    async def _set_collateral_on_position(self, product, target_collateral):
+      if self._overseer_mode:
+         return
+
       await self._bfx.rest.set_derivative_collateral(symbol=product, collateral=target_collateral)
 
    async def _update_position(self, position):
       self._bitfinex_positions[position.symbol] = position
+
+      if self._overseer_mode:
+         return
 
       # check collateral
       if position.symbol == self.bitfinex_futures_hedging_product and position.collateral is not None:
@@ -355,6 +366,9 @@ class HedgingDealer():
       if len(self.leverex_balances) == 0:
          return
 
+      if self._overseer_mode:
+         return
+
       ask_volume = self.get_ask_offer_volume()
       bid_volume = self.get_bid_offer_volume()
 
@@ -432,6 +446,9 @@ class HedgingDealer():
       await self._send_bitfinex_order_request(quantity)
 
    async def _send_bitfinex_order_request(self, quantity):
+      if self._overseer_mode:
+         logging.error('Create Order on BF request ignored in overseer mode')
+         return
       await self._bfx.ws.submit_order(symbol=self.bitfinex_futures_hedging_product,
                                       leverage=self.bitfinex_leverage,
                                       # this is a market order. price is ignored
@@ -459,12 +476,14 @@ class HedgingDealer():
    def on_order_created(self, order):
       if order.product_type == self.leverex_product:
          self.store_active_order(order)
-         if order.is_trade_position:
-            # create order on bitfinex
-            asyncio.create_task(self._create_bitfinex_order(order))
-         else:
-            logging.info(f'[on_order_created] get rollover position {order.quantity} {order._rollover_type}')
-            asyncio.create_task(self._validate_position_size())
+
+         if not self._overseer_mode:
+            if order.is_trade_position:
+               # create order on bitfinex
+               asyncio.create_task(self._create_bitfinex_order(order))
+            else:
+               logging.info(f'[on_order_created] get rollover position {order.quantity} {order._rollover_type}')
+               asyncio.create_task(self._validate_position_size())
 
    async def _on_bitfinex_positions_loaded(self):
       self._bitfinex_position_loaded = True
@@ -475,6 +494,9 @@ class HedgingDealer():
       await self._validate_position_size()
 
    async def _validate_position_size(self):
+      if self._overseer_mode:
+         return
+
       if self._bitfinex_position_loaded and self._leverex_orders_loaded:
          bitfinex_position_size = 0
          if self._bitfinex_positions[self.bitfinex_futures_hedging_product] is not None:

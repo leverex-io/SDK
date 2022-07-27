@@ -17,6 +17,7 @@
    },
    "hedging_settings" :
    {
+      "overseer_mode" : true,
       "leverex_product" : "xbtusd_rf",
       "bitfinex_orderbook_product" : "tTESTBTCF0:TESTUSDTF0",
       "bitfinex_futures_hedging_product" : "tTESTBTCF0:TESTUSDTF0",
