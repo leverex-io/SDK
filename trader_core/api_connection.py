@@ -177,7 +177,7 @@ class AsyncApiConnection(object):
 
       self._requests_cb = {}
 
-   async def _call_cb(self, cb, *args, **kwargs):
+   async def _call_listener_cb(self, cb, *args, **kwargs):
       if asyncio.iscoroutinefunction(cb):
          await cb(*args, **kwargs)
       else:
@@ -191,6 +191,42 @@ class AsyncApiConnection(object):
          'load_balance' : {}
       }
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
+
+   async def load_deposit_address(self, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      load_deposit_address_request = {
+         'load_deposit_address' : {
+            'reference' : reference
+         }
+      }
+
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         listener_cb = getattr(self.listener, 'on_deposit_address_loaded', None)
+         if callable(listener_cb):
+            self._requests_cb[reference] = listener_cb
+
+      await self.websocket.send(json.dumps(load_deposit_address_request))
+
+   async def load_whitelisted_addresses(self, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      load_whitelisted_addresses_request = {
+         'load_addresses' : {
+            'reference' : reference
+         }
+      }
+
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         listener_cb = getattr(self.listener, 'on_whitelisted_addresses_loaded', None)
+         if callable(listener_cb):
+            self._requests_cb[reference] = listener_cb
+
+      await self.websocket.send(json.dumps(load_whitelisted_addresses_request))
 
    # callback(orders: list[Order] )
    async def load_open_positions(self, target_product, callback: Callable = None):
@@ -210,15 +246,25 @@ class AsyncApiConnection(object):
 
       await self.websocket.send(json.dumps(load_positions_request))
 
-   async def submit_offers(self, target_product: str, offers: PriceOffers):
+   async def submit_offers(self, target_product: str, offers: PriceOffers, callback: Callable = None):
       price_offers = [offer.to_map() for offer in offers if offer.to_map() is not None]
+
+      reference = self._generate_reference_id()
 
       submit_prices_request = {
          'submit_prices' : {
             'product_type' : target_product,
-            'prices' : price_offers
+            'prices' : price_offers,
+            'reference' : reference
          }
       }
+
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         listener_cb = getattr(self.listener, 'onSubmitPrices', None)
+         if callable(listener_cb):
+            self._requests_cb[reference] = listener_cb
 
       await self.websocket.send(json.dumps(submit_prices_request))
 
@@ -311,7 +357,38 @@ class AsyncApiConnection(object):
                raise Exception('Failed to subscribe to prices: {}'.format(update['subscribe']['error_msg']))
 
          elif 'submit_prices' in update:
-            self.listener.onSubmitPrices(update)
+            reference = update['submit_prices']['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               self._call_listener_cb(cb, update)
+            else:
+               logging.error(f'submit_prices response with unregistered request reference:{reference}')
+
+         elif 'load_addresses' in update:
+            reference = update['load_addresses']['reference']
+
+            addresses = {}
+
+            for entry in update['load_addresses']['addresses']:
+               addresses[entry['address']] = entry['description']
+
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               self._call_listener_cb(cb, addresses=addresses)
+            else:
+               logging.error(f'load_addresses response with unregistered request reference:{reference}')
+
+         elif 'load_deposit_address' in update:
+            reference = update['load_deposit_address']['reference']
+
+            address = update['load_deposit_address']['address']
+
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               self._call_listener_cb(cb, address=address)
+            else:
+               logging.error(f'load_deposit_address response with unregistered request reference:{reference}')
+
 
          elif 'load_orders' in update:
             orders = [Order(order_data) for order_data in update['load_orders']['orders']]
@@ -319,12 +396,9 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               if asyncio.iscoroutinefunction(cb):
-                  await cb(orders=orders)
-               else:
-                  cb(orders=orders)
+               self._call_listener_cb(cb, orders=orders)
             else:
-               logging.error(f'load_orders response with reference:{reference} is not expected')
+               logging.error(f'load_orders response with unregistered request  reference:{reference}')
 
          elif 'order_update' in update:
             order = Order(update['order_update']['order'])
@@ -335,10 +409,10 @@ class AsyncApiConnection(object):
                self.listener.on_order_filled(order)
 
          elif 'session_closed' in update:
-            await self._call_cb(self.listener.on_session_closed, SessionCloseInfo(update['session_closed']))
+            await self._call_listener_cb(self.listener.on_session_closed, SessionCloseInfo(update['session_closed']))
 
          elif 'session_open' in update:
-            await self._call_cb(self.listener.on_session_open, SessionOpenInfo(update['session_open']))
+            await self._call_listener_cb(self.listener.on_session_open, SessionOpenInfo(update['session_open']))
 
          elif 'authorize' in update:
             if not update['authorize']['success']:

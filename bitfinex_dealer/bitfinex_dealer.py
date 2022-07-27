@@ -21,6 +21,24 @@ from trader_core.product_mapping import get_product_info
 
 from bitfinx_order_book import AggregationOrderBook
 
+class DepositWithdrawAddresses():
+   def __init__(self, market_name):
+      self._market_name = market_name
+      self._deposit_address = None
+      self._withdraw_address = None
+
+   def set_withdraw_addresses(self, addresses):
+      self._withdraw_address = addresses
+
+   def get_withdraw_addresses(self):
+      return self._withdraw_address
+
+   def set_deposit_address(self, address):
+      self._deposit_address = address
+
+   def get_deposit_address(self):
+      return self._deposit_address
+
 class HedgingDealer():
    def __init__(self, configuration):
       self.hedging_settings = configuration['hedging_settings']
@@ -101,6 +119,7 @@ class HedgingDealer():
 
       self._app.get('/')(self.report_api_entry)
       self._app.get('/api/balance')(self.report_balance)
+      self._app.get('/api/rebalance_state')(self.report_rebalance_state)
       self._app.get('/api/leverex/session_info')(self.report_session_info)
       self._app.get('/api/bitfinex/position')(self.report_bitfinex_position)
 
@@ -116,6 +135,58 @@ class HedgingDealer():
 
       self._bitfinex_positions = { self.bitfinex_futures_hedging_product : None }
 
+      self._bitfinex_deposit_addresses = None
+      self._leverex_deposit_addresses = None
+      self._rebalance_enabled = False
+      self._rebalance_disable_reason = "Address info not loaded"
+
+   def _validate_rebalance_feature_state(self):
+      if self._leverex_deposit_addresses is None:
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Leverex addresses info not loaded"
+         return
+
+      if self._leverex_deposit_addresses.get_withdraw_addresses() is None:
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Leverex whitelisted addresses info not loaded"
+         return
+
+      if self._leverex_deposit_addresses.get_deposit_address() is None:
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Leverex deposit addresses info not loaded"
+         return
+
+      if len(self._leverex_deposit_addresses.get_deposit_address()):
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Leverex deposit addresses is empty"
+         return
+
+      if self._bitfinex_deposit_addresses is None:
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Bitfinex addresses info not loaded"
+         return
+
+      if self._bitfinex_deposit_addresses.get_deposit_address() is None:
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Bitfinex deposit addresses info not loaded"
+         return
+
+      if len(self._bitfinex_deposit_addresses.get_deposit_address()):
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Bitfinex deposit addresses is empty"
+         return
+
+      # validate that Bitfinex address is whitelisted on leverex
+      if self._bitfinex_deposit_addresses.get_deposit_address() not in self._leverex_deposit_addresses.get_withdraw_addresses():
+         self._rebalance_enabled = False
+         self._rebalance_disable_reason = "Bitfinex deposit addresses is not whitelisted on leverex"
+         return
+
+      # ATM we do not load whitelisted addresses for Bitfinex, since it is done via
+      # different API endpoint and undocumented API request
+
+      self._rebalance_enabled = True
+
    async def report_api_entry(self):
       html_content = """
        <html>
@@ -126,10 +197,45 @@ class HedgingDealer():
                <p><a href="/api/balance">current state balance</a></p>
                <p><a href="/api/leverex/session_info">info on current session on leverex</a></p>
                <p><a href="/api/bitfinex/position">info on current position on bitfinex</a></p>
+               <p><a href="/api/rebalance_state">Info on rebalance related data from both platforms</a></p>
            </body>
        </html>
        """
       return HTMLResponse(content=html_content, status_code=200)
+
+   async def report_rebalance_state(self):
+      result = {}
+
+      if self._bitfinex_deposit_addresses is not None:
+         info = {}
+
+         withdraw_addresses = self._bitfinex_deposit_addresses.get_withdraw_addresses()
+
+         info['deposit address'] = self._bitfinex_deposit_addresses.get_deposit_address()
+         info['withdraw addresses'] = withdraw_addresses if withdraw_addresses is not None else 'Loading not supported'
+
+         result['bitfinex'] = info
+      else:
+         result['bitfinex'] = 'Not loaded'
+
+      if self._leverex_deposit_addresses is not None:
+         info = {}
+
+         withdraw_addresses = self._leverex_deposit_addresses.get_withdraw_addresses()
+
+         info['deposit address'] = self._leverex_deposit_addresses.get_deposit_address()
+         info['withdraw addresses'] = withdraw_addresses if withdraw_addresses is not None else 'Not loaded'
+
+         result['leverex'] = info
+      else:
+         result['leverex'] = 'Not loaded'
+
+      if self._rebalance_enabled:
+         result['rebalance state'] = 'Enabled'
+      else:
+         result['rebalance state'] = f'Disabled: {self._rebalance_disable_reason}'
+
+      return result
 
    async def report_balance(self):
       leverex_balances = {}
@@ -407,6 +513,8 @@ class HedgingDealer():
    async def on_authorized(self):
       await self._leverex_connection.load_open_positions(target_product=self.leverex_product, callback=self.on_positions_loaded)
       await self._leverex_connection.subscribe_session_open(self.leverex_product)
+      await self._leverex_connection.load_deposit_address(callback=self.on_leverex_deposit_address_loaded)
+      await self._leverex_connection.load_whitelisted_addresses(callback=self.on_leverex_addresses_loaded)
 
    def on_market_data(self, update):
       logging.info('on_market_data: {}'.format(update))
@@ -432,6 +540,20 @@ class HedgingDealer():
          self.store_active_order(order)
       await self._on_leverex_positions_loaded()
       logging.info(f'======== {len(orders)} posiions loaded')
+
+   def on_leverex_deposit_address_loaded(self, address):
+      if self._leverex_deposit_addresses is None:
+         self._leverex_deposit_addresses = DepositWithdrawAddresses()
+
+      self._leverex_deposit_addresses.set_deposit_address(address)
+      self._validate_rebalance_feature_state()
+
+   def on_leverex_addresses_loaded(self, addresses):
+      if self._leverex_deposit_addresses is None:
+         self._leverex_deposit_addresses = DepositWithdrawAddresses()
+
+      self._leverex_deposit_addresses.set_withdraw_addresses(addresses, note)
+      self._validate_rebalance_feature_state()
 
    async def _create_bitfinex_order(self, leverex_order):
       # negative amount is sell, positive is buy
