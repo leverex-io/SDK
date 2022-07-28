@@ -5,6 +5,8 @@ import logging
 import os
 import sys
 
+import time
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -120,6 +122,7 @@ class HedgingDealer():
       self._app.get('/api/balance')(self.report_balance)
       self._app.get('/api/rebalance_state')(self.report_rebalance_state)
       self._app.get('/api/leverex/session_info')(self.report_session_info)
+      self._app.get('/api/leverex/deposits')(self.report_deposits)
       self._app.get('/api/bitfinex/position')(self.report_bitfinex_position)
 
       config = uvicorn.Config(self._app, host='0.0.0.0', port=configuration['status_server']['port'], log_level="debug")
@@ -197,6 +200,7 @@ class HedgingDealer():
            <body>
                <p><a href="/api/balance">current state balance</a></p>
                <p><a href="/api/leverex/session_info">info on current session on leverex</a></p>
+               <p><a href="/api/leverex/deposits">Leveres: deposits</a></p>
                <p><a href="/api/bitfinex/position">info on current position on bitfinex</a></p>
                <p><a href="/api/rebalance_state">Info on rebalance related data from both platforms</a></p>
            </body>
@@ -294,6 +298,29 @@ class HedgingDealer():
 
       return response
 
+   async def report_deposits(self):
+      loop = asyncio.get_running_loop()
+      fut = loop.create_future()
+
+      async def cb(deposits):
+         fut.set_result(deposits)
+
+      start_time = time.time()
+
+      await self._leverex_connection.load_deposits_history(callback=cb)
+      deposits = await fut
+
+      end_time = time.time()
+
+      deposits_info = [ { 'url' : d.unblinded_link, 'confirmations' : d.confirmations_count, 'tx_id' : d.transacion_id, 'timestamp' : str(d.timestamp)} for d in deposits]
+
+      loading_time = f'{end_time - start_time} seconds'
+
+      return {
+         'deposits' : deposits_info,
+         'loading_time' : loading_time
+      }
+
    async def report_session_info(self):
       session_info = {}
 
@@ -310,11 +337,13 @@ class HedgingDealer():
       logging.info('================= Authenticated to bitfinex')
 
       if self._bitfinex_deposit_addresses is None:
-         self._bitfinex_deposit_addresses = DepositWithdrawAddresses()
-
-         deposit_address = await self._bfx.rest.get_wallet_deposit_address(wallet='exchange', method=self._rebalance_method)
-         self._bitfinex_deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
-         self._validate_rebalance_feature_state()
+         try:
+            deposit_address = await self._bfx.rest.get_wallet_deposit_address(wallet='exchange', method=self._rebalance_method)
+            self._bitfinex_deposit_addresses = DepositWithdrawAddresses()
+            self._bitfinex_deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
+            self._validate_rebalance_feature_state()
+         except Exception as e:
+            logging.error(f'Failed to load Bitfinex deposit address: {str(e)}')
 
       # subscribe to order book
       await self._bfx.ws.subscribe('book', self.bitfinex_orderbook_product,
@@ -671,7 +700,7 @@ if __name__ == '__main__':
       'status_server' : ['port'],
       'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
       'bitfinex' : ['api_key', 'api_secret'],
-      'rebalance_settings' : ['bitfinex_method'],
+      'rebalance_settings' : ['bitfinex_method', 'bitfinex_rebalance_currency'],
       'hedging_settings' : ['leverex_product',
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',

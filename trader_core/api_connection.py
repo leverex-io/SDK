@@ -116,6 +116,83 @@ class Order():
    def fee(self):
       return self._fee
 
+class WithdrawInfo():
+   WITHDRAW_FAILED      = 0
+   WITHDRAW_ACCEPTED    = 1
+   WITHDRAW_PENDING     = 2
+   WITHDRAW_BROADCASTED = 3
+   WITHDRAW_COMPLETED   = 4
+   WITHDRAW_CANCELLED   = 5
+   WITHDRAW_BATCHED     = 6
+
+   status_text = {
+      WITHDRAW_FAILED : 'failed',
+      WITHDRAW_ACCEPTED : 'accepted',
+      WITHDRAW_PENDING : 'pending',
+      WITHDRAW_BROADCASTED : 'broadcasted',
+      WITHDRAW_COMPLETED : 'completed',
+      WITHDRAW_CANCELLED : 'cancelled',
+      WITHDRAW_BATCHED : 'batched'
+   }
+
+   def __init__(self, data):
+      self._id = str(data['id'])
+      self._status = int(data['status'])
+      self._recv_address = str(data['recv_address'])
+      self._currency = str(data['currency'])
+      self._amount = str(data['amount'])
+      self._timestamp = datetime.fromtimestamp(data['timestamp'])
+
+   @property
+   def id(self):
+      return self._id
+
+   @property
+   def status_code(self):
+      return self._status
+
+   @property
+   def status(self):
+      return self.status_text.get(self._status, "Undefined")
+
+   @property
+   def recv_address(self):
+      return self._recv_address
+
+   @property
+   def currency(self):
+      return self._currency
+
+   @property
+   def amount(self):
+      return self._amount
+
+   @property
+   def timestamp(self):
+      return self._timestamp
+
+class DepositInfo():
+   def __init__(self, data):
+      self._tx_id = str(data['tx_id'])
+      self._nb_conf = int(data['nb_conf'])
+      self._unblinded_link = str(data['unblinded_link'])
+      self._timestamp = datetime.fromtimestamp(data['timestamp'])
+
+   @property
+   def transacion_id(self):
+      return self._tx_id
+
+   @property
+   def confirmations_count(self):
+      return self._nb_conf
+
+   @property
+   def unblinded_link(self):
+      return self._unblinded_link
+
+   @property
+   def timestamp(self):
+      return self._timestamp
 
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None):
@@ -183,6 +260,13 @@ class AsyncApiConnection(object):
       else:
          cb(*args, **kwargs)
 
+   async def _call_listener_method(self, method_name: str,  *args, **kwargs):
+      listener_cb = getattr(self.listener, method_name, None)
+      if callable(listener_cb):
+         await self._call_listener_cb(listener_cb, *args, **kwargs)
+      else:
+         logging.error(f'{method_name} not defined in listener')
+
    def _generate_reference_id(self):
       return str(round(time.time() * 1000000))
 
@@ -209,6 +293,45 @@ class AsyncApiConnection(object):
             self._requests_cb[reference] = listener_cb
 
       await self.websocket.send(json.dumps(load_deposit_address_request))
+
+   async def load_deposits_history(self, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      load_deposits_history_request = {
+         'load_deposits' : {
+            'reference' : reference
+         }
+      }
+
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         listener_cb = getattr(self.listener, 'on_deposits_history_loaded', None)
+         if callable(listener_cb):
+            self._requests_cb[reference] = listener_cb
+
+      await self.websocket.send(json.dumps(load_deposits_history_request))
+
+   async def withdraw_liquid(self, *, address, currency, amount, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      withdraw_request = {
+         'withdraw_liquid' : {
+            'address' : str(address),
+            'currency' : str(currency),
+            'amount' : str(amount),
+            'reference' : reference
+         }
+      }
+
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         listener_cb = getattr(self.listener, 'on_withdraw_request_response', None)
+         if callable(listener_cb):
+            self._requests_cb[reference] = listener_cb
+
+      await self.websocket.send(json.dumps(withdraw_request))
 
    async def load_whitelisted_addresses(self, callback: Callable = None):
       reference = self._generate_reference_id()
@@ -315,6 +438,8 @@ class AsyncApiConnection(object):
          if self._login_client is not None:
             await self.login()
 
+            await self._call_listener_method('on_authorized')
+
             if asyncio.iscoroutinefunction(self.listener.on_authorized):
                await self.listener.on_authorized()
             else:
@@ -364,6 +489,14 @@ class AsyncApiConnection(object):
             else:
                logging.error(f'submit_prices response with unregistered request reference:{reference}')
 
+         elif 'withdraw_liquid' in update:
+            reference = update['withdraw_liquid']['reference']
+            if reference in self._requests_cb:
+               withdraw_info = WithdrawInfo(update['withdraw_liquid'])
+               await self._call_listener_cb(cb, withdraw_info)
+            else:
+               logging.error(f'withdraw_liquid response with unregistered request reference:{reference}')
+
          elif 'load_addresses' in update:
             reference = update['load_addresses']['reference']
 
@@ -374,7 +507,7 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               await self._call_listener_cb(cb, addresses=addresses)
+               await self._call_listener_cb(cb, addresses)
             else:
                logging.error(f'load_addresses response with unregistered request reference:{reference}')
 
@@ -385,10 +518,20 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               await self._call_listener_cb(cb, address=address)
+               await self._call_listener_cb(cb, address)
             else:
                logging.error(f'load_deposit_address response with unregistered request reference:{reference}')
 
+         elif 'load_deposits' in update:
+            reference = update['load_deposits']['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+
+               deposits = [DepositInfo(entry) for entry in update['load_deposits']['deposits']]
+
+               await self._call_listener_cb(cb, deposits)
+            else:
+               logging.error(f'load_deposits response with unregistered request reference:{reference}')
 
          elif 'load_orders' in update:
             orders = [Order(order_data) for order_data in update['load_orders']['orders']]
@@ -396,7 +539,7 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-               await self._call_listener_cb(cb, orders=orders)
+               await self._call_listener_cb(cb, orders)
             else:
                logging.error(f'load_orders response with unregistered request  reference:{reference}')
 

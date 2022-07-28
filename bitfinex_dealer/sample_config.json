@@ -31,7 +31,8 @@
    },
    "rebalance_settings" :
    {
-      "bitfinex_method" : "TETHERUSL"
+      "bitfinex_method" : "TETHERUSL",
+      "bitfinex_rebalance_currency" : "TESTUSDT"
    },
    "log_level" : "INFO"
 }
