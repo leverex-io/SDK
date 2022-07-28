@@ -137,11 +137,13 @@ class WithdrawInfo():
 
    def __init__(self, data):
       self._id = str(data['id'])
+      self._tx_id = str(data['tx_id'])
       self._status = int(data['status'])
       self._recv_address = str(data['recv_address'])
       self._currency = str(data['currency'])
       self._amount = str(data['amount'])
       self._timestamp = datetime.fromtimestamp(data['timestamp'])
+      self._unblinded_link = str(data['unblinded_link'])
 
    @property
    def id(self):
@@ -170,6 +172,14 @@ class WithdrawInfo():
    @property
    def timestamp(self):
       return self._timestamp
+
+   @property
+   def unblinded_link(self):
+      return self._unblinded_link
+
+   @property
+   def transacion_id(self):
+      return self._tx_id
 
 class DepositInfo():
    def __init__(self, data):
@@ -293,6 +303,23 @@ class AsyncApiConnection(object):
             self._requests_cb[reference] = listener_cb
 
       await self.websocket.send(json.dumps(load_deposit_address_request))
+
+   async def load_withdrawals_history(self, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      load_withdrawals_history_request = {
+         'load_withdrawals' : {
+            'reference' : reference
+         }
+      }
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         listener_cb = getattr(self.listener, 'on_withdrawals_history_loaded', None)
+         if callable(listener_cb):
+            self._requests_cb[reference] = listener_cb
+
+      await self.websocket.send(json.dumps(load_withdrawals_history_request))
 
    async def load_deposits_history(self, callback: Callable = None):
       reference = self._generate_reference_id()
@@ -521,6 +548,17 @@ class AsyncApiConnection(object):
                await self._call_listener_cb(cb, address)
             else:
                logging.error(f'load_deposit_address response with unregistered request reference:{reference}')
+
+         elif 'load_withdrawals' in update:
+            reference = update['load_withdrawals']['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+
+               withdrawals = [WithdrawInfo(entry) for entry in update['load_withdrawals']['withdrawals']]
+
+               await self._call_listener_cb(cb, withdrawals)
+            else:
+               logging.error(f'load_withdrawals response with unregistered request reference:{reference}')
 
          elif 'load_deposits' in update:
             reference = update['load_deposits']['reference']

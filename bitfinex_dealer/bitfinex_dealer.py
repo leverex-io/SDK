@@ -123,6 +123,7 @@ class HedgingDealer():
       self._app.get('/api/rebalance_state')(self.report_rebalance_state)
       self._app.get('/api/leverex/session_info')(self.report_session_info)
       self._app.get('/api/leverex/deposits')(self.report_deposits)
+      self._app.get('/api/leverex/withdrawals')(self.report_withdrawals)
       self._app.get('/api/bitfinex/position')(self.report_bitfinex_position)
 
       config = uvicorn.Config(self._app, host='0.0.0.0', port=configuration['status_server']['port'], log_level="debug")
@@ -201,6 +202,7 @@ class HedgingDealer():
                <p><a href="/api/balance">current state balance</a></p>
                <p><a href="/api/leverex/session_info">info on current session on leverex</a></p>
                <p><a href="/api/leverex/deposits">Leveres: deposits</a></p>
+               <p><a href="/api/leverex/withdrawals">Leveres: withdrawals</a></p>
                <p><a href="/api/bitfinex/position">info on current position on bitfinex</a></p>
                <p><a href="/api/rebalance_state">Info on rebalance related data from both platforms</a></p>
            </body>
@@ -297,6 +299,29 @@ class HedgingDealer():
             response[position.symbol] = position_info
 
       return response
+
+   async def report_withdrawals(self):
+      loop = asyncio.get_running_loop()
+      fut = loop.create_future()
+
+      async def cb(withdrawals):
+         fut.set_result(withdrawals)
+
+      start_time = time.time()
+
+      await self._leverex_connection.load_withdrawals_history(callback=cb)
+      withdrawals = await fut
+
+      end_time = time.time()
+
+      withdrawals_info = [ { 'url' : w.unblinded_link, 'timestamp' : str(w.timestamp), 'tx_id' : w.transacion_id, 'amount' : w.amount} for w in withdrawals ]
+
+      loading_time = f'{end_time - start_time} seconds'
+
+      return {
+         'withdrawals' : withdrawals_info,
+         'loading_time' : loading_time
+      }
 
    async def report_deposits(self):
       loop = asyncio.get_running_loop()
