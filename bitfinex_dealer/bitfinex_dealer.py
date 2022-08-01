@@ -571,8 +571,14 @@ class HedgingDealer():
       if balances is None:
          return None
 
+      reported_total = balances['total']
       free_balance = balances['free']
       reserved_balance = balances['reserved']
+
+      # NOTE: in case all the cash was removed from here - it will be 0
+      # and no update to set free from None to 0 from Bitfinex
+      if reported_total == 0:
+         return 0
 
       if free_balance is None or reserved_balance is None:
          return None
@@ -782,6 +788,7 @@ class HedgingDealer():
       if total_leverex_balance is not None and total_bitfinex_balance is not None:
          difference = abs(total_bitfinex_balance - total_leverex_balance)
          report['balance diff'] = difference
+         report['to transfer'] = difference / 2
          report['balance threshold'] = self._rebalance_threshold
 
          if self._rebalance_threshold < difference:
