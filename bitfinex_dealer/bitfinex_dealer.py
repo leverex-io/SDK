@@ -151,6 +151,7 @@ class HedgingDealer():
       # DEVELOPMENT SETTINGS, that should be completely removed on PROD version
       self._force_rebalance_enabled = rebalance_settings.get('force_rebalance_enabled', False)
       self._simulate_bitfinex_withdraw = rebalance_settings.get('simulate_bitfinex_withdraw', False)
+      self._simulate_wait_for_leverex_deposit = rebalance_settings.get('simulate_wait_for_leverex_deposit', False)
       self._force_leverex_deposit_address = rebalance_settings.get('force_leverex_deposit_address', None)
       self._force_bitfinex_deposit_address = rebalance_settings.get('force_bitfinex_deposit_address', None)
       # end of DEVELOPMENT SETTINGS
@@ -796,6 +797,11 @@ class HedgingDealer():
             if self._rebalance_enabled:
                if total_bitfinex_balance > total_leverex_balance:
                   report['rebalance state'] = 'Required from Bitfinex to Leverex'
+                  # if we are simulating withdraw from bitfinex and we should not
+                  # wait for a deposit - full difference amount should be transfered
+                  # to avoid multiple rebalances in a row with [ diff_i/2 ] сonvergent series
+                  if not self._simulate_wait_for_leverex_deposit and self._simulate_bitfinex_withdraw:
+                     report['to transfer'] = round(difference)
                else:
                   report['rebalance state'] = 'Required from Leverex to Bitfinex'
             else:
@@ -915,6 +921,7 @@ class HedgingDealer():
       if self._simulate_bitfinex_withdraw:
          # make a transfer to a margin wallet
          retry_count = 0
+
          while True:
             try:
                await self._bfx.rest.submit_wallet_transfer(to_wallet='trading',
@@ -928,10 +935,13 @@ class HedgingDealer():
                if retry_count > 3:
                   raise e
 
-               logging.error(f'Transfer failed on Bitfinex. Retry in 1 second : {str(e)}')
-               await asyncio.sleep(1)
+               delay = 2 * retry_count
 
-         self._rebalance_from_bitfinex_completed()
+               logging.error(f'Transfer failed on Bitfinex. Retry in {delay} second : {str(e)}')
+               await asyncio.sleep(delay)
+
+         if not self._simulate_wait_for_leverex_deposit:
+            self._rebalance_from_bitfinex_completed()
 
       else:
          if self._force_leverex_deposit_address is not None:
@@ -971,10 +981,7 @@ class HedgingDealer():
    async def _rebalance_from_leverex_to_bitfinex(self):
       self._start_rebalance_from_leverex()
 
-      # XXX
-      # validate address, check for a forced  address, if BF address is not whitelisted
       # use forced address, even if it is not whitelisted
-
       bitfinex_deposit_address = None
       if self._force_bitfinex_deposit_address is not None:
          bitfinex_deposit_address = self._force_bitfinex_deposit_address
@@ -1052,9 +1059,11 @@ class HedgingDealer():
          else:
             logging.error(f'[on_order_filled] order {order.id} is not in a list')
 
+
 def main(configuration):
    dealer = HedgingDealer(configuration=configuration)
    asyncio.run(dealer.run())
+
 
 if __name__ == '__main__':
    input_parser = argparse.ArgumentParser()
