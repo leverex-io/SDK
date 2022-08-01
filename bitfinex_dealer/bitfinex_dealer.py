@@ -2,26 +2,24 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
-
 import time
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-sys.path.append('..')
-
 from bfxapi import Client
 from bfxapi import Order as BitfinexOrder
 from bfxapi.models import Position
-from bfxapi.models import Notification
+
+sys.path.append('..')
 
 from trader_core.api_connection import AsyncApiConnection, PriceOffer
 from trader_core.product_mapping import get_product_info
 
 from bitfinx_order_book import AggregationOrderBook
+
 
 class DepositWithdrawAddresses():
    def __init__(self):
@@ -40,6 +38,7 @@ class DepositWithdrawAddresses():
    def get_deposit_address(self):
       return self._deposit_address
 
+
 class HedgingDealer():
    def __init__(self, configuration):
       self.hedging_settings = configuration['hedging_settings']
@@ -48,7 +47,7 @@ class HedgingDealer():
       if 'overseer_mode' in self.hedging_settings:
          self._overseer_mode = bool(self.hedging_settings['overseer_mode'])
 
-      # setup bitfinex connection
+      # setup Bitfinex connection
       self.bitfinex_book = AggregationOrderBook()
 
       self.bitfinex_config = configuration['bitfinex']
@@ -83,11 +82,9 @@ class HedgingDealer():
       if 'log_level' in self.bitfinex_config:
          bitfinex_log_level = self.bitfinex_config['log_level']
 
-      self._bfx = Client(
-        API_KEY=self.bitfinex_config['api_key'],
-        API_SECRET=self.bitfinex_config['api_secret'],
-        logLevel=bitfinex_log_level
-      )
+      self._bfx = Client(API_KEY=self.bitfinex_config['api_key'],
+                         API_SECRET=self.bitfinex_config['api_secret'],
+                         logLevel=bitfinex_log_level)
 
       self._bfx.ws.on('authenticated', self.on_bitfinex_authenticated)
       self._bfx.ws.on('balance_update', self.on_bitfinex_balance_updated)
@@ -105,8 +102,7 @@ class HedgingDealer():
       self._bfx.ws.on('position_close', self._on_bitfinex_position_close)
       self._bfx.ws.on('margin_info_update', self._on_bitfinex_margin_info_update)
 
-      # setup leverex connection
-      # 'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
+      # setup Leverex connection
       self._leverex_config = configuration['leverex']
       self._leverex_connection = AsyncApiConnection(customer_email=self._leverex_config['email'],
                                                     api_endpoint=self._leverex_config['api_endpoint'],
@@ -120,10 +116,14 @@ class HedgingDealer():
 
       self._app.get('/')(self.report_api_entry)
       self._app.get('/api/balance')(self.report_balance)
+
+      self._app.get('/api/rebalance_address_info')(self.report_rebalance_address_info)
       self._app.get('/api/rebalance_state')(self.report_rebalance_state)
+
       self._app.get('/api/leverex/session_info')(self.report_session_info)
       self._app.get('/api/leverex/deposits')(self.report_deposits)
       self._app.get('/api/leverex/withdrawals')(self.report_withdrawals)
+
       self._app.get('/api/bitfinex/position')(self.report_bitfinex_position)
 
       config = uvicorn.Config(self._app, host='0.0.0.0', port=configuration['status_server']['port'], log_level="debug")
@@ -136,54 +136,74 @@ class HedgingDealer():
       self._bitfinex_position_loaded = False
       self._leverex_orders_loaded = False
 
-      self._bitfinex_positions = { self.bitfinex_futures_hedging_product : None }
+      self._bitfinex_positions = {self.bitfinex_futures_hedging_product: None}
 
       self._bitfinex_deposit_addresses = None
       self._leverex_deposit_addresses = None
       self._rebalance_enabled = False
       self._rebalance_disable_reason = "Address info not loaded"
 
-      self._rebalance_method = configuration['rebalance_settings']['bitfinex_method']
+      rebalance_settings = configuration['rebalance_settings']
+
+      self._force_rebalance_enabled = rebalance_settings.get('force_rebalance_enabled', False)
+
+      # DEVELOPMENT SETTINGS, that should be completely removed on PROD version
+      self._simulate_bitfinex_withdraw = rebalance_settings.get('simulate_bitfinex_withdraw', False)
+      self._force_leverex_deposit_address = rebalance_settings.get('force_leverex_deposit_address', None)
+      self._force_bitfinex_deposit_address = rebalance_settings.get('force_bitfinex_deposit_address', None)
+      # end of DEVELOPMENT SETTINGS
+
+      self._rebalance_method = rebalance_settings['bitfinex_method']
+      self._rebalance_threshold = float(rebalance_settings['rebalance_threshold'])
+      self._bitfinex_rebalance_currency = rebalance_settings['bitfinex_rebalance_currency']
+      self._bitfinex_rebalance_wallet = 'exchange'
+
+      # rebalance state variables
+      self._rebalance_in_progress = False
+      self._withdraw_amount = False
+
+      self._bitfinex_withdraw_scheduled = False
+      self._leverex_withdraw_scheduled = False
 
    def _validate_rebalance_feature_state(self):
       if self._leverex_deposit_addresses is None:
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Leverex addresses info not loaded"
          return
 
       if self._leverex_deposit_addresses.get_withdraw_addresses() is None:
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Leverex whitelisted addresses info not loaded"
          return
 
       if self._leverex_deposit_addresses.get_deposit_address() is None:
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Leverex deposit addresses info not loaded"
          return
 
       if len(self._leverex_deposit_addresses.get_deposit_address()) == 0:
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Leverex deposit addresses is empty"
          return
 
       if self._bitfinex_deposit_addresses is None:
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Bitfinex addresses info not loaded"
          return
 
       if self._bitfinex_deposit_addresses.get_deposit_address() is None:
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Bitfinex deposit addresses info not loaded"
          return
 
       if len(self._bitfinex_deposit_addresses.get_deposit_address()) == 0:
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Bitfinex deposit addresses is empty"
          return
 
       # validate that Bitfinex address is whitelisted on leverex
       if self._bitfinex_deposit_addresses.get_deposit_address() not in self._leverex_deposit_addresses.get_withdraw_addresses():
-         self._rebalance_enabled = False
+         self._rebalance_enabled = self._force_rebalance_enabled
          self._rebalance_disable_reason = "Bitfinex deposit addresses is not whitelisted on leverex"
          return
 
@@ -199,18 +219,25 @@ class HedgingDealer():
                <title>Delaer API</title>
            </head>
            <body>
-               <p><a href="/api/balance">current state balance</a></p>
-               <p><a href="/api/leverex/session_info">info on current session on leverex</a></p>
-               <p><a href="/api/leverex/deposits">Leveres: deposits</a></p>
-               <p><a href="/api/leverex/withdrawals">Leveres: withdrawals</a></p>
-               <p><a href="/api/bitfinex/position">info on current position on bitfinex</a></p>
-               <p><a href="/api/rebalance_state">Info on rebalance related data from both platforms</a></p>
+               <p>General</p>
+               <p>&emsp;<a href="/api/balance">Balances</a></p>
+               <p>&emsp;<a href="/api/rebalance_address_info">Info on rebalance related addresses data</a></p>
+               <p>&emsp;<a href="/api/rebalance_state">Current rebalance state</a></p>
+               <p>Leverex</p>
+               <p>&emsp;<a href="/api/leverex/deposits">Deposits</a></p>
+               <p>&emsp;<a href="/api/leverex/withdrawals">Withdrawals</a></p>
+               <p>&emsp;<a href="/api/leverex/session_info">Current session info</a></p>
+               <p>Bitfinex</p>
+               <p>&emsp;<a href="/api/bitfinex/position">Current position</a></p>
            </body>
        </html>
        """
       return HTMLResponse(content=html_content, status_code=200)
 
    async def report_rebalance_state(self):
+      return self._get_rebalance_state_report()
+
+   async def report_rebalance_address_info(self):
       result = {}
 
       if self._bitfinex_deposit_addresses is not None:
@@ -219,6 +246,8 @@ class HedgingDealer():
          withdraw_addresses = self._bitfinex_deposit_addresses.get_withdraw_addresses()
 
          info['deposit address'] = self._bitfinex_deposit_addresses.get_deposit_address()
+         if self._force_bitfinex_deposit_address is not None:
+            info['forced deposit address'] = self._force_bitfinex_deposit_address
          info['withdraw addresses'] = withdraw_addresses if withdraw_addresses is not None else 'Loading not supported'
 
          result['bitfinex'] = info
@@ -231,6 +260,8 @@ class HedgingDealer():
          withdraw_addresses = self._leverex_deposit_addresses.get_withdraw_addresses()
 
          info['deposit address'] = self._leverex_deposit_addresses.get_deposit_address()
+         if self._force_leverex_deposit_address is not None:
+            info['forced deposit address'] = self._force_leverex_deposit_address
          info['withdraw addresses'] = withdraw_addresses if withdraw_addresses is not None else 'Not loaded'
 
          result['leverex'] = info
@@ -318,9 +349,9 @@ class HedgingDealer():
 
       loading_time = f'{end_time - start_time} seconds'
 
-      return {
-         'withdrawals' : withdrawals_info,
-         'loading_time' : loading_time
+      return{
+         'withdrawals': withdrawals_info,
+         'loading_time': loading_time
       }
 
    async def report_deposits(self):
@@ -363,7 +394,8 @@ class HedgingDealer():
 
       if self._bitfinex_deposit_addresses is None:
          try:
-            deposit_address = await self._bfx.rest.get_wallet_deposit_address(wallet='exchange', method=self._rebalance_method)
+            deposit_address = await self._bfx.rest.get_wallet_deposit_address(wallet=self._bitfinex_rebalance_wallet,
+                                                                              method=self._rebalance_method)
             self._bitfinex_deposit_addresses = DepositWithdrawAddresses()
             self._bitfinex_deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
             self._validate_rebalance_feature_state()
@@ -391,7 +423,7 @@ class HedgingDealer():
       for wallet in wallets_snapshot:
          self.on_bitfinex_wallet_update(wallet)
 
-   def on_bitfinex_wallet_update(self, wallet):
+   async def on_bitfinex_wallet_update(self, wallet):
       if wallet.type not in self._bitfinex_balances:
          self._bitfinex_balances[wallet.type] = {}
 
@@ -410,6 +442,10 @@ class HedgingDealer():
       balances['reserved'] = reserved_balance
 
       self._bitfinex_balances[wallet.type][wallet.currency] = balances
+
+      if free_balance is not None:
+         await self._complete_transfer()
+         await self._rebalance_if_required()
 
    async def _on_bitfinex_order_new(self, order):
       pass
@@ -497,6 +533,50 @@ class HedgingDealer():
 
       return 0
 
+   # this function should return None, if balance is not loaded
+   # 0 balance and not loaded balances are different when this method is used
+   def _get_leverex_total(self):
+      if not self._target_margin_product in self.leverex_balances:
+         return None
+      if not self._target_ccy_product in self.leverex_balances:
+         return None
+
+      return self._get_buying_power() + self._get_margin_reserved()
+
+   def _get_bitfinex_transfer_balance(self):
+      wallets = self._bitfinex_balances.get(self._bitfinex_rebalance_wallet, None)
+      if wallets is None:
+         return None
+
+      balances = wallets.get(self._bitfinex_rebalance_currency, None)
+      if balances is None:
+         return None
+
+      return balances['free']
+
+   # USAGE NOTE: if there is 0 balance on margin - we could never get this balance
+   # and None will be always returned.
+   # Issue that it could cause - no rebalance ever.
+   # Considerations:
+   #  - return 0 if there is no such wallet or currency. But it is unclear if it was loaded or not
+   #  - always have non-zero balance added manually to a margin.
+   def _get_bitfinex_total(self):
+      derivatives_wallets = self._bitfinex_balances.get('margin', None)
+      if derivatives_wallets is None:
+         return None
+
+      balances = derivatives_wallets.get(self.bitfinex_margin_wallet, None)
+      if balances is None:
+         return None
+
+      free_balance = balances['free']
+      reserved_balance = balances['reserved']
+
+      if free_balance is None or reserved_balance is None:
+         return None
+
+      return free_balance + reserved_balance
+
    def _get_net_exposure(self):
       return self._net_exposure
 
@@ -552,8 +632,8 @@ class HedgingDealer():
          if bid.volume < bid_volume:
             bid_volume = bid.volume
 
-         ask_price = ask.price*(1+self.price_ratio)
-         bid_price = bid.price*(1-self.price_ratio)
+         ask_price = ask.price * (1 + self.price_ratio)
+         bid_price = bid.price * (1 - self.price_ratio)
 
          if ask_volume == bid_volume:
             offer = PriceOffer(volume=ask_volume, ask=ask_price, bid=bid_price)
@@ -580,10 +660,12 @@ class HedgingDealer():
    def on_market_data(self, update):
       logging.info('on_market_data: {}'.format(update))
 
-   def onLoadBalance(self, balances):
+   async def onLoadBalance(self, balances):
       logging.info('Balance loaded {}'.format(balances))
       for balance_info in balances:
          self.leverex_balances[balance_info['currency']] = float(balance_info['balance'])
+
+      await self._rebalance_if_required()
 
    def onSubmitPrices(self, update):
       pass
@@ -600,7 +682,7 @@ class HedgingDealer():
       for order in orders:
          self.store_active_order(order)
       await self._on_leverex_positions_loaded()
-      logging.info(f'======== {len(orders)} posiions loaded')
+      logging.info(f'======== {len(orders)} positions loaded from Leverex')
 
    def on_leverex_deposit_address_loaded(self, address):
       if self._leverex_deposit_addresses is None:
@@ -618,13 +700,13 @@ class HedgingDealer():
 
    async def _create_bitfinex_order(self, leverex_order):
       # negative amount is sell, positive is buy
-      # we need to invert leverex side here
+      # we need to invert Leverex side here
       if leverex_order.is_sell:
          quantity = leverex_order.quantity
       else:
          quantity = -leverex_order.quantity
 
-      logging.info(f'Submitting order to bitfinex {quantity}')
+      logging.info(f'Submitting order to Bitfinex {quantity}')
 
       await self._send_bitfinex_order_request(quantity)
 
@@ -645,7 +727,6 @@ class HedgingDealer():
       if not order.is_trade_position:
          # this position is rollover position
          # and it carries full exposure for a session
-         logging.info('[store_active_order] Net exposure reseted before rollover')
          self._net_exposure = 0
 
       if order.is_sell:
@@ -655,14 +736,14 @@ class HedgingDealer():
 
       logging.info(f'[store_active_order] Net exposure : {self._net_exposure}')
 
-   # position matched on leverex
+   # position matched on Leverex
    def on_order_created(self, order):
       if order.product_type == self.leverex_product:
          self.store_active_order(order)
 
          if not self._overseer_mode:
             if order.is_trade_position:
-               # create order on bitfinex
+               # create order on Bitfinex
                asyncio.create_task(self._create_bitfinex_order(order))
             else:
                logging.info(f'[on_order_created] get rollover position {order.quantity} {order._rollover_type}')
@@ -675,6 +756,234 @@ class HedgingDealer():
    async def _on_leverex_positions_loaded(self):
       self._leverex_orders_loaded = True
       await self._validate_position_size()
+
+   def _get_rebalance_state_report(self):
+      report = {}
+
+      report['in progress'] = self._rebalance_in_progress
+
+      # validate that Leverex balance is loaded
+      total_leverex_balance = self._get_leverex_total()
+      if total_leverex_balance is None:
+         report['leverex balance'] = 'not available'
+      else:
+         report['leverex balance'] = total_leverex_balance
+
+      total_bitfinex_balance = self._get_bitfinex_total()
+      if total_bitfinex_balance is None:
+         report['bitfinex balance'] = 'not available'
+      else:
+         report['bitfinex balance'] = total_bitfinex_balance
+
+      report['rebalance required'] = False
+
+      if total_leverex_balance is not None and total_bitfinex_balance is not None:
+         difference = abs(total_bitfinex_balance - total_leverex_balance)
+         report['balance diff'] = difference
+         report['balance threshold'] = self._rebalance_threshold
+
+         if self._rebalance_threshold < difference:
+            report['rebalance required'] = self._rebalance_enabled
+            if self._rebalance_enabled:
+               if total_bitfinex_balance > total_leverex_balance:
+                  report['rebalance state'] = 'Required from Bitfinex to Leverex'
+               else:
+                  report['rebalance state'] = 'Required from Leverex to Bitfinex'
+            else:
+               report['rebalance state'] = 'Disabled'
+         else:
+            report['rebalance state'] = 'Not required'
+
+      return report
+
+   async def _complete_transfer(self):
+      # check that Bitfinex have completed monetary check and transfer wallet and
+      # margin wallets are unlocked and have available balance
+      transfer_balance = self._get_bitfinex_transfer_balance()
+      if transfer_balance is None or transfer_balance == 0:
+         return
+
+      derivatives_balance = self._get_bitfinex_total()
+      if derivatives_balance is None:
+         return
+
+      if self._bitfinex_withdraw_scheduled:
+         # if this is a withdraw from Bitfinex to Leverex - create withdraw request
+         if transfer_balance != self._withdraw_amount:
+            logging.error(f'BF->LEVEREX: Unexpected transfer amount: {self._withdraw_amount} is expected, but {transfer_balance} detected on transfer wallet')
+            return
+
+         await self._make_bitfinex_withdraw(transfer_balance)
+      else:
+         if self._leverex_withdraw_scheduled:
+            # validate amount
+            if transfer_balance != self._withdraw_amount:
+               logging.error(f'LEVEREX->BF: Unexpected transfer amount: {self._withdraw_amount} is expected, but {transfer_balance} detected on transfer wallet')
+               # not a critical error. cash should be transferred form transfer
+               # wallet to a margin wallet
+            # put cash to margin wallet
+            await self._transfer_from_deposit(transfer_balance)
+            # complete rebalance
+            self._rebalance_from_leverex_completed()
+         else:
+            # just transfer cash to a margin wallet
+            await self._transfer_from_deposit(transfer_balance)
+
+   async def _rebalance_if_required(self):
+      rebalance_report = self._get_rebalance_state_report()
+      if rebalance_report['rebalance required']:
+         # already marked as in progress
+         if rebalance_report['in progress']:
+            return
+
+         total_leverex_balance = rebalance_report['leverex balance']
+         total_bitfinex_balance = rebalance_report['bitfinex balance']
+
+         rebalance_amount = rebalance_report['balance diff'] / 2
+
+         if total_bitfinex_balance > total_leverex_balance:
+            await self._rebalance_from_bitfinex_to_leverex(rebalance_amount)
+         else:
+            await self._rebalance_from_leverex_to_bitfinex(rebalance_amount)
+
+   def _start_rebalance(self, amount):
+      if self._rebalance_in_progress:
+         raise Exception('Rebalance already started')
+
+      self._rebalance_in_progress = True
+      self._withdraw_amount = amount
+
+   def _rebalance_completed(self):
+      if not self._rebalance_in_progress:
+         raise Exception('Rebalance not started')
+
+      self._rebalance_in_progress = False
+      self._withdraw_amount = 0
+
+   def _rebalance_from_bitfinex_completed(self):
+      if not self._bitfinex_withdraw_scheduled:
+         raise Exception('Rebalance from Bitfinex was not started')
+
+      self._rebalance_completed()
+      self._bitfinex_withdraw_scheduled = False
+
+   def _rebalance_from_leverex_completed(self):
+      if not self._leverex_withdraw_scheduled:
+         raise Exception('Rebalance from Leverex was not started')
+
+      self._rebalance_completed()
+      self._leverex_withdraw_scheduled = False
+
+   def _start_rebalance_from_bitfinex(self, amount):
+      logging.debug(f'Starting withdraw from Bitfinex: {amount}')
+      self._start_rebalance(amount)
+      self._bitfinex_withdraw_scheduled = True
+
+   def _start_rebalance_from_leverex(self, amount):
+      self._start_rebalance(amount)
+      self._leverex_withdraw_scheduled = True
+
+   async def _transfer_to_withdraw(self, amount):
+      await self._bfx.rest.submit_wallet_transfer(from_wallet='trading',
+                                                  to_wallet=self._bitfinex_rebalance_wallet,
+                                                  from_currency=self.bitfinex_margin_wallet,
+                                                  to_currency=self._bitfinex_rebalance_currency,
+                                                  amount=amount)
+
+   # transfer cash from BF "transfer" wallet to a margin wallet
+   async def _transfer_from_deposit(self, amount):
+      await self._bfx.rest.submit_wallet_transfer(to_wallet='trading',
+                                                  from_wallet=self._bitfinex_rebalance_wallet,
+                                                  to_currency=self.bitfinex_margin_wallet,
+                                                  from_currency=self._bitfinex_rebalance_currency,
+                                                  amount=amount)
+
+   async def _make_bitfinex_withdraw(self, amount):
+      if self._simulate_bitfinex_withdraw:
+         # make a transfer to a margin wallet
+         await self._bfx.rest.submit_wallet_transfer(to_wallet='trading',
+                                                     from_wallet=self._bitfinex_rebalance_wallet,
+                                                     to_currency=self._bitfinex_rebalance_currency,
+                                                     from_currency=self._bitfinex_rebalance_currency,
+                                                     amount=amount)
+      else:
+         if self._force_leverex_deposit_address is not None:
+            leverex_deposit_address = self._force_leverex_deposit_address
+         else:
+            if self._leverex_deposit_addresses is None or self._leverex_deposit_addresses.get_deposit_address() is None:
+               logging.error('Leverex deposit address is undefined. Could not rebalance')
+               return
+            leverex_deposit_address = self._leverex_deposit_addresses.get_deposit_address()
+
+         await self._bfx.rest.submit_wallet_withdraw(wallet='trading',
+                                                     method=self._rebalance_method,
+                                                     amount=amount,
+                                                     address=leverex_deposit_address)
+      self._rebalance_from_bitfinex_completed()
+
+   async def _rebalance_from_bitfinex_to_leverex(self, amount):
+      self._start_rebalance_from_bitfinex(amount)
+
+      # transfer to withdraw wallet
+      try:
+         # actual withdraw request will be created right after balance update received
+         await self._transfer_to_withdraw(amount)
+      except Exception:
+         logging.exception(f'Failed to transfer {amount} to exchange wallet {self.bitfinex_margin_wallet}')
+         self._rebalance_from_bitfinex_completed()
+
+   async def _rebalance_from_leverex_to_bitfinex(self):
+      self._start_rebalance_from_leverex()
+
+      # XXX
+      # validate address, check for a forced  address, if BF address is not whitelisted
+      # use forced address, even if it is not whitelisted
+
+      bitfinex_deposit_address = None
+      if self._force_bitfinex_deposit_address is not None:
+         bitfinex_deposit_address = self._force_bitfinex_deposit_address
+      else:
+         if self._bitfinex_deposit_addresses is None or self._bitfinex_deposit_addresses.get_deposit_address() is None:
+            logging.error('Bitfinex deposit address is not loaded. Could not rebalance')
+            return
+
+         bitfinex_deposit_address = self._bitfinex_deposit_addresses.get_deposit_address()
+         if len(bitfinex_deposit_address) == 0:
+            logging.error('Bitfinex deposit address is an empty string. Could not rebalance')
+            return
+
+         # NOTE: if force_rebalance_enabled is set - address whitelisting should be skipped
+         if not self._force_rebalance_enabled:
+            if self._leverex_deposit_addresses is None or self._leverex_deposit_addresses.get_withdraw_addresses() is None:
+               logging.error('Leverex whitelisted addresses list is not loaded. Could not rebalance')
+               return
+
+            if bitfinex_deposit_address not in self._leverex_deposit_addresses.get_withdraw_addresses():
+               logging.error('Leverex whitelisted addresses list is not loaded. Could not rebalance')
+               return
+
+      logging.info(f'Creating rebalance withdraw from Leverex to address {bitfinex_deposit_address}')
+
+      loop = asyncio.get_running_loop()
+      fut = loop.create_future()
+
+      async def cb(withdraw_info):
+         fut.set_result(withdraw_info)
+
+      start_time = time.time()
+      await self._leverex_connection.withdraw_liquid(address='bitfinex_deposit_address',
+                                                     currency='USDT',
+                                                     amount=self._withdraw_amount,
+                                                     callback=cb)
+      withdraw_info = await fut
+      end_time = time.time()
+
+      loading_time = f'{end_time - start_time} seconds'
+
+      logging.info(f'Withdraw request submitted: {withdraw_info.status}. Execution time: {loading_time}')
+      # withdraw progress will be completed once we got cash on funding account
+      # in case of manual testing please make sure to transfer it accordingly
+      # XXX: what about fee?
 
    async def _validate_position_size(self):
       if self._overseer_mode:
@@ -722,11 +1031,11 @@ if __name__ == '__main__':
    args = input_parser.parse_args()
 
    required_settings = {
-      'status_server' : ['port'],
-      'leverex' : ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
-      'bitfinex' : ['api_key', 'api_secret'],
-      'rebalance_settings' : ['bitfinex_method', 'bitfinex_rebalance_currency'],
-      'hedging_settings' : ['leverex_product',
+      'status_server': ['port'],
+      'leverex': ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
+      'bitfinex': ['api_key', 'api_secret'],
+      'rebalance_settings': ['bitfinex_method', 'bitfinex_rebalance_currency', 'rebalance_threshold'],
+      'hedging_settings': ['leverex_product',
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',
                             'bitfinex_margin_wallet',

@@ -4,8 +4,8 @@ import time
 import websockets
 import websockets.exceptions
 import logging
-import time
-from datetime import datetime, timedelta
+import functools
+from datetime import datetime
 
 from typing import Callable
 
@@ -343,7 +343,7 @@ class AsyncApiConnection(object):
       reference = self._generate_reference_id()
 
       withdraw_request = {
-         'withdraw_liquid' : {
+            'withdraw_liquid' : {
             'address' : str(address),
             'currency' : str(currency),
             'amount' : str(amount),
@@ -502,7 +502,7 @@ class AsyncApiConnection(object):
             self.listener.on_market_data(update['market_data'])
 
          elif 'load_balance' in update:
-            self.listener.onLoadBalance(update['load_balance']['balances'])
+            await self._call_listener_method('onLoadBalance', update['load_balance']['balances'])
 
          elif 'subscribe' in update:
             if not update['subscribe']['success']:
@@ -610,14 +610,14 @@ class AsyncApiConnection(object):
 
    async def cycleSession(self):
       while True:
-         #wait for token lifetime - 1min
+         # wait for token lifetime - 1min
          await asyncio.sleep(self.access_token['expires_in'] * 0.9)
 
-         #cycle token with login server
-         self.access_token = await self._login_client.update_access_token(
+         # cycle token with login server
+         self.access_token = await self._login_client.update_access_token(  # noqa: E111
             self.access_token['access_token'])
 
-         #send to service
+         # send to service
          auth_request = {
             'authorize' : {
                'token' : self.access_token['access_token']
