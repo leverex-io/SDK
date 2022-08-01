@@ -788,7 +788,7 @@ class HedgingDealer():
       if total_leverex_balance is not None and total_bitfinex_balance is not None:
          difference = abs(total_bitfinex_balance - total_leverex_balance)
          report['balance diff'] = difference
-         report['to transfer'] = difference / 2
+         report['to transfer'] = round(difference / 2)
          report['balance threshold'] = self._rebalance_threshold
 
          if self._rebalance_threshold < difference:
@@ -820,6 +820,7 @@ class HedgingDealer():
          # if this is a withdraw from Bitfinex to Leverex - create withdraw request
          if transfer_balance != self._withdraw_amount:
             logging.error(f'BF->LEVEREX: Unexpected transfer amount: {self._withdraw_amount} is expected, but {transfer_balance} detected on transfer wallet')
+
             return
 
          await self._make_bitfinex_withdraw(transfer_balance)
@@ -851,7 +852,7 @@ class HedgingDealer():
          total_leverex_balance = rebalance_report['leverex balance']
          total_bitfinex_balance = rebalance_report['bitfinex balance']
 
-         rebalance_amount = rebalance_report['balance diff'] / 2
+         rebalance_amount = rebalance_report['to transfer']
 
          if total_bitfinex_balance > total_leverex_balance:
             await self._rebalance_from_bitfinex_to_leverex(rebalance_amount)
@@ -913,11 +914,25 @@ class HedgingDealer():
    async def _make_bitfinex_withdraw(self, amount):
       if self._simulate_bitfinex_withdraw:
          # make a transfer to a margin wallet
-         await self._bfx.rest.submit_wallet_transfer(to_wallet='trading',
+         retry_count = 0
+         while True:
+            try:
+               await self._bfx.rest.submit_wallet_transfer(to_wallet='trading',
                                                      from_wallet=self._bitfinex_rebalance_wallet,
                                                      to_currency=self._bitfinex_rebalance_currency,
                                                      from_currency=self._bitfinex_rebalance_currency,
                                                      amount=amount)
+               break
+            except Exception as e:
+               retry_count = retry_count + 1
+               if retry_count > 3:
+                  raise e
+
+               logging.error(f'Transfer failed on Bitfinex. Retry in 1 second : {str(e)}')
+               await asyncio.sleep(1)
+
+         self._rebalance_from_bitfinex_completed()
+
       else:
          if self._force_leverex_deposit_address is not None:
             leverex_deposit_address = self._force_leverex_deposit_address
@@ -931,7 +946,17 @@ class HedgingDealer():
                                                      method=self._rebalance_method,
                                                      amount=amount,
                                                      address=leverex_deposit_address)
-      self._rebalance_from_bitfinex_completed()
+
+   # deposit update from leverex
+   # pending rebalance from Bitfinex to Leverex could be completed if deposit is confirmed
+   async def on_deposit_update(self, deposit_info):
+      if deposit_info.confirmations_count == 3:
+         if self._bitfinex_withdraw_scheduled:
+            self._rebalance_from_bitfinex_completed()
+
+   # withdraw update from leverex
+   async def on_withdraw_update(self, withdraw_info):
+      pass
 
    async def _rebalance_from_bitfinex_to_leverex(self, amount):
       self._start_rebalance_from_bitfinex(amount)
@@ -942,7 +967,6 @@ class HedgingDealer():
          await self._transfer_to_withdraw(amount)
       except Exception:
          logging.exception(f'Failed to transfer {amount} to exchange wallet {self.bitfinex_margin_wallet}')
-         self._rebalance_from_bitfinex_completed()
 
    async def _rebalance_from_leverex_to_bitfinex(self):
       self._start_rebalance_from_leverex()

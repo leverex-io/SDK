@@ -11,8 +11,8 @@ from typing import Callable
 
 from .login_connection import LoginServiceClientWS
 
-LOGIN_ENDPOINT="wss://login-live.leverex.io/ws/v1/websocket"
-API_ENDPOINT="wss://api-live.leverex.io"
+LOGIN_ENDPOINT = "wss://login-live.leverex.io/ws/v1/websocket"
+API_ENDPOINT = "wss://api-live.leverex.io"
 
 ORDER_ACTION_CREATED = 1
 ORDER_ACTION_UPDATED = 2
@@ -28,6 +28,7 @@ ORDER_TYPE_NORMAL_ROLLOVER_POSITION       = 1
 ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION   = 2
 ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION    = 3
 
+
 class SessionOpenInfo():
    def __init__(self, data):
       self.product_type = data['product_type']
@@ -36,10 +37,12 @@ class SessionOpenInfo():
       self.session_id = data['session_id']
       self.previous_session_id = data['previous_session_id']
 
+
 class SessionCloseInfo():
    def __init__(self, data):
       self.product_type = data['product_type']
       self.session_id = data['session_id']
+
 
 class Order():
    def __init__(self, data):
@@ -116,6 +119,7 @@ class Order():
    def fee(self):
       return self._fee
 
+
 class WithdrawInfo():
    WITHDRAW_FAILED      = 0
    WITHDRAW_ACCEPTED    = 1
@@ -181,6 +185,7 @@ class WithdrawInfo():
    def transacion_id(self):
       return self._tx_id
 
+
 class DepositInfo():
    def __init__(self, data):
       self._tx_id = str(data['tx_id'])
@@ -203,6 +208,7 @@ class DepositInfo():
    @property
    def timestamp(self):
       return self._timestamp
+
 
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None):
@@ -236,7 +242,9 @@ class PriceOffer():
 
       return result
 
+
 PriceOffers = list[PriceOffer]
+
 
 class AsyncApiConnection(object):
    def __init__(self, api_endpoint=API_ENDPOINT, login_endpoint=LOGIN_ENDPOINT,
@@ -588,6 +596,15 @@ class AsyncApiConnection(object):
                self.listener.on_order_created(order)
             elif action == ORDER_ACTION_UPDATED:
                self.listener.on_order_filled(order)
+
+         # _call_listener_method
+         elif 'update_deposit' in update:
+            deposit_info = DepositInfo(update['update_deposit'])
+            await self._call_listener_method('on_deposit_update', deposit_info)
+
+         elif 'update_withdrawal' in update:
+            deposit_info = WithdrawInfo(update['update_withdrawal'])
+            await self._call_listener_method('on_withdraw_update', deposit_info)
 
          elif 'session_closed' in update:
             await self._call_listener_cb(self.listener.on_session_closed, SessionCloseInfo(update['session_closed']))
