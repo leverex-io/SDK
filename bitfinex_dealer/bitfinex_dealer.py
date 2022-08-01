@@ -145,9 +145,11 @@ class HedgingDealer():
 
       rebalance_settings = configuration['rebalance_settings']
 
-      self._force_rebalance_enabled = rebalance_settings.get('force_rebalance_enabled', False)
+      # force_rebalance_disabled - master key to completely disable any rebalance or cash transfer
+      self._force_rebalance_disabled = rebalance_settings.get('force_rebalance_disabled', False)
 
       # DEVELOPMENT SETTINGS, that should be completely removed on PROD version
+      self._force_rebalance_enabled = rebalance_settings.get('force_rebalance_enabled', False)
       self._simulate_bitfinex_withdraw = rebalance_settings.get('simulate_bitfinex_withdraw', False)
       self._force_leverex_deposit_address = rebalance_settings.get('force_leverex_deposit_address', None)
       self._force_bitfinex_deposit_address = rebalance_settings.get('force_bitfinex_deposit_address', None)
@@ -443,7 +445,7 @@ class HedgingDealer():
 
       self._bitfinex_balances[wallet.type][wallet.currency] = balances
 
-      if free_balance is not None:
+      if free_balance is not None and not self._force_rebalance_disabled:
          await self._complete_transfer()
          await self._rebalance_if_required()
 
@@ -830,6 +832,9 @@ class HedgingDealer():
             await self._transfer_from_deposit(transfer_balance)
 
    async def _rebalance_if_required(self):
+      if self._force_rebalance_disabled:
+         return
+
       rebalance_report = self._get_rebalance_state_report()
       if rebalance_report['rebalance required']:
          # already marked as in progress
