@@ -558,9 +558,9 @@ class HedgingDealer():
    # this function should return None, if balance is not loaded
    # 0 balance and not loaded balances are different when this method is used
    def _get_leverex_total(self):
-      if not self._target_margin_product in self.leverex_balances:
+      if self._target_margin_product not in self.leverex_balances:
          return None
-      if not self._target_ccy_product in self.leverex_balances:
+      if self._target_ccy_product not in self.leverex_balances:
          return None
 
       return self._get_buying_power() + self._get_margin_reserved()
@@ -789,6 +789,20 @@ class HedgingDealer():
       report = {}
 
       report['in progress'] = self._rebalance_in_progress
+      if self._rebalance_in_progress:
+         report['scheduled amount'] = self._withdraw_amount
+         transfer_balance = self._get_bitfinex_transfer_balance()
+         if transfer_balance is None:
+            report['transfer balance'] = 'not available'
+         else:
+            report['transfer balance'] = transfer_balance
+
+         if self._bitfinex_withdraw_scheduled:
+            report['withdraw from'] = 'Bitfinex'
+         elif self._leverex_withdraw_scheduled:
+            report['withdraw from'] = 'Leverex'
+         else:
+            report['withdraw from'] = 'undefinex'
 
       # validate that Leverex balance is loaded
       total_leverex_balance = self._get_leverex_total()
@@ -999,10 +1013,13 @@ class HedgingDealer():
                return
             leverex_deposit_address = self._leverex_deposit_addresses.get_deposit_address()
 
-         await self._bfx.rest.submit_wallet_withdraw(wallet='trading',
-                                                     method=self._rebalance_method,
-                                                     amount=amount,
-                                                     address=leverex_deposit_address)
+         logging.info(f'Submitting Bitfinex withdraw request for {amount}')
+
+         result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_rebalance_wallet,
+                                                              method=self._rebalance_method,
+                                                              amount=amount,
+                                                              address=leverex_deposit_address)
+         print(f'Result: {str(result.notify_info)}')
 
    # deposit update from leverex
    # pending rebalance from Bitfinex to Leverex could be completed if deposit is confirmed
