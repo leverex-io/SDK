@@ -36,9 +36,10 @@
       "bitfinex_rebalance_currency" : "TESTUSDT",
       "rebalance_threshold" : 200,
       "force_rebalance_enabled" : true,
-      "force_leverex_deposit_address" : "address_to_be_used_for_withdraw_from_bitfinex_REMOVE",
-      "force_bitfinex_deposit_address" : "address_to_be_used_for_withdraw_from_leverex_REMOVE",
-      "simulate_bitfinex_withdraw": true
+      "force_leverex_deposit_address" : "address_to_be_used_for_withdrawals_from_bitfinex_REMOVE",
+      "force_bitfinex_deposit_address" : "address_to_be_used_for_withdrawals_from_leverex_REMOVE",
+      "simulate_bitfinex_withdraw": true,
+      "simulate_wait_for_leverex_deposit" : false
    },
    "log_level" : "INFO"
 }
