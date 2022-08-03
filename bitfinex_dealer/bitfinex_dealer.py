@@ -15,7 +15,7 @@ from bfxapi.models import Position
 
 sys.path.append('..')
 
-from trader_core.api_connection import AsyncApiConnection, PriceOffer
+from trader_core.api_connection import AsyncApiConnection, PriceOffer, WithdrawInfo
 from trader_core.product_mapping import get_product_info
 
 from bitfinx_order_book import AggregationOrderBook
@@ -422,9 +422,9 @@ class HedgingDealer():
       self._bitfinex_balances['USD total'] = float(data[0])
       self._bitfinex_balances['USD Net'] = float(data[1])
 
-   def on_bitfinex_wallet_snapshot(self, wallets_snapshot):
+   async def on_bitfinex_wallet_snapshot(self, wallets_snapshot):
       for wallet in wallets_snapshot:
-         self.on_bitfinex_wallet_update(wallet)
+         await self.on_bitfinex_wallet_update(wallet)
 
    async def on_bitfinex_wallet_update(self, wallet):
       if wallet.type not in self._bitfinex_balances:
@@ -902,43 +902,52 @@ class HedgingDealer():
       self._start_rebalance(amount)
       self._leverex_withdraw_scheduled = True
 
+   async def _bitfinex_wallet_transfer_with_delay(self, *, from_wallet, to_wallet,
+                                                  from_currency,to_currency, amount):
+      retry_count = 0
+
+      while True:
+         try:
+            await self._bfx.rest.submit_wallet_transfer(to_wallet=to_wallet,
+                                                        from_wallet=from_wallet,
+                                                        to_currency=to_currency,
+                                                        from_currency=from_currency,
+                                                        amount=amount)
+            break
+         except Exception as e:
+            retry_count = retry_count + 1
+            if retry_count > 5:
+               raise e
+
+            delay = 3 * retry_count
+
+            logging.error(f'Transfer failed on Bitfinex. Retry in {delay} second : {str(e)}')
+            await asyncio.sleep(delay)
+
    async def _transfer_to_withdraw(self, amount):
-      await self._bfx.rest.submit_wallet_transfer(from_wallet='trading',
-                                                  to_wallet=self._bitfinex_rebalance_wallet,
-                                                  from_currency=self.bitfinex_margin_wallet,
-                                                  to_currency=self._bitfinex_rebalance_currency,
-                                                  amount=amount)
+      await self._bitfinex_wallet_transfer_with_delay(from_wallet='trading',
+                                                      to_wallet=self._bitfinex_rebalance_wallet,
+                                                      from_currency=self.bitfinex_margin_wallet,
+                                                      to_currency=self._bitfinex_rebalance_currency,
+                                                      amount=amount)
 
    # transfer cash from BF "transfer" wallet to a margin wallet
    async def _transfer_from_deposit(self, amount):
-      await self._bfx.rest.submit_wallet_transfer(to_wallet='trading',
-                                                  from_wallet=self._bitfinex_rebalance_wallet,
-                                                  to_currency=self.bitfinex_margin_wallet,
-                                                  from_currency=self._bitfinex_rebalance_currency,
-                                                  amount=amount)
+      await self._bitfinex_wallet_transfer_with_delay(to_wallet='trading',
+                                                      from_wallet=self._bitfinex_rebalance_wallet,
+                                                      to_currency=self.bitfinex_margin_wallet,
+                                                      from_currency=self._bitfinex_rebalance_currency,
+                                                      amount=amount)
 
    async def _make_bitfinex_withdraw(self, amount):
       if self._simulate_bitfinex_withdraw:
          # make a transfer to a margin wallet
-         retry_count = 0
 
-         while True:
-            try:
-               await self._bfx.rest.submit_wallet_transfer(to_wallet='trading',
-                                                     from_wallet=self._bitfinex_rebalance_wallet,
-                                                     to_currency=self._bitfinex_rebalance_currency,
-                                                     from_currency=self._bitfinex_rebalance_currency,
-                                                     amount=amount)
-               break
-            except Exception as e:
-               retry_count = retry_count + 1
-               if retry_count > 3:
-                  raise e
-
-               delay = 2 * retry_count
-
-               logging.error(f'Transfer failed on Bitfinex. Retry in {delay} second : {str(e)}')
-               await asyncio.sleep(delay)
+         await self._bitfinex_wallet_transfer_with_delay(to_wallet='trading',
+                                                         from_wallet=self._bitfinex_rebalance_wallet,
+                                                         to_currency=self._bitfinex_rebalance_currency,
+                                                         from_currency=self._bitfinex_rebalance_currency,
+                                                         amount=amount)
 
          if not self._simulate_wait_for_leverex_deposit:
             self._rebalance_from_bitfinex_completed()
@@ -978,8 +987,8 @@ class HedgingDealer():
       except Exception:
          logging.exception(f'Failed to transfer {amount} to exchange wallet {self.bitfinex_margin_wallet}')
 
-   async def _rebalance_from_leverex_to_bitfinex(self):
-      self._start_rebalance_from_leverex()
+   async def _rebalance_from_leverex_to_bitfinex(self, amount):
+      self._start_rebalance_from_leverex(amount)
 
       # use forced address, even if it is not whitelisted
       bitfinex_deposit_address = None
@@ -1006,27 +1015,19 @@ class HedgingDealer():
                return
 
       logging.info(f'Creating rebalance withdraw from Leverex to address {bitfinex_deposit_address}')
-
-      loop = asyncio.get_running_loop()
-      fut = loop.create_future()
-
-      async def cb(withdraw_info):
-         fut.set_result(withdraw_info)
-
-      start_time = time.time()
-      await self._leverex_connection.withdraw_liquid(address='bitfinex_deposit_address',
+      await self._leverex_connection.withdraw_liquid(address=bitfinex_deposit_address,
                                                      currency='USDT',
-                                                     amount=self._withdraw_amount,
-                                                     callback=cb)
-      withdraw_info = await fut
-      end_time = time.time()
-
-      loading_time = f'{end_time - start_time} seconds'
-
-      logging.info(f'Withdraw request submitted: {withdraw_info.status}. Execution time: {loading_time}')
+                                                     amount=amount,
+                                                     callback=None)
       # withdraw progress will be completed once we got cash on funding account
       # in case of manual testing please make sure to transfer it accordingly
       # XXX: what about fee?
+
+   async def on_withdraw_request_response(self, withdraw_info):
+      if withdraw_info.status_code == WithdrawInfo.WITHDRAW_FAILED:
+         logging.error(f'Withdraw request failed on Leverex: {withdraw_info.error_message}')
+      else:
+         logging.info('Leverex withdraw created')
 
    async def _validate_position_size(self):
       if self._overseer_mode:

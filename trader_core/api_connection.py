@@ -141,13 +141,17 @@ class WithdrawInfo():
 
    def __init__(self, data):
       self._id = str(data['id'])
-      self._tx_id = str(data['tx_id'])
       self._status = int(data['status'])
-      self._recv_address = str(data['recv_address'])
-      self._currency = str(data['currency'])
-      self._amount = str(data['amount'])
-      self._timestamp = datetime.fromtimestamp(data['timestamp'])
-      self._unblinded_link = str(data['unblinded_link'])
+      if data['success']:
+         self._tx_id = str(data.get('tx_id', ''))
+         self._recv_address = str(data['recv_address'])
+         self._currency = str(data['currency'])
+         self._amount = str(data['amount'])
+         self._timestamp = datetime.fromtimestamp(data['timestamp'])
+         self._unblinded_link = str(data.get('unblinded_link', ''))
+         self._error_message = None
+      else:
+         self._error_message = data['error_msg']
 
    @property
    def id(self):
@@ -160,6 +164,10 @@ class WithdrawInfo():
    @property
    def status(self):
       return self.status_text.get(self._status, "Undefined")
+
+   @property
+   def error_message(self):
+      return self._error_message
 
    @property
    def recv_address(self):
@@ -267,7 +275,7 @@ class AsyncApiConnection(object):
       self.websocket = None
       self.listener = None
 
-      #setup write queue
+      # setup write queue
       self.write_queue = asyncio.Queue()
 
       self._requests_cb = {}
@@ -278,7 +286,7 @@ class AsyncApiConnection(object):
       else:
          cb(*args, **kwargs)
 
-   async def _call_listener_method(self, method_name: str,  *args, **kwargs):
+   async def _call_listener_method(self, method_name: str, *args, **kwargs):
       listener_cb = getattr(self.listener, method_name, None)
       if callable(listener_cb):
          await self._call_listener_cb(listener_cb, *args, **kwargs)
@@ -365,6 +373,8 @@ class AsyncApiConnection(object):
          listener_cb = getattr(self.listener, 'on_withdraw_request_response', None)
          if callable(listener_cb):
             self._requests_cb[reference] = listener_cb
+         else:
+            logging.error(f'No callback set for withdraw_liquid request {reference}')
 
       await self.websocket.send(json.dumps(withdraw_request))
 
@@ -526,8 +536,12 @@ class AsyncApiConnection(object):
 
          elif 'withdraw_liquid' in update:
             reference = update['withdraw_liquid']['reference']
+
+            logging.info('Leverex: get response on withdraw_liquid {}'.format(update['withdraw_liquid']))
+
             if reference in self._requests_cb:
                withdraw_info = WithdrawInfo(update['withdraw_liquid'])
+               cb = self._requests_cb.pop(reference)
                await self._call_listener_cb(cb, withdraw_info)
             else:
                logging.error(f'withdraw_liquid response with unregistered request reference:{reference}')
