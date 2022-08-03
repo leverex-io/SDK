@@ -142,16 +142,20 @@ class WithdrawInfo():
    def __init__(self, data):
       self._id = str(data['id'])
       self._status = int(data['status'])
-      if data['success']:
-         self._tx_id = str(data.get('tx_id', ''))
-         self._recv_address = str(data['recv_address'])
-         self._currency = str(data['currency'])
-         self._amount = str(data['amount'])
-         self._timestamp = datetime.fromtimestamp(data['timestamp'])
-         self._unblinded_link = str(data.get('unblinded_link', ''))
-         self._error_message = None
-      else:
-         self._error_message = data['error_msg']
+      if 'success' in data:
+         if data['success']:
+            self._error_message = None
+         else:
+            self._error_message = data['error_msg']
+            return
+
+      self._tx_id = str(data.get('tx_id', ''))
+      self._recv_address = str(data['recv_address'])
+      self._currency = str(data['currency'])
+      self._amount = str(data['amount'])
+      self._timestamp = datetime.fromtimestamp(data['timestamp'])
+      self._unblinded_link = str(data.get('unblinded_link', ''))
+      self._error_message = None
 
    @property
    def id(self):
@@ -537,8 +541,6 @@ class AsyncApiConnection(object):
          elif 'withdraw_liquid' in update:
             reference = update['withdraw_liquid']['reference']
 
-            logging.info('Leverex: get response on withdraw_liquid {}'.format(update['withdraw_liquid']))
-
             if reference in self._requests_cb:
                withdraw_info = WithdrawInfo(update['withdraw_liquid'])
                cb = self._requests_cb.pop(reference)
@@ -573,6 +575,7 @@ class AsyncApiConnection(object):
 
          elif 'load_withdrawals' in update:
             reference = update['load_withdrawals']['reference']
+            print('Response: {}'.format(update['load_withdrawals']))
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
 
