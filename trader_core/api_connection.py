@@ -157,6 +157,9 @@ class WithdrawInfo():
       self._unblinded_link = str(data.get('unblinded_link', ''))
       self._error_message = None
 
+   def __str__(self):
+      return f'id {self._id} : {self.status}. tx id: {self._tx_id}. Link {self._unblinded_link}'
+
    @property
    def id(self):
       return self._id
@@ -345,8 +348,8 @@ class AsyncApiConnection(object):
       reference = self._generate_reference_id()
 
       load_deposits_history_request = {
-         'load_deposits' : {
-            'reference' : reference
+         'load_deposits': {
+            'reference': reference
          }
       }
 
@@ -363,11 +366,11 @@ class AsyncApiConnection(object):
       reference = self._generate_reference_id()
 
       withdraw_request = {
-            'withdraw_liquid' : {
-            'address' : str(address),
-            'currency' : str(currency),
-            'amount' : str(amount),
-            'reference' : reference
+            'withdraw_liquid': {
+            'address': str(address),
+            'currency': str(currency),
+            'amount': str(amount),
+            'reference': reference
          }
       }
 
@@ -386,8 +389,8 @@ class AsyncApiConnection(object):
       reference = self._generate_reference_id()
 
       load_whitelisted_addresses_request = {
-         'load_addresses' : {
-            'reference' : reference
+         'load_addresses': {
+            'reference': reference
          }
       }
 
@@ -405,9 +408,9 @@ class AsyncApiConnection(object):
       reference = self._generate_reference_id()
 
       load_positions_request = {
-         'load_orders' : {
-            'product_type' : target_product,
-            'reference' : reference
+         'load_orders': {
+            'product_type': target_product,
+            'reference': reference
          }
       }
 
@@ -424,10 +427,10 @@ class AsyncApiConnection(object):
       reference = self._generate_reference_id()
 
       submit_prices_request = {
-         'submit_prices' : {
-            'product_type' : target_product,
-            'prices' : price_offers,
-            'reference' : reference
+         'submit_prices': {
+            'product_type': target_product,
+            'prices': price_offers,
+            'reference': reference
          }
       }
 
@@ -450,8 +453,8 @@ class AsyncApiConnection(object):
 
    async def subscribe_to_product(self, target_product: str):
       subscribe_request = {
-         'subscribe' : {
-            'product_type' : target_product
+         'subscribe': {
+            'product_type': target_product
          }
       }
       await self.websocket.send(json.dumps(subscribe_request))
@@ -463,8 +466,8 @@ class AsyncApiConnection(object):
       #submit to service
       self.access_token = access_token_info
       auth_request = {
-         'authorize' : {
-            'token' : access_token_info['access_token']
+         'authorize': {
+            'token': access_token_info['access_token']
          }
       }
 
@@ -482,22 +485,17 @@ class AsyncApiConnection(object):
       self.listener.send = send_data
 
       async with websockets.connect(self._api_endpoint) as self.websocket:
-         self.listener.on_connected()
+         await self._call_listener_method('on_connected')
 
          if self._login_client is not None:
             await self.login()
 
             await self._call_listener_method('on_authorized')
 
-            if asyncio.iscoroutinefunction(self.listener.on_authorized):
-               await self.listener.on_authorized()
-            else:
-               self.listener.on_authorized()
-
             # load balances
             self.loadBalances()
 
-         #start the loops
+         # start the loops
          readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
          writeTask = asyncio.create_task(self.writeLoop(), name="Leverex write task")
 
@@ -513,7 +511,6 @@ class AsyncApiConnection(object):
             await updateTask
 
    async def readLoop(self):
-      balance_awaitable = False
       while True:
          data = await self.websocket.recv()
          if data is None:
@@ -620,8 +617,8 @@ class AsyncApiConnection(object):
             await self._call_listener_method('on_deposit_update', deposit_info)
 
          elif 'update_withdrawal' in update:
-            deposit_info = WithdrawInfo(update['update_withdrawal'])
-            await self._call_listener_method('on_withdraw_update', deposit_info)
+            withdraw_info = WithdrawInfo(update['update_withdrawal'])
+            await self._call_listener_method('on_withdraw_update', withdraw_info)
 
          elif 'session_closed' in update:
             await self._call_listener_cb(self.listener.on_session_closed, SessionCloseInfo(update['session_closed']))
@@ -653,8 +650,8 @@ class AsyncApiConnection(object):
 
          # send to service
          auth_request = {
-            'authorize' : {
-               'token' : self.access_token['access_token']
+            'authorize': {
+               'token': self.access_token['access_token']
             }
          }
 

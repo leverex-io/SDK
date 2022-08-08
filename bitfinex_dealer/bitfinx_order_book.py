@@ -11,6 +11,7 @@ class Offer():
    def volume(self):
       return self._volume
 
+
 class PriceBookEntry():
    def __init__(self, data):
       self._price = data[0]
@@ -36,6 +37,7 @@ class PriceBookEntry():
    @property
    def volume(self):
       return self._volume
+
 
 class AggregationOrderBook():
    def __init__(self):
@@ -69,7 +71,7 @@ class AggregationOrderBook():
       else:
          target_book = self._bids
 
-      c = target_book.pop(entry.price)
+      target_book.pop(entry.price)
 
    def get_aggregated_ask_price(self, target_volume):
       offers = sorted(self._asks.items())
@@ -100,7 +102,7 @@ class AggregationOrderBook():
          if total_volume > target_volume:
             break
 
-      return Offer(total_cost/total_volume, total_volume)
+      return Offer(total_cost / total_volume, total_volume)
 
    def __str__(self):
       return f'ask {sum(self._asks.values())}, bids {sum(self._bids.values())}'

@@ -2,13 +2,12 @@
 
 import asyncio
 import logging
-import functools
 import sys
-from datetime import datetime
 
 sys.path.append('..')
 
 from trader_core.api_connection import AsyncApiConnection
+
 
 class SessionMonitor():
    def __init__(self):
@@ -30,12 +29,15 @@ class SessionMonitor():
                                                                           update.session_id,
                                                                           update.last_cut_off_price,
                                                                           update.cut_off_at))
+
    def on_session_closed(self, update):
       print('Session {} ( {} ) closed'.format(update.product_type, update.session_id))
+
 
 def main():
    monitor = SessionMonitor()
    asyncio.run(monitor.run())
+
 
 if __name__ == '__main__':
    logging.basicConfig(level='INFO')
