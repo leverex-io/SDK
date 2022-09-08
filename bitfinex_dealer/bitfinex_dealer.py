@@ -286,10 +286,13 @@ class HedgingDealer():
       else:
          result['leverex'] = 'Not loaded'
 
-      if self._rebalance_enabled:
+      if self._rebalance_enabled and not self._force_rebalance_disabled:
          result['rebalance state'] = 'Enabled'
       else:
-         result['rebalance state'] = f'Disabled: {self._rebalance_disable_reason}'
+         if self._force_rebalance_disabled:
+            result['rebalance state'] = 'Disabled: by force_rebalance_disabled'
+         else:
+            result['rebalance state'] = f'Disabled: {self._rebalance_disable_reason}'
 
       return result
 
