@@ -29,7 +29,6 @@ keys_dir=$1/$2
 config_file="$keys_dir/config.json"
 private_key_file="$keys_dir/key.pem"
 public_key_file="$keys_dir/public_key.pem"
-# save phone
 
 if [ "$1" = "dev" ]; then
    login_endpoint="wss://login-dev.leverex.io/ws/v1/websocket"
@@ -42,6 +41,10 @@ elif [ "$1" = "uat" ]; then
 elif [ "$1" = "live" ]; then
    login_endpoint="wss://login-live.leverex.io/ws/v1/websocket"
    api_endpoint="wss://api-live.leverex.io"
+   echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
+elif [ "$1" = "prod" ]; then
+   login_endpoint="wss://login.leverex.io/ws/v1/websocket"
+   api_endpoint="wss://api.leverex.io"
    echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
 else
    echo "ERROR: undefined environment: $1"

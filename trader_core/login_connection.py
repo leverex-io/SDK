@@ -71,7 +71,7 @@ class LoginServiceClientWS():
                   continue
 
                operation_status = uploadResult['data']['status']
-               if operation_status == 'NOT_READY':
+               if operation_status == 'PENDING':
                   # waiting for user action
                   continue
                elif operation_status == 'USER_CANCELLED':
