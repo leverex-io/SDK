@@ -73,6 +73,7 @@ class HedgingDealer():
       self.max_bitfinex_leverage = self.hedging_settings['max_bitfinex_leverage']
       self.price_ratio = self.hedging_settings['price_ratio']
       self.leverex_product = self.hedging_settings['leverex_product']
+      self.max_leverex_offer_volume = self.hedging_settings['max_offer_volume']
 
       product_info = get_product_info(self.leverex_product)
       if product_info is None:
@@ -314,7 +315,7 @@ class HedgingDealer():
       if bitfinex_total is not None and leverex_total is not None:
          portfolio = bitfinex_total + leverex_total
 
-      return { 'leverex' : leverex_balances, 'bitfinex' : bitfinex_balances, 'portfolio' : portfolio}
+      return {'leverex': leverex_balances, 'bitfinex': bitfinex_balances, 'portfolio': portfolio}
 
    async def report_bitfinex_position(self):
       response = {}
@@ -640,6 +641,12 @@ class HedgingDealer():
 
       if ask_volume == 0 and bid_volume == 0:
          return
+
+      if ask_volume > self.max_leverex_offer_volume:
+         ask_volume = self.max_leverex_offer_volume
+
+      if bid_volume > self.max_leverex_offer_volume:
+         bid_volume = self.max_leverex_offer_volume
 
       ask = self.bitfinex_book.get_aggregated_ask_price(ask_volume)
       bid = self.bitfinex_book.get_aggregated_bid_price(bid_volume)
@@ -1109,7 +1116,8 @@ if __name__ == '__main__':
                             'price_ratio',
                             'min_bitfinex_leverage',
                             'bitfinex_leverage',
-                            'max_bitfinex_leverage']
+                            'max_bitfinex_leverage',
+                            'max_offer_volume']
    }
 
    with open(args.config_file) as json_config_file:

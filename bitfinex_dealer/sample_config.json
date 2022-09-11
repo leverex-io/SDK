@@ -17,7 +17,7 @@
    },
    "hedging_settings" :
    {
-      "overseer_mode" : true,
+      "overseer_mode" : false,
       "leverex_product" : "xbtusd_rf",
       "bitfinex_orderbook_product" : "tTESTBTCF0:TESTUSDTF0",
       "bitfinex_futures_hedging_product" : "tTESTBTCF0:TESTUSDTF0",
@@ -27,6 +27,7 @@
       "min_bitfinex_leverage" : 10,
       "bitfinex_leverage": 15,
       "max_bitfinex_leverage" : 20,
+      "max_offer_volume" : 0.1,
       "price_ratio" : 0.002
    },
    "rebalance_settings" :
@@ -34,12 +35,7 @@
       "force_rebalance_disabled" : false,
       "bitfinex_method" : "TETHERUSL",
       "bitfinex_rebalance_currency" : "TESTUSDT",
-      "rebalance_threshold" : 200,
-      "force_rebalance_enabled" : true,
-      "force_leverex_deposit_address" : "address_to_be_used_for_withdrawals_from_bitfinex_REMOVE",
-      "force_bitfinex_deposit_address" : "address_to_be_used_for_withdrawals_from_leverex_REMOVE",
-      "simulate_bitfinex_withdraw": true,
-      "simulate_wait_for_leverex_deposit" : false
+      "rebalance_threshold" : 200
    },
    "log_level" : "INFO"
 }

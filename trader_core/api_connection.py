@@ -572,7 +572,6 @@ class AsyncApiConnection(object):
 
          elif 'load_withdrawals' in update:
             reference = update['load_withdrawals']['reference']
-            print('Response: {}'.format(update['load_withdrawals']))
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
 

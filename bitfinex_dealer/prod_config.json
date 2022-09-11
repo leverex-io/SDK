@@ -27,6 +27,7 @@
       "min_bitfinex_leverage" : 10,
       "bitfinex_leverage": 15,
       "max_bitfinex_leverage" : 20,
+      "max_offer_volume" : 0.001,
       "price_ratio" : 0.002
    },
    "rebalance_settings" :
@@ -34,12 +35,7 @@
       "force_rebalance_disabled" : true,
       "bitfinex_method" : "TETHERUSL",
       "bitfinex_rebalance_currency" : "UST",
-      "rebalance_threshold" : 10,
-      "force_rebalance_enabled" : false,
-      "force_leverex_deposit_address" : "address_to_be_used_for_withdrawals_from_bitfinex",
-      "force_bitfinex_deposit_address" : "address_to_be_used_for_withdrawals_from_leverex_REMOVE",
-      "simulate_bitfinex_withdraw": false,
-      "simulate_wait_for_leverex_deposit" : false
+      "rebalance_threshold" : 10
    },
    "log_level" : "INFO"
 }
