@@ -160,14 +160,6 @@ class HedgingDealer():
       # force_rebalance_disabled - master key to completely disable any rebalance or cash transfer
       self._force_rebalance_disabled = rebalance_settings.get('force_rebalance_disabled', False)
 
-      # DEVELOPMENT SETTINGS, that should be completely removed on PROD version
-      self._force_rebalance_enabled = rebalance_settings.get('force_rebalance_enabled', False)
-      self._simulate_bitfinex_withdraw = rebalance_settings.get('simulate_bitfinex_withdraw', False)
-      self._simulate_wait_for_leverex_deposit = rebalance_settings.get('simulate_wait_for_leverex_deposit', False)
-      self._force_leverex_deposit_address = rebalance_settings.get('force_leverex_deposit_address', None)
-      self._force_bitfinex_deposit_address = rebalance_settings.get('force_bitfinex_deposit_address', None)
-      # end of DEVELOPMENT SETTINGS
-
       self._rebalance_method = rebalance_settings['bitfinex_method']
       self._rebalance_threshold = float(rebalance_settings['rebalance_threshold'])
       self._bitfinex_rebalance_currency = rebalance_settings['bitfinex_rebalance_currency']
@@ -185,43 +177,43 @@ class HedgingDealer():
 
    def _validate_rebalance_feature_state(self):
       if self._leverex_deposit_addresses is None:
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Leverex addresses info not loaded"
          return
 
       if self._leverex_deposit_addresses.get_withdraw_addresses() is None:
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Leverex whitelisted addresses info not loaded"
          return
 
       if self._leverex_deposit_addresses.get_deposit_address() is None:
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Leverex deposit addresses info not loaded"
          return
 
       if len(self._leverex_deposit_addresses.get_deposit_address()) == 0:
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Leverex deposit addresses is empty"
          return
 
       if self._bitfinex_deposit_addresses is None:
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Bitfinex addresses info not loaded"
          return
 
       if self._bitfinex_deposit_addresses.get_deposit_address() is None:
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Bitfinex deposit addresses info not loaded"
          return
 
       if len(self._bitfinex_deposit_addresses.get_deposit_address()) == 0:
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Bitfinex deposit addresses is empty"
          return
 
       # validate that Bitfinex address is whitelisted on leverex
       if self._bitfinex_deposit_addresses.get_deposit_address() not in self._leverex_deposit_addresses.get_withdraw_addresses():
-         self._rebalance_enabled = self._force_rebalance_enabled
+         self._rebalance_enabled = False
          self._rebalance_disable_reason = "Bitfinex deposit addresses is not whitelisted on leverex"
          return
 
@@ -264,8 +256,6 @@ class HedgingDealer():
          withdraw_addresses = self._bitfinex_deposit_addresses.get_withdraw_addresses()
 
          info['deposit address'] = self._bitfinex_deposit_addresses.get_deposit_address()
-         if self._force_bitfinex_deposit_address is not None:
-            info['forced deposit address'] = self._force_bitfinex_deposit_address
          info['withdraw addresses'] = withdraw_addresses if withdraw_addresses is not None else 'Loading not supported'
 
          result['bitfinex'] = info
@@ -278,8 +268,6 @@ class HedgingDealer():
          withdraw_addresses = self._leverex_deposit_addresses.get_withdraw_addresses()
 
          info['deposit address'] = self._leverex_deposit_addresses.get_deposit_address()
-         if self._force_leverex_deposit_address is not None:
-            info['forced deposit address'] = self._force_leverex_deposit_address
          info['withdraw addresses'] = withdraw_addresses if withdraw_addresses is not None else 'Not loaded'
 
          result['leverex'] = info
@@ -833,11 +821,6 @@ class HedgingDealer():
             if self._rebalance_enabled:
                if total_bitfinex_balance > total_leverex_balance:
                   report['rebalance state'] = 'Required from Bitfinex to Leverex'
-                  # if we are simulating withdraw from bitfinex and we should not
-                  # wait for a deposit - full difference amount should be transfered
-                  # to avoid multiple rebalances in a row with [ diff_i/2 ] сonvergent series
-                  if not self._simulate_wait_for_leverex_deposit and self._simulate_bitfinex_withdraw:
-                     report['to transfer'] = round(difference)
                else:
                   report['rebalance state'] = 'Required from Leverex to Bitfinex'
             else:
@@ -995,34 +978,18 @@ class HedgingDealer():
                                                       amount=amount)
 
    async def _make_bitfinex_withdraw(self, amount):
-      if self._simulate_bitfinex_withdraw:
-         # make a transfer to a margin wallet
+      if self._leverex_deposit_addresses is None or self._leverex_deposit_addresses.get_deposit_address() is None:
+         logging.error('Leverex deposit address is undefined. Could not rebalance')
+         return
+      leverex_deposit_address = self._leverex_deposit_addresses.get_deposit_address()
 
-         await self._bitfinex_wallet_transfer_with_delay(to_wallet='trading',
-                                                         from_wallet=self._bitfinex_rebalance_wallet,
-                                                         to_currency=self._bitfinex_rebalance_currency,
-                                                         from_currency=self._bitfinex_rebalance_currency,
-                                                         amount=amount)
+      logging.info(f'Submitting Bitfinex withdraw request for {amount}')
 
-         if not self._simulate_wait_for_leverex_deposit:
-            self._rebalance_from_bitfinex_completed()
-
-      else:
-         if self._force_leverex_deposit_address is not None:
-            leverex_deposit_address = self._force_leverex_deposit_address
-         else:
-            if self._leverex_deposit_addresses is None or self._leverex_deposit_addresses.get_deposit_address() is None:
-               logging.error('Leverex deposit address is undefined. Could not rebalance')
-               return
-            leverex_deposit_address = self._leverex_deposit_addresses.get_deposit_address()
-
-         logging.info(f'Submitting Bitfinex withdraw request for {amount}')
-
-         result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_rebalance_wallet,
-                                                              method=self._rebalance_method,
-                                                              amount=amount,
-                                                              address=leverex_deposit_address)
-         print(f'Result: {str(result.notify_info)}')
+      result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_rebalance_wallet,
+                                                           method=self._rebalance_method,
+                                                           amount=amount,
+                                                           address=leverex_deposit_address)
+      print(f'Result: {str(result.notify_info)}')
 
    # deposit update from leverex
    # pending rebalance from Bitfinex to Leverex could be completed if deposit is confirmed
@@ -1050,27 +1017,23 @@ class HedgingDealer():
 
       # use forced address, even if it is not whitelisted
       bitfinex_deposit_address = None
-      if self._force_bitfinex_deposit_address is not None:
-         bitfinex_deposit_address = self._force_bitfinex_deposit_address
-      else:
-         if self._bitfinex_deposit_addresses is None or self._bitfinex_deposit_addresses.get_deposit_address() is None:
-            logging.error('Bitfinex deposit address is not loaded. Could not rebalance')
-            return
+      if self._bitfinex_deposit_addresses is None or self._bitfinex_deposit_addresses.get_deposit_address() is None:
+         logging.error('Bitfinex deposit address is not loaded. Could not rebalance')
+         return
 
-         bitfinex_deposit_address = self._bitfinex_deposit_addresses.get_deposit_address()
-         if len(bitfinex_deposit_address) == 0:
-            logging.error('Bitfinex deposit address is an empty string. Could not rebalance')
-            return
+      bitfinex_deposit_address = self._bitfinex_deposit_addresses.get_deposit_address()
+      if len(bitfinex_deposit_address) == 0:
+         logging.error('Bitfinex deposit address is an empty string. Could not rebalance')
+         return
 
-         # NOTE: if force_rebalance_enabled is set - address whitelisting should be skipped
-         if not self._force_rebalance_enabled:
-            if self._leverex_deposit_addresses is None or self._leverex_deposit_addresses.get_withdraw_addresses() is None:
-               logging.error('Leverex whitelisted addresses list is not loaded. Could not rebalance')
-               return
+      # address whitelisting validation
+      if self._leverex_deposit_addresses is None or self._leverex_deposit_addresses.get_withdraw_addresses() is None:
+         logging.error('Leverex whitelisted addresses list is not loaded. Could not rebalance')
+         return
 
-            if bitfinex_deposit_address not in self._leverex_deposit_addresses.get_withdraw_addresses():
-               logging.error('Leverex whitelisted addresses list is not loaded. Could not rebalance')
-               return
+      if bitfinex_deposit_address not in self._leverex_deposit_addresses.get_withdraw_addresses():
+         logging.error('Bitfinex deposit address is not whitelisted. Could not rebalance')
+         return
 
       logging.info(f'Creating rebalance withdraw from Leverex to address {bitfinex_deposit_address}')
       await self._leverex_connection.withdraw_liquid(address=bitfinex_deposit_address,
