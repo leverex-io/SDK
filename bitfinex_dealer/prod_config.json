@@ -32,10 +32,11 @@
    },
    "rebalance_settings" :
    {
-      "force_rebalance_disabled" : true,
+      "force_rebalance_disabled" : false,
       "bitfinex_method" : "TETHERUSL",
       "bitfinex_rebalance_currency" : "UST",
-      "rebalance_threshold" : 10
+      "rebalance_threshold" : 0.1,
+      "tarnsfer_funds_threshold" : 10
    },
    "log_level" : "INFO"
 }

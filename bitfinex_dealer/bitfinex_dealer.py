@@ -164,6 +164,8 @@ class HedgingDealer():
       self._rebalance_method = rebalance_settings['bitfinex_method']
       self._rebalance_threshold = float(rebalance_settings['rebalance_threshold'])
       self._bitfinex_rebalance_currency = rebalance_settings['bitfinex_rebalance_currency']
+      self._tarnsfer_funds_threshold = rebalance_settings['tarnsfer_funds_threshold']
+
       # all funds detected here should be moved to derivatives account.
       # leverex deposits go here
       self._bitfinex_deposit_wallet = 'margin'
@@ -175,6 +177,7 @@ class HedgingDealer():
       self._withdraw_amount = False
 
       self._bitfinex_withdraw_scheduled = False
+      self._bitfinex_withdraw_request = False
       self._leverex_withdraw_scheduled = False
 
       # there could be only one transfer from wallet to wallet on Bitfinex platform
@@ -466,8 +469,7 @@ class HedgingDealer():
 
       if free_balance is not None:
          await self._complete_transfer()
-         if not self._force_rebalance_disabled:
-            await self._rebalance_if_required()
+         await self._rebalance_if_required()
 
    async def _on_bitfinex_order_new(self, order):
       pass
@@ -841,6 +843,8 @@ class HedgingDealer():
          else:
             report['withdraw from'] = 'undefinex'
 
+         report['bitfinex withdraw requested'] = self._bitfinex_withdraw_request
+
       # validate that Leverex balance is loaded
       total_leverex_balance = self._get_leverex_total()
       if total_leverex_balance is None:
@@ -858,11 +862,14 @@ class HedgingDealer():
 
       if total_leverex_balance is not None and total_bitfinex_balance is not None:
          difference = abs(total_bitfinex_balance - total_leverex_balance)
-         report['balance diff'] = difference
-         report['to transfer'] = round(difference / 2)
-         report['balance threshold'] = self._rebalance_threshold
+         relative_diff = difference / (total_bitfinex_balance + total_leverex_balance)
 
-         if self._rebalance_threshold < difference:
+         report['absolute balance diff'] = difference
+         report['relative balance diff'] = relative_diff
+         report['to transfer'] = round(difference / 2)
+         report['relative balance threshold'] = self._rebalance_threshold
+
+         if self._rebalance_threshold < relative_diff and difference > self._tarnsfer_funds_threshold:
             report['rebalance required'] = self._rebalance_enabled
             if self._rebalance_enabled:
                if total_bitfinex_balance > total_leverex_balance:
@@ -893,7 +900,9 @@ class HedgingDealer():
          # if this is a withdraw from Bitfinex to Leverex - create withdraw request
          if pending_withdraw_balance != self._withdraw_amount:
             logging.error(f'BF->LEVEREX: Unexpected transfer amount: {self._withdraw_amount} is expected, but {pending_withdraw_balance} detected on withdraw wallet ({self._bitfinex_withdraw_wallet})')
-            return
+            if pending_withdraw_balance < self._withdraw_amount:
+               logging.error('BF->LEVEREX: Could not execute withdraw')
+               return
 
          await self._make_bitfinex_withdraw(pending_withdraw_balance)
       else:
@@ -915,12 +924,12 @@ class HedgingDealer():
             self._rebalance_from_leverex_completed()
          else:
             pending_deposited_balance = self._get_bitfinex_pending_deposit_balance()
-            if pending_deposited_balance is not None and pending_deposited_balance != 0:
+            if pending_deposited_balance is not None and pending_deposited_balance > self._tarnsfer_funds_threshold:
                # just transfer cash to a margin wallet
                await self._transfer_from_deposit(pending_deposited_balance)
 
             pending_withdraw_balance = self._get_bitfinex_pending_withdraw_balance()
-            if pending_withdraw_balance is not None and pending_withdraw_balance != 0:
+            if pending_withdraw_balance is not None and pending_withdraw_balance > self._tarnsfer_funds_threshold:
                logging.info('Return funds from withdraw wallet to a margin wallet')
                await self._transfer_back_from_withdraw(pending_withdraw_balance)
 
@@ -938,6 +947,11 @@ class HedgingDealer():
          total_bitfinex_balance = rebalance_report['bitfinex balance']
 
          rebalance_amount = rebalance_report['to transfer']
+
+         # no need to make a rebalance on a very small amount
+         if rebalance_amount < self._tarnsfer_funds_threshold:
+            logging.info(f'no rebalance due to a small amount {rebalance_amount}. Controlled by tarnsfer_funds_threshold config')
+            return
 
          if total_bitfinex_balance > total_leverex_balance:
             await self._rebalance_from_bitfinex_to_leverex(rebalance_amount)
@@ -964,6 +978,7 @@ class HedgingDealer():
 
       self._rebalance_completed()
       self._bitfinex_withdraw_scheduled = False
+      self._bitfinex_withdraw_request = False
 
    def _rebalance_from_leverex_completed(self):
       if not self._leverex_withdraw_scheduled:
@@ -1048,15 +1063,25 @@ class HedgingDealer():
       if self._leverex_deposit_addresses is None or self._leverex_deposit_addresses.get_deposit_address() is None:
          logging.error('Leverex deposit address is undefined. Could not rebalance')
          return
+
+      if self._bitfinex_withdraw_request:
+         return
+
       leverex_deposit_address = self._leverex_deposit_addresses.get_deposit_address()
 
-      logging.info(f'Submitting Bitfinex withdraw request for {amount}')
+      logging.info(f'Submitting Bitfinex withdraw request for {amount} from {self._bitfinex_withdraw_wallet} via {self._rebalance_method} to {leverex_deposit_address}')
 
       result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_withdraw_wallet,
                                                            method=self._rebalance_method,
-                                                           amount=amount,
+                                                           amount=15,
                                                            address=leverex_deposit_address)
       print(f'Result: {str(result.notify_info)}')
+
+      if result.notify_info.id != 0:
+         self._bitfinex_withdraw_request = True
+         logging.info(f'Withdraw created : {result.notify_info.id}')
+      else:
+         logging.error('Withdraw not created')
 
    # deposit update from leverex
    # pending rebalance from Bitfinex to Leverex could be completed if deposit is confirmed
@@ -1168,7 +1193,7 @@ if __name__ == '__main__':
        'status_server': ['port'],
        'leverex': ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
        'bitfinex': ['api_key', 'api_secret'],
-       'rebalance_settings': ['bitfinex_method', 'bitfinex_rebalance_currency', 'rebalance_threshold'],
+       'rebalance_settings': ['bitfinex_method', 'bitfinex_rebalance_currency', 'rebalance_threshold', 'tarnsfer_funds_threshold'],
        'hedging_settings': ['leverex_product',
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',
