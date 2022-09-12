@@ -383,13 +383,13 @@ class HedgingDealer():
 
       end_time = time.time()
 
-      deposits_info = [ { 'url' : d.unblinded_link, 'confirmations' : d.confirmations_count, 'tx_id' : d.transacion_id, 'timestamp' : str(d.timestamp)} for d in deposits]
+      deposits_info = [{'url': d.unblinded_link, 'confirmations': d.confirmations_count, 'tx_id': d.transacion_id, 'timestamp': str(d.timestamp)} for d in deposits]
 
       loading_time = f'{end_time - start_time} seconds'
 
       return {
-          'deposits' : deposits_info,
-          'loading_time' : loading_time
+          'deposits': deposits_info,
+          'loading_time': loading_time
       }
 
    async def report_session_info(self):
@@ -1105,11 +1105,11 @@ if __name__ == '__main__':
    args = input_parser.parse_args()
 
    required_settings = {
-      'status_server': ['port'],
-      'leverex': ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
-      'bitfinex': ['api_key', 'api_secret'],
-      'rebalance_settings': ['bitfinex_method', 'bitfinex_rebalance_currency', 'rebalance_threshold'],
-      'hedging_settings': ['leverex_product',
+       'status_server': ['port'],
+       'leverex': ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
+       'bitfinex': ['api_key', 'api_secret'],
+       'rebalance_settings': ['bitfinex_method', 'bitfinex_rebalance_currency', 'rebalance_threshold'],
+       'hedging_settings': ['leverex_product',
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',
                             'bitfinex_margin_wallet',
