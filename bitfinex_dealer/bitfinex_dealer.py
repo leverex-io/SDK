@@ -66,7 +66,7 @@ class HedgingDealer():
 
       self.bitfinex_balances = None
       self.bitfinex_orderbook_product = self.hedging_settings['bitfinex_orderbook_product']
-      self.bitfinex_margin_wallet = self.hedging_settings['bitfinex_margin_wallet']
+      self.bitfinex_derivatives_currency = self.hedging_settings['bitfinex_derivatives_currency']
       self.bitfinex_futures_hedging_product = self.hedging_settings['bitfinex_futures_hedging_product']
       self.min_bitfinex_leverage = self.hedging_settings['min_bitfinex_leverage']
       self.bitfinex_leverage = self.hedging_settings['bitfinex_leverage']
@@ -164,7 +164,11 @@ class HedgingDealer():
       self._rebalance_method = rebalance_settings['bitfinex_method']
       self._rebalance_threshold = float(rebalance_settings['rebalance_threshold'])
       self._bitfinex_rebalance_currency = rebalance_settings['bitfinex_rebalance_currency']
-      self._bitfinex_rebalance_wallet = 'exchange'
+      # all funds detected here should be moved to derivatives account.
+      # leverex deposits go here
+      self._bitfinex_deposit_wallet = 'margin'
+      # all funds moved here should be withdrawn to leverex address
+      self._bitfinex_withdraw_wallet = 'exchange'
 
       # rebalance state variables
       self._rebalance_in_progress = False
@@ -309,8 +313,8 @@ class HedgingDealer():
          bitfinex_balances['position'] = position_info.amount
 
       if 'margin' in self._bitfinex_balances:
-         if self.bitfinex_margin_wallet in self._bitfinex_balances['margin']:
-            bitfinex_total = float(self._bitfinex_balances['margin'][self.bitfinex_margin_wallet]['total'])
+         if self.bitfinex_derivatives_currency in self._bitfinex_balances['margin']:
+            bitfinex_total = float(self._bitfinex_balances['margin'][self.bitfinex_derivatives_currency]['total'])
 
       if bitfinex_total is not None and leverex_total is not None:
          portfolio = bitfinex_total + leverex_total
@@ -408,7 +412,7 @@ class HedgingDealer():
 
       if self._bitfinex_deposit_addresses is None:
          try:
-            deposit_address = await self._bfx.rest.get_wallet_deposit_address(wallet=self._bitfinex_rebalance_wallet,
+            deposit_address = await self._bfx.rest.get_wallet_deposit_address(wallet=self._bitfinex_deposit_wallet,
                                                                               method=self._rebalance_method)
             self._bitfinex_deposit_addresses = DepositWithdrawAddresses()
             self._bitfinex_deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
@@ -434,6 +438,9 @@ class HedgingDealer():
       self._bitfinex_balances['USD Net'] = float(data[1])
 
    async def on_bitfinex_wallet_snapshot(self, wallets_snapshot):
+      # XXX probably I should explicitly set derivatives balance to 0 here
+      self._explicitly_reset_derivatives_wallet()
+
       for wallet in wallets_snapshot:
          await self.on_bitfinex_wallet_update(wallet)
 
@@ -457,9 +464,10 @@ class HedgingDealer():
 
       self._bitfinex_balances[wallet.type][wallet.currency] = balances
 
-      if free_balance is not None and not self._force_rebalance_disabled:
+      if free_balance is not None:
          await self._complete_transfer()
-         await self._rebalance_if_required()
+         if not self._force_rebalance_disabled:
+            await self._rebalance_if_required()
 
    async def _on_bitfinex_order_new(self, order):
       pass
@@ -557,8 +565,19 @@ class HedgingDealer():
 
       return self._get_buying_power() + self._get_margin_reserved()
 
-   def _get_bitfinex_transfer_balance(self):
-      wallets = self._bitfinex_balances.get(self._bitfinex_rebalance_wallet, None)
+   def _get_bitfinex_pending_deposit_balance(self):
+      wallets = self._bitfinex_balances.get(self._bitfinex_deposit_wallet, None)
+      if wallets is None:
+         return None
+
+      balances = wallets.get(self._bitfinex_rebalance_currency, None)
+      if balances is None:
+         return None
+
+      return balances['free']
+
+   def _get_bitfinex_pending_withdraw_balance(self):
+      wallets = self._bitfinex_balances.get(self._bitfinex_withdraw_wallet, None)
       if wallets is None:
          return None
 
@@ -579,7 +598,7 @@ class HedgingDealer():
       if derivatives_wallets is None:
          return None
 
-      balances = derivatives_wallets.get(self.bitfinex_margin_wallet, None)
+      balances = derivatives_wallets.get(self.bitfinex_derivatives_currency, None)
       if balances is None:
          return None
 
@@ -596,6 +615,19 @@ class HedgingDealer():
          return None
 
       return free_balance + reserved_balance
+
+   def _explicitly_reset_derivatives_wallet(self):
+      logging.info('Setting derivatives wallet balance to 0 explicitly')
+
+      balances = {}
+
+      balances['total'] = 0
+      balances['free'] = 0
+      balances['reserved'] = 0
+
+      self._bitfinex_balances['margin'] = {}
+
+      self._bitfinex_balances['margin'][self.bitfinex_derivatives_currency] = balances
 
    def _get_net_exposure(self):
       return self._net_exposure
@@ -789,11 +821,18 @@ class HedgingDealer():
       report['in progress'] = self._rebalance_in_progress
       if self._rebalance_in_progress:
          report['scheduled amount'] = self._withdraw_amount
-         transfer_balance = self._get_bitfinex_transfer_balance()
-         if transfer_balance is None:
-            report['transfer balance'] = 'not available'
+
+         pending_deposited_balance = self._get_bitfinex_pending_deposit_balance()
+         if pending_deposited_balance is None:
+            report['pending deposited balance'] = 'None'
          else:
-            report['transfer balance'] = transfer_balance
+            report['pending deposited balance'] = pending_deposited_balance
+
+         pending_withdraw_balance = self._get_bitfinex_pending_withdraw_balance()
+         if pending_withdraw_balance is None:
+            report['pending withdraw balance'] = 'None'
+         else:
+            report['pending withdraw balance'] = pending_withdraw_balance
 
          if self._bitfinex_withdraw_scheduled:
             report['withdraw from'] = 'Bitfinex'
@@ -840,36 +879,50 @@ class HedgingDealer():
    async def _complete_transfer(self):
       # check that Bitfinex have completed monetary check and transfer wallet and
       # margin wallets are unlocked and have available balance
-      transfer_balance = self._get_bitfinex_transfer_balance()
-      if transfer_balance is None or transfer_balance == 0:
-         return
 
       derivatives_balance = self._get_bitfinex_total()
       if derivatives_balance is None:
          return
 
       if self._bitfinex_withdraw_scheduled:
-         # if this is a withdraw from Bitfinex to Leverex - create withdraw request
-         if transfer_balance != self._withdraw_amount:
-            logging.error(f'BF->LEVEREX: Unexpected transfer amount: {self._withdraw_amount} is expected, but {transfer_balance} detected on transfer wallet')
-
+         pending_withdraw_balance = self._get_bitfinex_pending_withdraw_balance()
+         if pending_withdraw_balance is None:
+            logging.debug('BF->LEVEREX: withdraw scheduled. No funds on withdraw wallet')
             return
 
-         await self._make_bitfinex_withdraw(transfer_balance)
+         # if this is a withdraw from Bitfinex to Leverex - create withdraw request
+         if pending_withdraw_balance != self._withdraw_amount:
+            logging.error(f'BF->LEVEREX: Unexpected transfer amount: {self._withdraw_amount} is expected, but {pending_withdraw_balance} detected on withdraw wallet ({self._bitfinex_withdraw_wallet})')
+            return
+
+         await self._make_bitfinex_withdraw(pending_withdraw_balance)
       else:
          if self._leverex_withdraw_scheduled:
             # validate amount
-            if transfer_balance != self._withdraw_amount:
-               logging.error(f'LEVEREX->BF: Unexpected transfer amount: {self._withdraw_amount} is expected, but {transfer_balance} detected on transfer wallet')
+            pending_deposited_balance = self._get_bitfinex_pending_deposit_balance()
+            if pending_deposited_balance is None:
+               logging.debug('LEVEREX->BF: withdraw scheduled. No funds on deposit wallet yet')
+               return
+
+            if pending_deposited_balance != self._withdraw_amount:
+               logging.error(f'LEVEREX->BF: Unexpected transfer amount: {self._withdraw_amount} is expected, but {pending_deposited_balance} detected on deposit wallet')
                # not a critical error. cash should be transferred form transfer
                # wallet to a margin wallet
+
             # put cash to margin wallet
-            await self._transfer_from_deposit(transfer_balance)
+            await self._transfer_from_deposit(pending_deposited_balance)
             # complete rebalance
             self._rebalance_from_leverex_completed()
          else:
-            # just transfer cash to a margin wallet
-            await self._transfer_from_deposit(transfer_balance)
+            pending_deposited_balance = self._get_bitfinex_pending_deposit_balance()
+            if pending_deposited_balance is not None and pending_deposited_balance != 0:
+               # just transfer cash to a margin wallet
+               await self._transfer_from_deposit(pending_deposited_balance)
+
+            pending_withdraw_balance = self._get_bitfinex_pending_withdraw_balance()
+            if pending_withdraw_balance is not None and pending_withdraw_balance != 0:
+               logging.info('Return funds from withdraw wallet to a margin wallet')
+               await self._transfer_back_from_withdraw(pending_withdraw_balance)
 
    async def _rebalance_if_required(self):
       if self._force_rebalance_disabled:
@@ -920,7 +973,7 @@ class HedgingDealer():
       self._leverex_withdraw_scheduled = False
 
    def _start_rebalance_from_bitfinex(self, amount):
-      logging.debug(f'Starting withdraw from Bitfinex: {amount}')
+      logging.info(f'Starting withdraw from Bitfinex: {amount}')
       self._start_rebalance(amount)
       self._bitfinex_withdraw_scheduled = True
 
@@ -971,16 +1024,23 @@ class HedgingDealer():
 
    async def _transfer_to_withdraw(self, amount):
       await self._bitfinex_wallet_transfer_with_delay(from_wallet='trading',
-                                                      to_wallet=self._bitfinex_rebalance_wallet,
-                                                      from_currency=self.bitfinex_margin_wallet,
+                                                      to_wallet=self._bitfinex_withdraw_wallet,
+                                                      from_currency=self.bitfinex_derivatives_currency,
                                                       to_currency=self._bitfinex_rebalance_currency,
                                                       amount=amount)
 
    # transfer cash from BF "transfer" wallet to a margin wallet
    async def _transfer_from_deposit(self, amount):
       await self._bitfinex_wallet_transfer_with_delay(to_wallet='trading',
-                                                      from_wallet=self._bitfinex_rebalance_wallet,
-                                                      to_currency=self.bitfinex_margin_wallet,
+                                                      from_wallet=self._bitfinex_deposit_wallet,
+                                                      to_currency=self.bitfinex_derivatives_currency,
+                                                      from_currency=self._bitfinex_rebalance_currency,
+                                                      amount=amount)
+
+   async def _transfer_back_from_withdraw(self, amount):
+      await self._bitfinex_wallet_transfer_with_delay(to_wallet='trading',
+                                                      from_wallet=self._bitfinex_withdraw_wallet,
+                                                      to_currency=self.bitfinex_derivatives_currency,
                                                       from_currency=self._bitfinex_rebalance_currency,
                                                       amount=amount)
 
@@ -992,7 +1052,7 @@ class HedgingDealer():
 
       logging.info(f'Submitting Bitfinex withdraw request for {amount}')
 
-      result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_rebalance_wallet,
+      result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_withdraw_wallet,
                                                            method=self._rebalance_method,
                                                            amount=amount,
                                                            address=leverex_deposit_address)
@@ -1017,7 +1077,7 @@ class HedgingDealer():
          # actual withdraw request will be created right after balance update received
          await self._transfer_to_withdraw(amount)
       except Exception:
-         logging.exception(f'Failed to transfer {amount} to exchange wallet {self.bitfinex_margin_wallet}')
+         logging.exception(f'Failed to transfer {amount} to exchange wallet {self.bitfinex_derivatives_currency}')
 
    async def _rebalance_from_leverex_to_bitfinex(self, amount):
       self._start_rebalance_from_leverex(amount)
@@ -1112,7 +1172,7 @@ if __name__ == '__main__':
        'hedging_settings': ['leverex_product',
                             'bitfinex_futures_hedging_product',
                             'bitfinex_orderbook_product',
-                            'bitfinex_margin_wallet',
+                            'bitfinex_derivatives_currency',
                             'price_ratio',
                             'min_bitfinex_leverage',
                             'bitfinex_leverage',
