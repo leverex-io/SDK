@@ -8,6 +8,7 @@ import time
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from bfxapi import Client
 from bfxapi import Order as BitfinexOrder
@@ -127,8 +128,23 @@ class HedgingDealer():
 
       self._app = FastAPI()
 
+      origins = [
+          "http://localhost",
+          "http://localhost:8000"
+      ]
+
+      self._app.add_middleware(CORSMiddleware,
+                               allow_origins=origins,
+                               allow_credentials=False,
+                               allow_methods=["*"],
+                               allow_headers=["*"])
+
       self._app.get('/')(self.report_api_entry)
       self._app.get('/api/balance')(self.report_balance)
+
+      # DEV REST endpoints. should be disabled
+      # self._app.get('/api/rebalance')(self._rebalance_if_required)
+      # self._app.get('/api/complete_transfer')(self._complete_transfer)
 
       self._app.get('/api/rebalance_address_info')(self.report_rebalance_address_info)
       self._app.get('/api/rebalance_state')(self.report_rebalance_state)
