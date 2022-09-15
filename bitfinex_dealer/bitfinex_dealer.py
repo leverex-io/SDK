@@ -1088,7 +1088,7 @@ class HedgingDealer():
 
       result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_withdraw_wallet,
                                                            method=self._rebalance_method,
-                                                           amount=15,
+                                                           amount=amount,
                                                            address=leverex_deposit_address)
       print(f'Result: {str(result.notify_info)}')
 
