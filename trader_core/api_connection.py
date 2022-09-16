@@ -207,6 +207,7 @@ class DepositInfo():
       self._nb_conf = int(data['nb_conf'])
       self._unblinded_link = str(data['unblinded_link'])
       self._timestamp = datetime.fromtimestamp(data['timestamp'])
+      self._outputs = data['outputs']
 
    @property
    def transacion_id(self):
@@ -219,6 +220,10 @@ class DepositInfo():
    @property
    def unblinded_link(self):
       return self._unblinded_link
+
+   @property
+   def outputs(self):
+      return self._outputs
 
    @property
    def timestamp(self):

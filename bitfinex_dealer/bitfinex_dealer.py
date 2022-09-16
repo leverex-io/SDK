@@ -417,7 +417,7 @@ class HedgingDealer():
 
       end_time = time.time()
 
-      deposits_info = [{'url': d.unblinded_link, 'confirmations': d.confirmations_count, 'tx_id': d.transacion_id, 'timestamp': str(d.timestamp)} for d in deposits]
+      deposits_info = [{'url': d.unblinded_link, 'confirmations': d.confirmations_count, 'tx_id': d.transacion_id, 'timestamp': str(d.timestamp), 'outputs': d.outputs} for d in deposits]
 
       loading_time = f'{end_time - start_time} seconds'
 
