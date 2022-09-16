@@ -1116,7 +1116,7 @@ class HedgingDealer():
    async def on_deposit_update(self, deposit_info):
       logging.info(f'Leverex deposit detected: {deposit_info.confirmations_count} confirmations. URL: {deposit_info.unblinded_link}')
       if deposit_info.confirmations_count == 3:
-         if self._bitfinex_withdraw_scheduled:
+         if self._bitfinex_withdraw_requested:
             logging.info('Deposit confirmed. Completing rebalance.')
             self._rebalance_from_bitfinex_completed()
 
