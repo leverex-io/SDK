@@ -936,6 +936,7 @@ class HedgingDealer():
             # put cash to margin wallet
             await self._transfer_from_deposit(pending_deposited_balance)
             # complete rebalance
+            logging.info('LEVEREX->BF: Completing rebalance')
             self._rebalance_from_leverex_completed()
          else:
             pending_deposited_balance = self._get_bitfinex_pending_deposit_balance()
@@ -1103,6 +1104,7 @@ class HedgingDealer():
    async def on_deposit_update(self, deposit_info):
       if deposit_info.confirmations_count == 3:
          if self._bitfinex_withdraw_scheduled:
+            logging.info('Deposit confirmed. Completing rebalance.')
             self._rebalance_from_bitfinex_completed()
 
    # withdraw update from leverex
