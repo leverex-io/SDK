@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import datetime
 import json
 import logging
 import sys
@@ -153,6 +154,7 @@ class HedgingDealer():
       self._app.get('/api/leverex/withdrawals')(self.report_withdrawals)
 
       self._app.get('/api/bitfinex/position')(self.report_bitfinex_position)
+      self._app.get('/api/bitfinex/trades')(self.report_bitfinex_trades)
 
       config = uvicorn.Config(self._app, host='0.0.0.0', port=configuration['status_server']['port'], log_level="debug")
       self._status_server = uvicorn.Server(config)
@@ -262,6 +264,7 @@ class HedgingDealer():
                <p>&emsp;<a href="/api/leverex/session_info">Current session info</a></p>
                <p>Bitfinex</p>
                <p>&emsp;<a href="/api/bitfinex/position">Current position</a></p>
+               <p>&emsp;<a href="/api/bitfinex/trades">Trades</a></p>
            </body>
        </html>
        """
@@ -338,6 +341,15 @@ class HedgingDealer():
          portfolio = bitfinex_total + leverex_total
 
       return {'leverex': leverex_balances, 'bitfinex': bitfinex_balances, 'portfolio': portfolio}
+
+   async def report_bitfinex_trades(self):
+      response = {}
+
+      end = int(datetime.datetime.utcnow().timestamp() * 1000)
+
+      response = await self._bfx.rest.get_trades(start=0, end=end, limit=50)
+
+      return response
 
    async def report_bitfinex_position(self):
       response = {}
