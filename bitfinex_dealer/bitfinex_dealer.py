@@ -192,7 +192,7 @@ class HedgingDealer():
       self._withdraw_amount = False
 
       self._bitfinex_withdraw_scheduled = False
-      self._bitfinex_withdraw_request = False
+      self._bitfinex_withdraw_requested = False
       self._leverex_withdraw_scheduled = False
 
       # there could be only one transfer from wallet to wallet on Bitfinex platform
@@ -542,6 +542,11 @@ class HedgingDealer():
       position = Position.from_raw_rest_position(data[2])
       await self._update_position(position)
 
+      # wallet updates are relatively rear and rebalance might take a lot of time
+      # just to speedup things a little bit add rebalance validation here as well
+      await self._complete_transfer()
+      await self._rebalance_if_required()
+
    async def _on_bitfinex_position_close(self, data):
       position = Position.from_raw_rest_position(data[2])
       logging.info(f'Position closed for {position.symbol}')
@@ -858,7 +863,7 @@ class HedgingDealer():
          else:
             report['withdraw from'] = 'undefinex'
 
-         report['bitfinex withdraw requested'] = self._bitfinex_withdraw_request
+         report['bitfinex withdraw requested'] = self._bitfinex_withdraw_requested
 
       # validate that Leverex balance is loaded
       total_leverex_balance = self._get_leverex_total()
@@ -907,6 +912,10 @@ class HedgingDealer():
          return
 
       if self._bitfinex_withdraw_scheduled:
+         if self._bitfinex_withdraw_requested:
+            # withdraw request already created
+            return
+
          pending_withdraw_balance = self._get_bitfinex_pending_withdraw_balance()
          if pending_withdraw_balance is None:
             logging.debug('BF->LEVEREX: withdraw scheduled. No funds on withdraw wallet')
@@ -919,7 +928,7 @@ class HedgingDealer():
                logging.error('BF->LEVEREX: Could not execute withdraw')
                return
 
-         await self._make_bitfinex_withdraw(pending_withdraw_balance)
+         await self._make_bitfinex_withdraw(self._withdraw_amount)
       else:
          if self._leverex_withdraw_scheduled:
             # validate amount
@@ -994,7 +1003,7 @@ class HedgingDealer():
 
       self._rebalance_completed()
       self._bitfinex_withdraw_scheduled = False
-      self._bitfinex_withdraw_request = False
+      self._bitfinex_withdraw_requested = False
 
    def _rebalance_from_leverex_completed(self):
       if not self._leverex_withdraw_scheduled:
@@ -1080,11 +1089,14 @@ class HedgingDealer():
          logging.error('Leverex deposit address is undefined. Could not rebalance')
          return
 
-      if self._bitfinex_withdraw_request:
+      if self._bitfinex_withdraw_requested:
          return
 
       leverex_deposit_address = self._leverex_deposit_addresses.get_deposit_address()
 
+      decrease_amount = 1
+      logging.info(f'Decreasing withdraw amount by {decrease_amount}')
+      amount = amount - decrease_amount
       logging.info(f'Submitting Bitfinex withdraw request for {amount} from {self._bitfinex_withdraw_wallet} via {self._rebalance_method} to {leverex_deposit_address}')
 
       result = await self._bfx.rest.submit_wallet_withdraw(wallet=self._bitfinex_withdraw_wallet,
@@ -1094,7 +1106,7 @@ class HedgingDealer():
       print(f'Result: {str(result.notify_info)}')
 
       if result.notify_info.id != 0:
-         self._bitfinex_withdraw_request = True
+         self._bitfinex_withdraw_requested = True
          logging.info(f'Withdraw created : {result.notify_info.id}')
       else:
          logging.error('Withdraw not created')
@@ -1102,6 +1114,7 @@ class HedgingDealer():
    # deposit update from leverex
    # pending rebalance from Bitfinex to Leverex could be completed if deposit is confirmed
    async def on_deposit_update(self, deposit_info):
+      logging.info(f'Leverex deposit detected: {deposit_info.confirmations_count} confirmations. URL: {deposit_info.unblinded_link}')
       if deposit_info.confirmations_count == 3:
          if self._bitfinex_withdraw_scheduled:
             logging.info('Deposit confirmed. Completing rebalance.')
