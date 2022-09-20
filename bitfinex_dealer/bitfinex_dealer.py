@@ -55,6 +55,9 @@ class DepositWithdrawAddresses():
 
 class HedgingDealer():
    def __init__(self, configuration):
+      self._authorized_on_leverex = False
+      self._authorized_on_bitfinex = False
+
       self.hedging_settings = configuration['hedging_settings']
 
       self._overseer_mode = False
@@ -378,6 +381,9 @@ class HedgingDealer():
       return response
 
    async def report_leverex_liquidations_defaults(self):
+      if not self._authorized_on_leverex:
+         return {}
+
       loop = asyncio.get_running_loop()
       offset = 0
       trades = []
@@ -407,6 +413,9 @@ class HedgingDealer():
       return [trade for trade in trades if trade.is_rollover_liquidation or trade.is_rollover_default]
 
    async def report_withdrawals(self):
+      if not self._authorized_on_leverex:
+         return {}
+
       loop = asyncio.get_running_loop()
       fut = loop.create_future()
 
@@ -435,6 +444,9 @@ class HedgingDealer():
       }
 
    async def report_deposits(self):
+      if not self._authorized_on_leverex:
+         return {}
+
       loop = asyncio.get_running_loop()
       fut = loop.create_future()
 
@@ -470,6 +482,7 @@ class HedgingDealer():
 
    async def on_bitfinex_authenticated(self, auth_message):
       logging.info('================= Authenticated to bitfinex')
+      self._authorized_on_bitfinex = True
 
       if self._bitfinex_deposit_addresses is None:
          try:
@@ -775,6 +788,7 @@ class HedgingDealer():
       pass
 
    async def on_authorized(self):
+      self._authorized_on_leverex = True
       await self._leverex_connection.load_open_positions(target_product=self.leverex_product, callback=self.on_positions_loaded)
       await self._leverex_connection.subscribe_session_open(self.leverex_product)
       await self._leverex_connection.load_deposit_address(callback=self.on_leverex_deposit_address_loaded)
