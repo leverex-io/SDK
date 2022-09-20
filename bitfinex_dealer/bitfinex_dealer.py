@@ -152,6 +152,7 @@ class HedgingDealer():
       self._app.get('/api/leverex/session_info')(self.report_session_info)
       self._app.get('/api/leverex/deposits')(self.report_deposits)
       self._app.get('/api/leverex/withdrawals')(self.report_withdrawals)
+      self._app.get('/api/leverex/liquidations_defaults')(self.report_leverex_liquidations_defaults)
 
       self._app.get('/api/bitfinex/position')(self.report_bitfinex_position)
       self._app.get('/api/bitfinex/trades')(self.report_bitfinex_trades)
@@ -262,6 +263,7 @@ class HedgingDealer():
                <p>&emsp;<a href="/api/leverex/deposits">Deposits</a></p>
                <p>&emsp;<a href="/api/leverex/withdrawals">Withdrawals</a></p>
                <p>&emsp;<a href="/api/leverex/session_info">Current session info</a></p>
+               <p>&emsp;<a href="/api/leverex/liquidations_defaults">Liquidations and Defaults</a></p>
                <p>Bitfinex</p>
                <p>&emsp;<a href="/api/bitfinex/position">Current position</a></p>
                <p>&emsp;<a href="/api/bitfinex/trades">Trades</a></p>
@@ -345,7 +347,7 @@ class HedgingDealer():
    async def report_bitfinex_trades(self):
       response = {}
 
-      end = int(datetime.datetime.utcnow().timestamp() * 1000)
+      end = int(datetime.datetime.now().timestamp() * 1000)
 
       response = await self._bfx.rest.get_trades(start=0, end=end, limit=50)
 
@@ -374,6 +376,35 @@ class HedgingDealer():
             response[position.symbol] = position_info
 
       return response
+
+   async def report_leverex_liquidations_defaults(self):
+      loop = asyncio.get_running_loop()
+      offset = 0
+      trades = []
+
+      end_time = int(datetime.datetime.now().timestamp())
+      # load trade history for a week
+      end_time = end_time - (7 * 24 * 60 * 60)
+
+      while True:
+         fut = loop.create_future()
+
+         async def cb(trade_history):
+            fut.set_result(trade_history)
+
+         await self._leverex_connection.load_trade_history(target_product=self.leverex_product, offset=offset, callback=cb)
+         trade_history = await fut
+
+         if not trade_history.loaded:
+            return {'error': 'failed to load trade history'}
+
+         if len(trade_history.orders) == 0:
+            break
+
+         offset = offset + len(trade_history.orders)
+         trades.extend(trade_history.orders)
+
+      return [trade for trade in trades if trade.is_rollover_liquidation or trade.is_rollover_default]
 
    async def report_withdrawals(self):
       loop = asyncio.get_running_loop()

@@ -44,6 +44,35 @@ class SessionCloseInfo():
       self.session_id = data['session_id']
 
 
+class TradeHistory():
+   def __init__(self, data):
+      self._loaded = data['loaded']
+      if self._loaded:
+         self._orders = [Order(order_data) for order_data in data['orders']]
+         self._start_time = datetime.fromtimestamp(data['start_time'])
+         self._end_time = datetime.fromtimestamp(data['end_time'])
+      else:
+         self._start_time = None
+         self._end_time = None
+         self._orders = None
+
+   @property
+   def loaded(self):
+      return self._loaded
+
+   @property
+   def start_time(self):
+      return self._start_time
+
+   @property
+   def end_time(self):
+      return self._end_time
+
+   @property
+   def orders(self):
+      return self._orders
+
+
 class Order():
    def __init__(self, data):
       self._id = data['id']
@@ -114,6 +143,14 @@ class Order():
    @property
    def is_trade_position(self):
       return self._rollover_type == ORDER_TYPE_TRADE_POSITION
+
+   @property
+   def is_rollover_liquidation(self):
+      return self._rollover_type == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION
+
+   @property
+   def is_rollover_default(self):
+      return self._rollover_type == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION
 
    @property
    def fee(self):
@@ -332,12 +369,36 @@ class AsyncApiConnection(object):
 
       await self.websocket.send(json.dumps(load_deposit_address_request))
 
+   async def load_trade_history(self, target_product, limit=0, offset=0, start_time: datetime = None
+                                , end_time: datetime = None, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      load_trades_request = {
+         'trade_history': {
+            'limit': limit,
+            'offset': offset,
+            'start_time': (int(start_time.timestamp()) if start_time is not None else 0),
+            'end_time': (int(end_time.timestamp()) if end_time is not None else 0),
+            'product_type': target_product,
+            'reference': reference
+         }
+      }
+
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      else:
+         listener_cb = getattr(self.listener, 'on_trade_history_loaded', None)
+         if callable(listener_cb):
+            self._requests_cb[reference] = listener_cb
+
+      await self.websocket.send(json.dumps(load_trades_request))
+
    async def load_withdrawals_history(self, callback: Callable = None):
       reference = self._generate_reference_id()
 
       load_withdrawals_history_request = {
-         'load_withdrawals' : {
-            'reference' : reference
+         'load_withdrawals': {
+            'reference': reference
          }
       }
       if callback is not None:
@@ -574,6 +635,18 @@ class AsyncApiConnection(object):
                await self._call_listener_cb(cb, address)
             else:
                logging.error(f'load_deposit_address response with unregistered request reference:{reference}')
+
+         elif 'trade_history' in update:
+            reference = update['trade_history']['reference']
+
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+
+               trade_history = TradeHistory(update['trade_history'])
+
+               await self._call_listener_cb(cb, trade_history)
+            else:
+               logging.error(f'trade_history response with unregistered request reference:{reference}')
 
          elif 'load_withdrawals' in update:
             reference = update['load_withdrawals']['reference']
