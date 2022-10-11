@@ -21,6 +21,6 @@ def get_product_info(product_name):
    if product_name == 'xbteur_rf':
       return ProductInfo(product_name=product_name, cash_ccy='EUR', margin_ccy='EURP', rolling = True)
    if product_name == 'xbtusd_rf':
-      return ProductInfo(product_name=product_name, cash_ccy='USD', margin_ccy='USDP', rolling = True)
+      return ProductInfo(product_name=product_name, cash_ccy='USDT', margin_ccy='USDP', rolling = True)
 
    return None
