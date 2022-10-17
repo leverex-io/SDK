@@ -725,7 +725,11 @@ class HedgingDealer():
       if max_exposure == 0:
          return 0
 
-      return max_exposure + self._get_net_exposure()
+      ask_volume = max_exposure + self._get_net_exposure()
+      if ask_volume < 0:
+         return 0
+
+      return ask_volume
 
    def get_bid_offer_volume(self):
       max_exposure = self._get_max_exposure()
@@ -771,14 +775,16 @@ class HedgingDealer():
          ask_price = ask.price * (1 + self.price_ratio)
          bid_price = bid.price * (1 - self.price_ratio)
 
+         offers = []
+
          if ask_volume == bid_volume:
             offer = PriceOffer(volume=ask_volume, ask=ask_price, bid=bid_price)
             offers = [offer]
          else:
-            ask_offer = PriceOffer(volume=ask_volume, ask=ask_price)
-            bid_offer = PriceOffer(volume=bid_volume, bid=bid_price)
-
-            offers = [ask_offer, bid_offer]
+            if ask_volume != 0:
+               offers.append(PriceOffer(volume=ask_volume, ask=ask_price))
+            if bid_volume != 0:
+               offers.append(PriceOffer(volume=bid_volume, bid=bid_price))
 
          await self._leverex_connection.submit_offers(target_product=self.leverex_product, offers=offers)
       else:
