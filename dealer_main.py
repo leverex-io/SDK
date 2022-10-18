@@ -55,7 +55,7 @@ class SampleDealer(MarketEventListener):
 
       #prune last bid
       if len(offers) > 0:
-         del offers[-1]['bid']
+         del offers[0]['ask']
 
       #send the offers
       self.sendOffer(offers)
