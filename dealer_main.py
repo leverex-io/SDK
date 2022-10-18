@@ -51,9 +51,11 @@ class SampleDealer(MarketEventListener):
 
          current_vol = current_vol / 2
          if len(offers) >= 5:
-            #remove last bid to have an asymetric stream
-            del offers[-1]['bid']
             break
+
+      #prune last bid
+      if len(offers) > 0:
+         del offers[-1]['bid']
 
       #send the offers
       self.sendOffer(offers)
