@@ -40,7 +40,7 @@ class SampleDealer(MarketEventListener):
 
       #create offers based on spread per volume, halve volume of successive
       #offers until thresold_volume is reached
-      current_vol = max_vol
+      current_vol = min(max_vol, 4)
       while current_vol > self.threshold_volume:
          offers.append(
             {
