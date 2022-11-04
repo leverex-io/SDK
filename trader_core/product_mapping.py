@@ -33,7 +33,7 @@ class ProductInfo():
 
 def get_product_info(product_name):
    if product_name == 'xbtusd_rf':
-      return ProductInfo(product_name=product_name, cash_ccy='USD', margin_ccy='USDP', crypto_ccy='XBT', rolling = True)
+      return ProductInfo(product_name=product_name, cash_ccy='USDT', margin_ccy='USDP', crypto_ccy='XBT', rolling = True)
    if product_name == 'ethusd_rf':
       return ProductInfo(product_name=product_name, cash_ccy='USD', margin_ccy='eth_usd', crypto_ccy='ETH', rolling = True)
 
