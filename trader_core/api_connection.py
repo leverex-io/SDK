@@ -49,10 +49,15 @@ class AsyncApiConnection(object):
       }
 
       await self.websocket.send(json.dumps(auth_request))
-      data = await self.websocket.recv()
-      loginResult = json.loads(data)
-      if not loginResult['authorize']['success']:
-         raise Exception("Login failed")
+      while True:
+         data = await self.websocket.recv()
+         loginResult = json.loads(data)
+         if not 'authorize' in loginResult:
+            logging.info("unexpected login response")
+         elif not loginResult['authorize']['success']:
+            raise Exception("Login failed")
+         else:
+            break
 
       logging.info("logged in")
 

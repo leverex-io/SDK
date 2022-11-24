@@ -61,7 +61,7 @@ class SampleDealer(MarketEventListener):
       self.sendOffer(offers)
 
    async def updateOffer(self):
-      await asyncio.sleep(60)
+      await asyncio.sleep(2)
       pass
 
 ################################################################################
