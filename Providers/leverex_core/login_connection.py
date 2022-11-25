@@ -18,6 +18,7 @@ class LoginServiceClientWS():
       with open(private_key_path, 'r') as key_file:
          self._key = jwk.JWK()
          self._key.import_from_pem(key_file.read().encode())
+         print (self._key.export(private_key=False))
 
    def get_email(self):
       return self._email

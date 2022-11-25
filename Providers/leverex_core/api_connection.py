@@ -10,6 +10,8 @@ from datetime import datetime
 from typing import Callable
 
 from .login_connection import LoginServiceClientWS
+from Factories.Definitions import PriceOffer, \
+   SessionCloseInfo, SessionOpenInfo, SessionInfo
 
 LOGIN_ENDPOINT = "wss://login-live.leverex.io/ws/v1/websocket"
 API_ENDPOINT = "wss://api-live.leverex.io"
@@ -20,28 +22,10 @@ ORDER_ACTION_UPDATED = 2
 ORDER_STATUS_PENDING = 1
 ORDER_STATUS_FILLED  = 2
 
-SIDE_BUY    = 1
-SIDE_SELL   = 2
-
 ORDER_TYPE_TRADE_POSITION                 = 0
 ORDER_TYPE_NORMAL_ROLLOVER_POSITION       = 1
 ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION   = 2
 ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION    = 3
-
-
-class SessionOpenInfo():
-   def __init__(self, data):
-      self.product_type = data['product_type']
-      self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
-      self.last_cut_off_price = float(data['last_cut_off_price'])
-      self.session_id = data['session_id']
-      self.previous_session_id = data['previous_session_id']
-
-
-class SessionCloseInfo():
-   def __init__(self, data):
-      self.product_type = data['product_type']
-      self.session_id = data['session_id']
 
 
 class TradeHistory():
@@ -266,40 +250,6 @@ class DepositInfo():
    def timestamp(self):
       return self._timestamp
 
-
-class PriceOffer():
-   def __init__(self, volume, ask=None, bid=None):
-      self._volume = volume
-      self._ask = ask
-      self._bid = bid
-
-   @property
-   def volume(self):
-      return self._volume
-
-   @property
-   def ask(self):
-      return self._ask
-
-   @property
-   def bid(self):
-      return self._bid
-
-   def to_map(self):
-      if self._ask is None and self._bid is None:
-         return None
-
-      result = {}
-
-      result['volume'] = str(self._volume)
-      if self._ask is not None:
-         result['ask'] = str(self._ask)
-      if self._bid is not None:
-         result['bid'] = str(self._bid)
-
-      return result
-
-
 PriceOffers = list[PriceOffer]
 
 
@@ -345,9 +295,11 @@ class AsyncApiConnection(object):
    def _generate_reference_id(self):
       return str(round(time.time() * 1000000))
 
-   def loadBalances(self):
+   def loadBalances(self, callback):
+      reference = self._generate_reference_id()
       loadBalanceRequest = {
-         'load_balance' : {}
+         'load_balance' : {},
+         'reference': reference
       }
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
 
@@ -555,11 +507,7 @@ class AsyncApiConnection(object):
 
          if self._login_client is not None:
             await self.login()
-
             await self._call_listener_method('on_authorized')
-
-            # load balances
-            self.loadBalances()
 
          # start the loops
          readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
@@ -567,14 +515,14 @@ class AsyncApiConnection(object):
 
          if self._login_client is not None:
             cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
-            updateTask = asyncio.create_task(self.listener.updateOffer(), name="Leverex update offers taks")
+            #updateTask = asyncio.create_task(self.listener.updateOffer(), name="Leverex update offers task")
 
          await readTask
          await writeTask
 
          if self._login_client is not None:
             await cycleTask
-            await updateTask
+            #await updateTask
 
    async def readLoop(self):
       while True:
@@ -587,7 +535,12 @@ class AsyncApiConnection(object):
             self.listener.on_market_data(update['market_data'])
 
          elif 'load_balance' in update:
-            await self._call_listener_method('onLoadBalance', update['load_balance']['balances'])
+            if 'reference' in update['load_balance'] and \
+               update['load_balance']['reference'] in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               await self._call_listener_cb(cb, orders)
+            else:
+               await self._call_listener_method('onLoadBalance', update['load_balance']['balances'])
 
          elif 'subscribe' in update:
             if not update['subscribe']['success']:
