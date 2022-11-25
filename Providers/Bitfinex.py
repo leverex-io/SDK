@@ -5,9 +5,11 @@ from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook
 
-from .bfxapi import Client
-from .bfxapi import Order
-import .bfxapi.models as bfx_models
+import .bitfinex-api-py.bfxapi as bfxapi
+
+from bfxapi import Client
+from bfxapi import Order
+import bfxapi.models as bfx_models
 
 class BitfinexProvider(Factory):
    def __init__(self, config):

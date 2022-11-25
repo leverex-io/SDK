@@ -1,0 +1,3 @@
+[submodule "Providers/bitfinex-api-py"]
+	path = Providers/bitfinex-api-py
+	url = https://github.com/bitfinexcom/bitfinex-api-py
