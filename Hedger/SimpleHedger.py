@@ -131,6 +131,9 @@ class SimpleHedger(HedgerFactory):
       makerExposure = maker.getExposure()
       takerExposure = taker.getExposure()
 
+      if makerExposure == None or takerExposure == None:
+         return
+
       #NOTE: taker exposure is expected to be the opposite of the maker exposure
       #this is why we add the 2, and expect the diff to be 0
       exposureDiff = makerExposure + takerExposure

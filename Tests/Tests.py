@@ -21,9 +21,15 @@ from Factories.Definitions import AggregationOrderBook, \
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 from Providers.Leverex import LeverexProvider
+from Providers.leverex_core.api_connection import LeverexOrder, \
+   ORDER_STATUS_FILLED, ORDER_TYPE_TRADE_POSITION
 
 price = 10000
 
+################################################################################
+##
+#### Order book tests
+##
 ################################################################################
 class TestOrderBook(unittest.TestCase):
    def test_price_agg(self):
@@ -102,6 +108,10 @@ class TestOrderBook(unittest.TestCase):
       self.assertEqual(result.volume, 8)
 
 ################################################################################
+##
+#### Test providers
+##
+################################################################################
 class TestProvider(Factory):
    def __init__(self, leverageRatio, startBalance=0):
       super().__init__()
@@ -153,8 +163,8 @@ class TestMaker(TestProvider):
 
    async def bootstrap(self):
       await super().bootstrap()
-      await self.initPositions(self.startPositions)
       await self.setReady(True)
+      await self.initPositions(self.startPositions)
 
    async def initPositions(self, startPositions):
       self.orders.extend(startPositions)
@@ -168,6 +178,9 @@ class TestMaker(TestProvider):
       await super().onPositionUpdate()
 
    def getExposure(self):
+      if not super().isReady():
+         return None
+
       exposure = 0
       for order in self.orders:
          orderQ = order.quantity
@@ -188,8 +201,8 @@ class TestTaker(TestProvider):
 
    async def bootstrap(self):
       await super().bootstrap()
-      await self.initExposure(self.startExposure)
       await self.setReady(True)
+      await self.initExposure(self.startExposure)
 
    async def initExposure(self, startExposure):
       self.exposure = startExposure
@@ -208,12 +221,18 @@ class TestTaker(TestProvider):
       await super().onOrderBookUpdate()
 
    def getExposure(self):
+      if not super().isReady():
+         return None
       return self.exposure
 
    async def updateExposure(self, exposure):
       self.exposure += exposure
       await super().onPositionUpdate()
 
+################################################################################
+##
+#### Hedger Tests
+##
 ################################################################################
 class TestHedger(unittest.IsolatedAsyncioTestCase):
    config = {}
@@ -377,8 +396,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       maker = TestMaker(startBalance=1000, startPositions=startOrders)
 
       #check they have no balance nor exposure pre dealer start
-      self.assertEqual(maker.getExposure(), 0)
-      self.assertEqual(taker.getExposure(), 0)
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
       self.assertEqual(maker.balance, 0)
       self.assertEqual(taker.balance, 0)
 
@@ -402,6 +421,10 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       self.assertEqual(taker.getExposure(), -0.2)
 
 ################################################################################
+##
+#### Leverex Provider Tests
+##
+################################################################################
 class MockedLeverexConnectionClass(object):
    def __init__(self, balance=0):
       self.offers = []
@@ -409,7 +432,7 @@ class MockedLeverexConnectionClass(object):
       self.balance = balance
 
       self.session_product = None
-      self.balance_requested = None
+      self.balance_callback = None
       self.positions_callback = None
 
    async def run(self, listener):
@@ -420,26 +443,26 @@ class MockedLeverexConnectionClass(object):
       self.offers.append(offers)
 
    def loadBalances(self, callback):
-      self.balance_requested = callback
+      self.balance_callback = callback
 
    async def replyLoadBalances(self):
-      if self.balance_requested == None:
+      if self.balance_callback == None:
          raise Exception("balances were not requested")
 
-      await self.balance_requested([{
+      await self.balance_callback([{
          'currency' : 'usdt',
          'balance' : self.balance
       }])
-      self.balance_requested = None
+      self.balance_callback = None
 
    async def load_open_positions(self, target_product, callback):
-      self.positions_requested = callback
+      self.positions_callback = callback
 
    async def replyLoadPositions(self, orders):
-      if self.positions_requested == None:
+      if self.positions_callback == None:
          raise Exception("positions where not requested")
-      await self.positions_requested(orders)
-      self.positions_requested = None
+      await self.positions_callback(orders)
+      self.positions_callback = None
 
    async def subscribe_session_open(self, product):
       self.session_product = product
@@ -458,6 +481,10 @@ class MockedLeverexConnectionClass(object):
          'product_type' : self.session_product,
          'session_id' : session_id
       }))
+
+   async def push_new_order(self, order):
+      order['product_type'] = self.session_product
+      await self.listener.on_order_created(LeverexOrder(order))
 
 ########
 class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
@@ -499,6 +526,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #sanity check on mocked connection
       assert maker.connection is mockedConnection
       assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
 
       #setup taker, we shouldn't generate offers until maker is ready
       await taker.updateBalance(1500)
@@ -509,20 +538,26 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #Leverex authorized event (login successful)
       await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
       #reply to load positions
-      assert mockedConnection.positions_requested != None
+      assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
-      assert mockedConnection.positions_requested == None
+      assert mockedConnection.positions_callback == None
+      assert maker.isReady() == False
+      assert maker._positionInitialized == True
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_requested != None
+      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_requested == None
+      assert mockedConnection.balance_callback == None
       assert maker.balances['usdt'] == 1000
+      assert maker.isReady() == False
+      assert maker._balanceInitialized == True
       assert len(mockedConnection.offers) == 0
 
       #reply to session sub
@@ -532,6 +567,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          10000, #open price
          0 #open timestamp
       )
+      assert maker.isReady() == True
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
@@ -563,12 +599,17 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #sanity check on mocked connection
       assert maker.connection is mockedConnection
       assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
 
       await taker.populateOrderBook(10)
       assert len(mockedConnection.offers) == 0
+      assert maker.isReady() == False
 
       #Leverex authorized event (login successful)
       await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
       #reply to session sub
@@ -579,19 +620,24 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          0 #open timestamp
       )
       assert len(mockedConnection.offers) == 0
+      assert maker.isReady() == False
 
       #reply to load balances request
-      assert mockedConnection.balance_requested != None
+      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_requested == None
+      assert mockedConnection.balance_callback == None
       assert maker.balances['usdt'] == 1000
+      assert maker.isReady() == False
+      assert maker._balanceInitialized == True
       assert len(mockedConnection.offers) == 0
 
       #reply to load positions
-      assert mockedConnection.positions_requested != None
+      assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
-      assert mockedConnection.positions_requested == None
+      assert maker.isReady() == True
+      assert maker._positionInitialized == True
+      assert mockedConnection.positions_callback == None
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
@@ -623,12 +669,16 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #sanity check on mocked connection
       assert maker.connection is mockedConnection
       assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
 
       await taker.populateOrderBook(10)
       assert len(mockedConnection.offers) == 0
 
       #Leverex authorized event (login successful)
       await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
       #reply to session sub
@@ -638,19 +688,24 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          10000, #open price
          0 #open timestamp
       )
+      assert maker.isReady() == False
       assert len(mockedConnection.offers) == 0
 
       #reply to load positions
-      assert mockedConnection.positions_requested != None
+      assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
-      assert mockedConnection.positions_requested == None
+      assert mockedConnection.positions_callback == None
+      assert maker.isReady() == False
+      assert maker._positionInitialized == True
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_requested != None
+      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_requested == None
+      assert mockedConnection.balance_callback == None
+      assert maker.isReady() == True
+      assert maker._balanceInitialized == True
       assert maker.balances['usdt'] == 1000
 
       assert len(mockedConnection.offers) == 1
@@ -665,6 +720,84 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 2
       assert len(mockedConnection.offers[1]) == 0
 
+   #cover new order handling and exposure signals
+   @patch('Providers.Leverex.AsyncApiConnection')
+   async def test_exposure_sync(self, MockedLeverexConnObj):
+      #return mocked leverex connection object instead of an instance
+      #of leverex_core.api_connection.AsyncApiConnection
+      mockedConnection = MockedLeverexConnectionClass(1000)
+      MockedLeverexConnObj.return_value = mockedConnection
+
+      maker = LeverexProvider(self.config)
+      taker = TestTaker(startBalance=1500)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert maker.connection is mockedConnection
+      assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+
+      #Leverex authorized event (login successful)
+      await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+      assert len(mockedConnection.offers) == 0
+
+      #reply to load balances request
+      assert mockedConnection.balance_callback != None
+      assert len(maker.balances) == 0
+      await mockedConnection.replyLoadBalances()
+      assert mockedConnection.balance_callback == None
+      assert maker.balances['usdt'] == 1000
+
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+      assert maker.isReady() == True
+
+      #push new order for 1btc
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      await mockedConnection.push_new_order({
+         'id' : 1,
+         'timestamp' : 1,
+         'quantity' : 1,
+         'price' : 10100,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 15
+      })
+      assert maker.getExposure() == 1
+      assert taker.getExposure() == -1
+
+      #order for -0.5
+      await mockedConnection.push_new_order({
+         'id' : 2,
+         'timestamp' : 1,
+         'quantity' : -0.5,
+         'price' : 10050,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 7.5
+      })
+      assert maker.getExposure() == 0.5
+      assert taker.getExposure() == -0.5
 
 ################################################################################
 if __name__ == '__main__':

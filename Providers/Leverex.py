@@ -107,6 +107,9 @@ class LeverexProvider(Factory):
       logging.info(f'======== matched in Leverex for order {str(order)}')
       await super().onPositionUpdate()
 
+   async def on_order_filled(self, order):
+      logging.warning("++++++++++ [Leverex.on_order_filled] implement me")
+
    ## session notifications
    async def on_session_open(self, sessionInfo):
       self.currentSession = SessionInfo(sessionInfo)
@@ -195,4 +198,6 @@ class LeverexProvider(Factory):
 
    ## exposure ##
    def getExposure(self):
+      if not self.isReady():
+         return None
       return self.netExposure
