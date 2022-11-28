@@ -91,15 +91,19 @@ class LeverexProvider(Factory):
 
    ## position events ##
    async def on_positions_loaded(self, orders):
-      await super().setInitPosition()
 
       #TODO: order timestamp and/or orderId. If the session has a roll,
       #it should ALWAYS be the first trade in the list
 
+      def getId(order):
+         return order.id
+      orders.sort(key=getId)
+
       for order in orders:
          self.storeActiveOrder(order)
+
       logging.info(f'======== {len(orders)} positions loaded from Leverex')
-      await super().onPositionUpdate()
+      await super().setInitPosition()
       await self.evaluateReadyState()
 
    async def on_order_created(self, order):
@@ -200,4 +204,4 @@ class LeverexProvider(Factory):
    def getExposure(self):
       if not self.isReady():
          return None
-      return self.netExposure
+      return round(self.netExposure, 8)

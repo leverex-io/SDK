@@ -22,7 +22,8 @@ from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 from Providers.Leverex import LeverexProvider
 from Providers.leverex_core.api_connection import LeverexOrder, \
-   ORDER_STATUS_FILLED, ORDER_TYPE_TRADE_POSITION
+   ORDER_STATUS_FILLED, ORDER_TYPE_TRADE_POSITION, \
+   ORDER_TYPE_NORMAL_ROLLOVER_POSITION
 
 price = 10000
 
@@ -377,10 +378,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert offers1[1].bid == round(9993.75  * 0.99, 2)
       assert offers1[1].ask == None
 
-   async def test_exposure_sync(self):
-      #this test sets various exposure on the maker and the taker,
-      #then starts the dealer and checks the exposures are in check
-
+   #exposure tests set various exposure on the maker and the taker,
+   #then start the dealer and check the exposures are in sync
+   async def test_exposure_sync_maker(self):
       #setup taker and maker
       taker = TestTaker(startBalance=1500)
 
@@ -399,7 +399,6 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
       await dealer.waitOnReady()
-      print ("dealer ready")
 
       #check taker exposure is the opposite of the maker's
       assert maker.balance == 1000
@@ -415,6 +414,72 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1500
       assert maker.getExposure() == 0.2
       assert taker.getExposure() == -0.2
+
+   async def test_exposure_sync_taker(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=1500, startExposure=0.25)
+      maker = TestMaker(startBalance=1000)
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      #check taker exposure is zero'd out since maker has none
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+
+      #add another order
+      newOrder = Order(id=3, timestamp=0, quantity=0.1, price=9900)
+      await maker.newOrder(newOrder)
+
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0.1
+      assert taker.getExposure() == -0.1
+
+   async def test_exposure_sync_both(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=1500, startExposure=0.5)
+
+      startOrders = []
+      startOrders.append(Order(id=1, timestamp=0, quantity=0.3, price=10100))
+      startOrders.append(Order(id=2, timestamp=0, quantity=0.1, price=10150))
+      maker = TestMaker(startBalance=1000, startPositions=startOrders)
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      #check taker exposure is zero'd out since maker has none
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0.4
+      assert taker.getExposure() == -0.4
+
+      #add another order
+      newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900)
+      await maker.newOrder(newOrder)
+
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0.3
+      assert taker.getExposure() == -0.3
 
 
 ################################################################################
@@ -458,7 +523,13 @@ class MockedLeverexConnectionClass(object):
    async def replyLoadPositions(self, orders):
       if self.positions_callback == None:
          raise Exception("positions where not requested")
-      await self.positions_callback(orders)
+
+      leverexOrders = []
+      for order in orders:
+         order['product_type'] = self.session_product
+         leverexOrders.append(LeverexOrder(order))
+
+      await self.positions_callback(leverexOrders)
       self.positions_callback = None
 
    async def subscribe_session_open(self, product):
@@ -812,6 +883,124 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       })
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
+
+   #cover exposure sync at startup with existing maker orders
+   @patch('Providers.Leverex.AsyncApiConnection')
+   async def test_exposure_sync_startup(self, MockedLeverexConnObj):
+      #setup mocked leverex connections
+      mockedConnection = MockedLeverexConnectionClass(1000)
+      MockedLeverexConnObj.return_value = mockedConnection
+
+      #setup test dealer
+      maker = LeverexProvider(self.config)
+      taker = TestTaker(startBalance=1500)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert maker.connection is mockedConnection
+      assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+      assert dealer.isReady() == False
+
+      #Leverex authorized event (login successful)
+      await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
+
+      #reply to load balances request
+      assert mockedConnection.balance_callback != None
+      assert len(maker.balances) == 0
+      await mockedConnection.replyLoadBalances()
+      assert mockedConnection.balance_callback == None
+      assert maker.balances['usdt'] == 1000
+      assert maker.isReady() == False
+      assert dealer.isReady() == False
+
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         10, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+      assert maker.isReady() == False
+      assert dealer.isReady() == False
+
+      orders = []
+
+      #second order, comes first in list to cover order sorting
+      #edge case around rollovers
+      orders.append({
+         'id' : 5,
+         'timestamp' : 5,
+         'quantity' : 0.5,
+         'price' : 10100,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 10,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 7.5
+      })
+
+      #first order, rollover
+      orders.append({
+         'id' : 2,
+         'timestamp' : 1,
+         'quantity' : -1,
+         'price' : 10000,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : -1,
+         'session_id' : 10,
+         'rollover_type' : ORDER_TYPE_NORMAL_ROLLOVER_POSITION,
+         'fee' : 0
+      })
+
+      #third order
+      orders.append({
+         'id' : 6,
+         'timestamp' : 15,
+         'quantity' : -0.1,
+         'price' : 10200,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 10,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 1.5
+      })
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions(orders)
+      assert mockedConnection.positions_callback == None
+      assert len(mockedConnection.offers) == 0
+      assert maker.isReady() == True
+      assert dealer.isReady() == True
+
+      #check exposure
+      assert maker.getExposure() == -0.6
+      assert taker.getExposure() == 0.6
+
+      #order for 0.2
+      await mockedConnection.push_new_order({
+         'id' : 12,
+         'timestamp' : 20,
+         'quantity' : 0.2,
+         'price' : 10050,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 10,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 3
+      })
+
+      #check exposure
+      assert maker.getExposure() == -0.4
+      assert taker.getExposure() == 0.4
+
+#TODO: cover bitfinex provider
 
 ################################################################################
 if __name__ == '__main__':
