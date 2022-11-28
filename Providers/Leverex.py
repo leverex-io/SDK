@@ -19,7 +19,7 @@ class LeverexProvider(Factory):
 
    ## setup ##
    def __init__(self, config):
-      super().__init__()
+      super().__init__("Leverex")
       self.config = config
       self.connection = None
       self.balances = {}
@@ -67,10 +67,10 @@ class LeverexProvider(Factory):
 
    async def on_authorized(self):
       logging.info('================= Authenticated to Leverex')
-      super().setConnected(True)
+      await super().setConnected(True)
 
       async def balanceCallback(balances):
-         self.setInitBalance()
+         await self.setInitBalance()
          await self.onLoadBalance(balances)
       self.connection.loadBalances(balanceCallback)
 
@@ -91,7 +91,7 @@ class LeverexProvider(Factory):
 
    ## position events ##
    async def on_positions_loaded(self, orders):
-      super().setInitPosition()
+      await super().setInitPosition()
 
       #TODO: order timestamp and/or orderId. If the session has a roll,
       #it should ALWAYS be the first trade in the list

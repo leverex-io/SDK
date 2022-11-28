@@ -113,8 +113,8 @@ class TestOrderBook(unittest.TestCase):
 ##
 ################################################################################
 class TestProvider(Factory):
-   def __init__(self, leverageRatio, startBalance=0):
-      super().__init__()
+   def __init__(self, name, leverageRatio, startBalance=0):
+      super().__init__(name)
 
       self.startBalance = startBalance
       self.balance = 0
@@ -124,23 +124,16 @@ class TestProvider(Factory):
       return asyncio.create_task(self.bootstrap())
 
    async def bootstrap(self):
-      await self.initBalance(self.startBalance)
-
-   async def setReady(self, isReady):
-      super().setConnected(isReady)
-      await self.onReady()
-
-   async def initBalance(self, balance):
-      super().setInitBalance()
-      await self.updateBalance(balance)
+      await super().setConnected(True)
+      self.balance = self.startBalance
+      await super().setInitBalance()
 
    async def updateBalance(self, balance):
       self.balance = balance
       await super().onBalanceUpdate()
 
    async def initPositions(self):
-      super().setInitPosition()
-      await super().onPositionUpdate()
+      await super().setInitPosition()
 
    def getOpenVolume(self):
       if self.isReady() == False:
@@ -155,7 +148,7 @@ class TestProvider(Factory):
 ########
 class TestMaker(TestProvider):
    def __init__(self, startBalance=0, startPositions=[]):
-      super().__init__(10, startBalance)
+      super().__init__("TestMaker", 10, startBalance)
 
       self.startPositions = startPositions
       self.offers = []
@@ -163,7 +156,6 @@ class TestMaker(TestProvider):
 
    async def bootstrap(self):
       await super().bootstrap()
-      await self.setReady(True)
       await self.initPositions(self.startPositions)
 
    async def initPositions(self, startPositions):
@@ -193,7 +185,7 @@ class TestMaker(TestProvider):
 ########
 class TestTaker(TestProvider):
    def __init__(self, startBalance=0, startExposure=0):
-      super().__init__(15, startBalance)
+      super().__init__("TestTaker", 15, startBalance)
 
       self.startExposure = startExposure
       self.order_book = AggregationOrderBook()
@@ -201,7 +193,6 @@ class TestTaker(TestProvider):
 
    async def bootstrap(self):
       await super().bootstrap()
-      await self.setReady(True)
       await self.initExposure(self.startExposure)
 
    async def initExposure(self, startExposure):
@@ -247,49 +238,50 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       hedger = SimpleHedger(self.config)
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
+      await dealer.waitOnReady()
 
       #set taker order book, we shouldn't generate offers until maker is ready
       await taker.updateBalance(15000)
-      self.assertEqual(len(maker.offers), 0)
+      assert len(maker.offers) == 0
 
       await taker.populateOrderBook(10)
-      self.assertEqual(len(maker.offers), 0)
+      assert len(maker.offers) == 0
 
       #setup maker
       await maker.updateBalance(10000)
-      self.assertEqual(len(maker.offers), 1)
+      assert len(maker.offers) == 1
 
       #check the offers
       offers0 = maker.offers[0]
-      self.assertEqual(len(offers0), 1)
+      assert len(offers0) == 1
 
       #shutdown maker, offers should be pulled
-      await maker.setReady(False)
-      self.assertEqual(len(maker.offers), 2)
+      await maker.setConnected(False)
+      assert len(maker.offers) == 2
 
       #check the offers
       offers1 = maker.offers[1]
-      self.assertEqual(len(offers1), 0)
+      assert len(offers1) == 0
 
       #restart maker, we should get offers once again
-      await maker.setReady(True)
-      self.assertEqual(len(maker.offers), 3)
+      await maker.setConnected(True)
+      assert len(maker.offers) == 3
 
       #check the offers
       offers2 = maker.offers[2]
-      self.assertEqual(len(offers2), 1)
+      assert len(offers2) == 1
 
       #shutdown taker, offers should be pulled
-      await taker.setReady(False)
-      self.assertEqual(len(maker.offers), 4)
+      await taker.setConnected(False)
+      assert len(maker.offers) == 4
 
       #check the offers
       offers3 = maker.offers[3]
-      self.assertEqual(len(offers3), 0)
+      assert len(offers3) == 0
 
       #shutdown maker, no offers should be added
-      await maker.setReady(False)
-      self.assertEqual(len(maker.offers), 4)
+      await maker.setConnected(False)
+      assert len(maker.offers) == 4
 
    async def test_offers_volume(self):
       taker = TestTaker(startBalance=1500)
@@ -298,39 +290,40 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       hedger = SimpleHedger(self.config)
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
+      await dealer.waitOnReady()
 
       #we should have offers yet
-      self.assertEqual(len(maker.offers), 0)
+      assert len(maker.offers) == 0
 
       #quote and check price & volumes of offers
       await taker.populateOrderBook(10)
-      self.assertEqual(len(maker.offers), 1)
+      assert len(maker.offers) == 1
 
       offers0 = maker.offers[0]
-      self.assertEqual(len(offers0), 1)
-      self.assertEqual(offers0[0].volume, 1)
-      self.assertEqual(offers0[0].bid, round(9981.25  * 0.99, 2))
-      self.assertEqual(offers0[0].ask, round(10018.75 * 1.01, 2))
+      assert len(offers0) == 1
+      assert offers0[0].volume == 1
+      assert offers0[0].bid == round(9981.25  * 0.99, 2)
+      assert offers0[0].ask == round(10018.75 * 1.01, 2)
 
       #balance event
       await maker.updateBalance(500)
-      self.assertEqual(len(maker.offers), 2)
+      assert len(maker.offers) == 2
 
       offers1 = maker.offers[1]
-      self.assertEqual(len(offers1), 1)
-      self.assertEqual(offers1[0].volume, 0.5)
-      self.assertEqual(offers1[0].bid, round(9989.58  * 0.99, 2))
-      self.assertEqual(offers1[0].ask, round(10010.42 * 1.01, 2))
+      assert len(offers1) == 1
+      assert offers1[0].volume == 0.5
+      assert offers1[0].bid == round(9989.58  * 0.99, 2)
+      assert offers1[0].ask == round(10010.42 * 1.01, 2)
 
       #order book event
       await taker.populateOrderBook(6)
-      self.assertEqual(len(maker.offers), 3)
+      assert len(maker.offers) == 3
 
       offers2 = maker.offers[2]
-      self.assertEqual(len(offers2), 1)
-      self.assertEqual(offers2[0].volume, 0.5)
-      self.assertEqual(offers2[0].bid, round(9993.75  * 0.99, 2))
-      self.assertEqual(offers2[0].ask, round(10006.25 * 1.01, 2))
+      assert len(offers2) == 1
+      assert offers2[0].volume == 0.5
+      assert offers2[0].bid == round(9993.75  * 0.99, 2)
+      assert offers2[0].ask == round(10006.25 * 1.01, 2)
 
    async def test_offers_order(self):
       #maker orders should affect maker and taker exposure accordingly
@@ -341,47 +334,48 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       hedger = SimpleHedger(self.config)
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
-      self.assertEqual(len(maker.offers), 0)
+      await dealer.waitOnReady()
+      assert len(maker.offers) == 0
 
       #order book event
       await taker.populateOrderBook(6)
-      self.assertEqual(len(maker.offers), 1)
+      assert len(maker.offers) == 1
 
       offers0 = maker.offers[0]
-      self.assertEqual(len(offers0), 1)
-      self.assertEqual(offers0[0].volume, 0.5)
-      self.assertEqual(offers0[0].bid, round(9993.75  * 0.99, 2))
-      self.assertEqual(offers0[0].ask, round(10006.25 * 1.01, 2))
+      assert len(offers0) == 1
+      assert offers0[0].volume == 0.5
+      assert offers0[0].bid == round(9993.75  * 0.99, 2)
+      assert offers0[0].ask == round(10006.25 * 1.01, 2)
 
       #new order event
       newOrder = Order(id=1, timestamp=0, quantity=0.1, price=10100)
       await maker.newOrder(newOrder)
-      self.assertEqual(len(maker.offers), 2)
+      assert len(maker.offers) == 2
 
       #check exposure
-      self.assertEqual(maker.getExposure(), 0.1)
-      self.assertEqual(taker.getExposure(), -0.1)
+      assert maker.getExposure() == 0.1
+      assert taker.getExposure() == -0.1
 
       #check volumes
       makerVolume = maker.getOpenVolume()
-      self.assertEqual(makerVolume['ask'], 0.6)
-      self.assertEqual(makerVolume['bid'], 0.4)
+      assert makerVolume['ask'] == 0.6
+      assert makerVolume['bid'] == 0.4
 
       takerVolume = taker.getOpenVolume()
-      self.assertEqual(takerVolume['ask'], 0.9)
-      self.assertEqual(takerVolume['bid'], 1.1)
+      assert takerVolume['ask'] == 0.9
+      assert takerVolume['bid'] == 1.1
 
       #check offers
       offers1 = maker.offers[1]
-      self.assertEqual(len(offers1), 2)
+      assert len(offers1) == 2
 
-      self.assertEqual(offers1[0].volume, 0.6)
-      self.assertEqual(offers1[0].bid, None)
-      self.assertEqual(offers1[0].ask, round(10011.25 * 1.01, 2))
+      assert offers1[0].volume == 0.6
+      assert offers1[0].bid == None
+      assert offers1[0].ask == round(10011.25 * 1.01, 2)
 
-      self.assertEqual(offers1[1].volume, 0.4)
-      self.assertEqual(offers1[1].bid, round(9993.75  * 0.99, 2))
-      self.assertEqual(offers1[1].ask, None)
+      assert offers1[1].volume == 0.4
+      assert offers1[1].bid == round(9993.75  * 0.99, 2)
+      assert offers1[1].ask == None
 
    async def test_exposure_sync(self):
       #this test sets various exposure on the maker and the taker,
@@ -398,27 +392,30 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       #check they have no balance nor exposure pre dealer start
       assert maker.getExposure() == None
       assert taker.getExposure() == None
-      self.assertEqual(maker.balance, 0)
-      self.assertEqual(taker.balance, 0)
+      assert maker.balance == 0
+      assert taker.balance == 0
 
       hedger = SimpleHedger(self.config)
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
+      await dealer.waitOnReady()
+      print ("dealer ready")
 
       #check taker exposure is the opposite of the maker's
-      self.assertEqual(maker.balance, 1000)
-      self.assertEqual(taker.balance, 1500)
-      self.assertEqual(maker.getExposure(), 0.3)
-      self.assertEqual(taker.getExposure(), -0.3)
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0.3
+      assert taker.getExposure() == -0.3
 
       #add another order
       newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900)
       await maker.newOrder(newOrder)
 
-      self.assertEqual(maker.balance, 1000)
-      self.assertEqual(taker.balance, 1500)
-      self.assertEqual(maker.getExposure(), 0.2)
-      self.assertEqual(taker.getExposure(), -0.2)
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0.2
+      assert taker.getExposure() == -0.2
+
 
 ################################################################################
 ##
@@ -528,6 +525,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.connection.listener is maker
       assert maker.isReady() == False
       assert taker.isReady() == True
+      assert dealer.isReady() == False
 
       #setup taker, we shouldn't generate offers until maker is ready
       await taker.updateBalance(1500)
@@ -539,6 +537,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #Leverex authorized event (login successful)
       await maker.on_authorized()
       assert maker.isReady() == False
+      assert dealer.isReady() == False
       assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
@@ -547,6 +546,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
       assert maker.isReady() == False
+      assert dealer.isReady() == False
       assert maker._positionInitialized == True
       assert len(mockedConnection.offers) == 0
 
@@ -557,6 +557,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.balance_callback == None
       assert maker.balances['usdt'] == 1000
       assert maker.isReady() == False
+      assert dealer.isReady() == False
       assert maker._balanceInitialized == True
       assert len(mockedConnection.offers) == 0
 
@@ -568,13 +569,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          0 #open timestamp
       )
       assert maker.isReady() == True
+      assert dealer.isReady() == True
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
-      self.assertEqual(len(offers0), 1)
-      self.assertEqual(offers0[0].volume, 1)
-      self.assertEqual(offers0[0].bid, round(9981.25  * 0.99, 2))
-      self.assertEqual(offers0[0].ask, round(10018.75 * 1.01, 2))
+      assert len(offers0) == 1
+      assert offers0[0].volume == 1
+      assert offers0[0].bid == round(9981.25  * 0.99, 2)
+      assert offers0[0].ask == round(10018.75 * 1.01, 2)
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(2) #session_id
@@ -601,14 +603,17 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.connection.listener is maker
       assert maker.isReady() == False
       assert taker.isReady() == True
+      assert dealer.isReady() == False
 
       await taker.populateOrderBook(10)
       assert len(mockedConnection.offers) == 0
       assert maker.isReady() == False
+      assert dealer.isReady() == False
 
       #Leverex authorized event (login successful)
       await maker.on_authorized()
       assert maker.isReady() == False
+      assert dealer.isReady() == False
       assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
@@ -621,6 +626,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       )
       assert len(mockedConnection.offers) == 0
       assert maker.isReady() == False
+      assert dealer.isReady() == False
 
       #reply to load balances request
       assert mockedConnection.balance_callback != None
@@ -629,6 +635,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.balance_callback == None
       assert maker.balances['usdt'] == 1000
       assert maker.isReady() == False
+      assert dealer.isReady() == False
       assert maker._balanceInitialized == True
       assert len(mockedConnection.offers) == 0
 
@@ -636,15 +643,16 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert maker.isReady() == True
+      assert dealer.isReady() == True
       assert maker._positionInitialized == True
       assert mockedConnection.positions_callback == None
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
-      self.assertEqual(len(offers0), 1)
-      self.assertEqual(offers0[0].volume, 1)
-      self.assertEqual(offers0[0].bid, round(9981.25  * 0.99, 2))
-      self.assertEqual(offers0[0].ask, round(10018.75 * 1.01, 2))
+      assert len(offers0) == 1
+      assert offers0[0].volume == 1
+      assert offers0[0].bid == round(9981.25  * 0.99, 2)
+      assert offers0[0].ask == round(10018.75 * 1.01, 2)
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(3) #session_id
@@ -671,6 +679,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.connection.listener is maker
       assert maker.isReady() == False
       assert taker.isReady() == True
+      assert dealer.isReady() == False
 
       await taker.populateOrderBook(10)
       assert len(mockedConnection.offers) == 0
@@ -678,6 +687,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #Leverex authorized event (login successful)
       await maker.on_authorized()
       assert maker.isReady() == False
+      assert dealer.isReady() == False
       assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
@@ -696,6 +706,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
       assert maker.isReady() == False
+      assert dealer.isReady() == False
       assert maker._positionInitialized == True
       assert len(mockedConnection.offers) == 0
 
@@ -705,15 +716,16 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.replyLoadBalances()
       assert mockedConnection.balance_callback == None
       assert maker.isReady() == True
+      assert dealer.isReady() == True
       assert maker._balanceInitialized == True
       assert maker.balances['usdt'] == 1000
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
-      self.assertEqual(len(offers0), 1)
-      self.assertEqual(offers0[0].volume, 1)
-      self.assertEqual(offers0[0].bid, round(9981.25  * 0.99, 2))
-      self.assertEqual(offers0[0].ask, round(10018.75 * 1.01, 2))
+      assert len(offers0) == 1
+      assert offers0[0].volume == 1
+      assert offers0[0].bid == round(9981.25  * 0.99, 2)
+      assert offers0[0].ask == round(10018.75 * 1.01, 2)
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(4) #session_id
@@ -739,6 +751,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.connection.listener is maker
       assert maker.isReady() == False
       assert taker.isReady() == True
+      assert dealer.isReady() == False
 
       #Leverex authorized event (login successful)
       await maker.on_authorized()
@@ -766,6 +779,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          0 #open timestamp
       )
       assert maker.isReady() == True
+      assert dealer.isReady() == True
 
       #push new order for 1btc
       assert maker.getExposure() == 0

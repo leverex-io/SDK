@@ -4,7 +4,8 @@ import Factories.Definitions as Definitions
 
 class Factory(object):
    ## setup ##
-   def __init__(self):
+   def __init__(self, name):
+      self._name = name
       self.dealerCallback = None
       self._connected = False
       self._balanceInitialized = False
@@ -18,23 +19,38 @@ class Factory(object):
    async def getAsyncIOTask(self):
       pass
 
-   def setInitBalance(self):
+   ## initialization events ##
+   async def setConnected(self, value):
+      self._connected = value
+      await self.onReady()
+
+   async def setInitBalance(self):
       if self._balanceInitialized:
          raise Definitions.ProviderException("init failure")
       self._balanceInitialized = True
+      await self.onBalanceUpdate()
 
-   def setInitPosition(self):
+   async def setInitPosition(self):
       if self._positionInitialized:
          raise Definitions.ProviderException("init failure")
       self._positionInitialized = True
+      await self.onPositionUpdate()
 
-   def setConnected(self, value):
-      self._connected = value
-
+   ## ready state ##
    def isReady(self):
       return self._connected and \
          self._balanceInitialized and \
          self._positionInitialized
+
+   async def waitOnReady(self):
+      while True:
+         if self.isReady():
+            return
+         await asyncio.sleep(0.1)
+
+   def printReadyState(self):
+      print (f"Provider: {self._name}, ready: {self.isReady()}\n"
+         f"  connected: {self._connected}, balance init: {self._balanceInitialized}, position init: {self._positionInitialized}")
 
    ## notifications ##
    async def onReady(self):
@@ -68,9 +84,6 @@ class Factory(object):
    ## getters ##
    def getExposure(self):
       logging.debug("[getPostion]")
-
-   def getOrderBook(self):
-      logging.debug("[getOrderBook]")
 
    def getOpenVolume(self):
       logging.debug("[getOpenVolume]")

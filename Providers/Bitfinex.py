@@ -13,7 +13,7 @@ import bfxapi.models as bfx_models
 
 class BitfinexProvider(Factory):
    def __init__(self, config):
-      super().__init__()
+      super().__init__("Bitfinex")
       self.connection = None
       self.positions = {}
       self.balances = {}

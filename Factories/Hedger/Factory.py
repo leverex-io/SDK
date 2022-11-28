@@ -3,11 +3,24 @@ import asyncio
 
 class HedgerFactory(object):
    def __init__(self):
-      pass
+      self._ready = False
 
    ## ready ##
    async def onReadyEvent(self, maker, taker):
       logging.debug("[HedgerFactory::onReadyEvent]")
+
+   def isReady(self):
+      return self._ready
+
+   def setReady(self):
+      if not self.isReady():
+         self._ready = True
+
+   async def waitOnReady(self):
+      while True:
+         if self.isReady():
+            return
+         await asyncio.sleep(0.1)
 
    ## rebalance ##
    async def onBalanceEvent(self, maker, taker):

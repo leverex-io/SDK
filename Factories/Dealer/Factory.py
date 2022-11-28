@@ -75,3 +75,16 @@ class DealerFactory(object):
    ## ready ##
    async def onReadyEvent(self):
       await self.hedger.onReadyEvent(self.maker, self.taker)
+
+   def isReady(self):
+      return self.maker.isReady() \
+         and self.taker.isReady() \
+         and self.hedger.isReady()
+
+   async def waitOnReady(self):
+      await self.maker.waitOnReady()
+      await self.taker.waitOnReady()
+      await self.hedger.waitOnReady()
+
+      await self.onReadyEvent()
+      return

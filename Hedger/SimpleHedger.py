@@ -15,6 +15,8 @@ class SimpleHedger(HedgerFactory):
    }
 
    def __init__(self, config):
+      super().__init__()
+
       #check for required config entries
       for k in self.required_settings:
          if k not in config:
@@ -30,7 +32,7 @@ class SimpleHedger(HedgerFactory):
       self.offers = []
 
    #############################################################################
-   ## price offers routines
+   ## price offers methods
    #############################################################################
    async def clearOffers(self, maker):
       if len(self.offers) == 0:
@@ -52,6 +54,10 @@ class SimpleHedger(HedgerFactory):
 
    ####
    async def submitOffers(self, maker, taker):
+      if not self.isReady():
+         await self.clearOffers(maker)
+         return
+
       #figure out long and short buying power for the taker and the maker
       maker_volume = maker.getOpenVolume()
       taker_volume = taker.getOpenVolume()
@@ -97,7 +103,7 @@ class SimpleHedger(HedgerFactory):
             if bid_volume != 0:
                offers.append(PriceOffer(volume=bid_volume, bid=bid_price))
       except OfferException as e:
-         logging.warning("failed to instantiate valid offer:\n"
+         logging.debug("failed to instantiate valid offer:\n"
             f"  ask vol: {ask_volume}, price: {ask_price}\n"
             f"  bid vol: {bid_volume}, price: {bid_price}")
 
@@ -110,23 +116,9 @@ class SimpleHedger(HedgerFactory):
       await maker.submitOffers(self.offers)
 
    #############################################################################
-   ## taker events
+   ## exposure methods
    #############################################################################
-   async def onTakerOrderBookEvent(self, maker, taker):
-      await self.submitOffers(maker, taker)
-
-   ####
-   async def onTakerPositionEvent(self, maker, taker):
-      # check balances
-      await self.checkBalances(maker, taker)
-
-      # update offers
-      await self.submitOffers(maker, taker)
-
-   #############################################################################
-   ## maker events
-   #############################################################################
-   async def onMakerPositionEvent(self, maker, taker):
+   async def checkExposureSync(self, maker, taker):
       #compare maker and taker exposure
       makerExposure = maker.getExposure()
       takerExposure = taker.getExposure()
@@ -139,19 +131,48 @@ class SimpleHedger(HedgerFactory):
       exposureDiff = makerExposure + takerExposure
 
       #ignore differences that are less than 100 satoshis
-      if abs(exposureDiff) <= 0.000001:
-         return
+      if abs(exposureDiff) > 0.000001:
+         #we need to adjust the taker position by the opposite of the difference
+         exposureUpdate = exposureDiff * -1.0
 
-      #we need to adjust the taker position by the opposite of the difference
-      exposureUpdate = exposureDiff * -1.0
+         #TODO: check we have the cash in the taker to enter this position,
+         #if not, we need to trigger a rebalance event and reduce our offers
+         #on the opposite side of exposureUpdate to get the maker exposure in sync
+         #with the taker's capacity
 
-      #TODO: check we have the cash in the taker to enter this position,
-      #if not, we need to trigger a rebalance event and reduce our offers
-      #on the opposite side of exposureUpdate to get the maker exposure in sync
-      #with the taker's capacity
+         #update taker position
+         await taker.updateExposure(exposureUpdate)
 
-      #update taker position
-      await taker.updateExposure(exposureUpdate)
+      #report ready state to hedger factory. On first exposure sync, this will
+      #set the hedger ready flag. Further calls will have no effect
+      self.setReady()
+
+   #############################################################################
+   ## taker events
+   #############################################################################
+   async def onTakerOrderBookEvent(self, maker, taker):
+      await self.submitOffers(maker, taker)
+
+   ####
+   async def onTakerPositionEvent(self, maker, taker):
+      # check balance across maker and taker, rebalance if needed
+      await self.checkBalances(maker, taker)
+
+      # check exposure across maker and taker, resync accordingly
+      await self.checkExposureSync(maker, taker)
+
+   #############################################################################
+   ## maker events
+   #############################################################################
+   async def onMakerPositionEvent(self, maker, taker):
+      # check balance across maker and taker, rebalance if needed
+      await self.checkBalances(maker, taker)
+
+      # check exposure across maker and taker, resync accordingly
+      await self.checkExposureSync(maker, taker)
+
+      # update offers
+      await self.submitOffers(maker, taker)
 
    #############################################################################
    ## balance events
@@ -172,4 +193,5 @@ class SimpleHedger(HedgerFactory):
    #############################################################################
    async def onReadyEvent(self, maker, taker):
       # update offers
+      await self.checkExposureSync(maker, taker)
       await self.submitOffers(maker, taker)
