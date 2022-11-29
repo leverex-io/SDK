@@ -14,7 +14,7 @@ class TestProvider(Factory):
       self.balance = 0
       self.leverageRatio = leverageRatio
 
-   async def getAsyncIOTask(self):
+   def getAsyncIOTask(self):
       return asyncio.create_task(self.bootstrap())
 
    async def bootstrap(self):

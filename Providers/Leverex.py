@@ -13,8 +13,13 @@ class LeverexException(Exception):
 ################################################################################
 class LeverexProvider(Factory):
    required_settings = {
-      'leverex': ['api_endpoint', 'login_endpoint', 'key_file_path', 'email'],
-      'hedging_settings' : ['leverex_product']
+      'leverex': [
+         'api_endpoint',
+         'login_endpoint',
+         'key_file_path',
+         'email',
+         'product'
+      ]
    }
 
    ## setup ##
@@ -32,13 +37,13 @@ class LeverexProvider(Factory):
       #check for required config entries
       for k in self.required_settings:
          if k not in self.config:
-            raise LeverexException(f'Missing "\{k}"\ in config')
+            raise LeverexException(f'Missing \"{k}"\ in config')
 
          for kk in self.required_settings[k]:
             if kk not in self.config[k]:
-               raise LeverexException(f'Missing "\{kk}\" in config group \"{k}\"')
+               raise LeverexException(f'Missing \"{kk}\" in config group \"{k}\"')
 
-      self.product = self.config['hedging_settings']['leverex_product']
+      self.product = self.config['leverex']['product']
 
    ##
    def setup(self, callback):

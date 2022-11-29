@@ -16,7 +16,7 @@ class Factory(object):
          raise Definitions.ProviderException("missing hedging callback")
       self.dealerCallback = callback
 
-   async def getAsyncIOTask(self):
+   def getAsyncIOTask(self):
       pass
 
    ## initialization events ##

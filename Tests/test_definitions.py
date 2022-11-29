@@ -36,7 +36,6 @@ class TestOrderBook(unittest.TestCase):
       self.assertEqual(result.price, 10076.25)
       self.assertEqual(result.volume, 8)
 
-
       #7
       result = orderBook.get_aggregated_ask_price(7)
       self.assertEqual(result.price, 10076.25)
@@ -71,7 +70,6 @@ class TestOrderBook(unittest.TestCase):
       result = orderBook.get_aggregated_bid_price(5)
       self.assertEqual(result.price, 9923.75)
       self.assertEqual(result.volume, 8)
-
 
       #7
       result = orderBook.get_aggregated_bid_price(7)

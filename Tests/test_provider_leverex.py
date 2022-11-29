@@ -92,10 +92,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       'api_endpoint' : 'the_endpoint',
       'login_endpoint' : 'login_endpoint',
       'key_file_path' : 'key/path',
-      'email' : 'user_email'
+      'email' : 'user_email',
+      'product' : 'usdt'
    }
    config['hedging_settings'] = {
-      'leverex_product' : 'usdt',
       'price_ratio' : 0.01,
       'max_offer_volume' : 5
    }

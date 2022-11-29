@@ -5,13 +5,34 @@ from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook
 
-import .bitfinex-api-py.bfxapi as bfxapi
+from Providers.bfxapi.bfxapi import Client
+from Providers.bfxapi.bfxapi import Order
+import Providers.bfxapi.bfxapi.models as bfx_models
 
-from bfxapi import Client
-from bfxapi import Order
-import bfxapi.models as bfx_models
+BFX_USD_NET = 'USD Net'
+BFX_USD_TOTAL = 'USD total'
 
+################################################################################
+class BitfinexException(Exception):
+   pass
+
+################################################################################
 class BitfinexProvider(Factory):
+   required_settings = {
+      'bitfinex': [
+         'api_key', 'api_secret',
+         'orderbook_product',
+         'derivatives_currency',
+         'futures_hedging_product',
+         'min_leverage',
+         'leverage',
+         'max_leverage',
+      ],
+      'hedging_settings': [
+         'max_offer_volume'
+      ]
+   }
+
    def __init__(self, config):
       super().__init__("Bitfinex")
       self.connection = None
@@ -19,44 +40,31 @@ class BitfinexProvider(Factory):
       self.balances = {}
 
       #check for required config entries
-      required_settings = {
-         'bitfinex': ['api_key', 'api_secret'],
-         'hedging_settings': ['bitfinex_futures_hedging_product',
-                              'bitfinex_orderbook_product',
-                              'bitfinex_derivatives_currency',
-                              'min_bitfinex_leverage',
-                              'bitfinex_leverage',
-                              'max_bitfinex_leverage',
-                              'max_offer_volume']
-      }
-      for k in required_settings:
+      #check for required config entries
+      for k in self.required_settings:
          if k not in config:
-            logging.error(f'Missing {k} in config')
-            exit(1)
+            raise BitfinexException(f'Missing \"{k}\" in config')
 
-         for kk in required_settings[k]:
+         for kk in self.required_settings[k]:
             if kk not in config[k]:
-               logging.error(f'Missing {kk} in config group {k}')
-               exit(1)
+               raise BitfinexException(f'Missing \"{kk}\" in config group \"{k}\"')
 
       self.config = config['bitfinex']
-      self.hedging_settings = config['hedging_settings']
-
-      self.orderbook_product = self.hedging_settings['bitfinex_orderbook_product']
-      self.derivatives_currency = self.hedging_settings['bitfinex_derivatives_currency']
-      self.product = self.hedging_settings['bitfinex_futures_hedging_product']
-      self.min_leverage = self.hedging_settings['min_bitfinex_leverage']
-      self.leverage = self.hedging_settings['bitfinex_leverage']
-      self.max_leverage = self.hedging_settings['max_bitfinex_leverage']
-      self.max_offer_volume = self.hedging_settings['max_offer_volume']
+      self.orderbook_product = self.config['orderbook_product']
+      self.derivatives_currency = self.config['derivatives_currency']
+      self.product = self.config['futures_hedging_product']
+      self.min_leverage = self.config['min_leverage']
+      self.leverage = self.config['leverage']
+      self.max_leverage = self.config['max_leverage']
+      self.max_offer_volume = config['hedging_settings']['max_offer_volume']
 
       self.order_book_len = 100
-      if 'bitfinex_order_book_len' in self.hedging_settings:
-         self.order_book_len = self.hedging_settings['bitfinex_order_book_len']
+      if 'order_book_len' in self.config:
+         self.order_book_len = self.config['order_book_len']
 
       self.order_book_aggregation = 'P0'
-      if 'bitfinex_order_book_aggregation' in self.hedging_settings:
-         self.order_book_aggregation = self.hedging_settings['bitfinex_order_book_aggregation']
+      if 'order_book_aggregation' in self.config:
+         self.order_book_aggregation = self.config['order_book_aggregation']
 
       # setup Bitfinex connection
       self.order_book = AggregationOrderBook()
@@ -96,7 +104,7 @@ class BitfinexProvider(Factory):
    ## connection events ##
    async def on_authenticated(self, auth_message):
       logging.info('================= Authenticated to Bitfinex')
-      self.ready = True
+      await super().setConnected(True)
 
       try:
          deposit_address = await self.connection.rest.get_wallet_deposit_address(
@@ -113,8 +121,8 @@ class BitfinexProvider(Factory):
 
    ## balance events ##
    async def on_balance_updated(self, data):
-      self.balances['USD total'] = float(data[0])
-      self.balances['USD Net'] = float(data[1])
+      self.balances[BFX_USD_TOTAL] = float(data[0])
+      self.balances[BFX_USD_NET] = float(data[1])
       await super().onBalanceUpdate()
 
    def _explicitly_reset_derivatives_wallet(self):
@@ -208,10 +216,13 @@ class BitfinexProvider(Factory):
 
    ## volume ##
    def getOpenVolume(self):
+      if not self.isReady():
+         return None
+
       leverageRatio = self.leverage / 100
       priceBid = self.order_book.get_aggregated_bid_price(self.max_offer_volume)
       priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume)
-      balance = self.balances['USD Net']
+      balance = self.balances[BFX_USD_NET]
 
       #TODO: account for exposure that can be freed from current orders
 
