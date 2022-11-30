@@ -348,3 +348,68 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert dealer.isReady() == True
       assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 1500
       assert round(mockedConnection.ws.tracked_exposure, 8) == 0.2
+
+   @patch('Providers.Bitfinex.Client')
+   async def test_exposure_sync(self, MockedBfxClientObj):
+      #return mocked finex connection object instead of an instance
+      #of bfxapi.Client
+      mockedConnection = MockedBfxClientClass()
+      MockedBfxClientObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = TestMaker(1000)
+      taker = BitfinexProvider(self.config)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert taker.connection is mockedConnection
+
+      #sanity check on ready states
+      assert maker.isReady() == True
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert hedger.isReady() == False
+      assert taker._connected == False
+      assert taker._balanceInitialized == False
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit authorize notification
+      await mockedConnection.push_authorize()
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._connected == True
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit position notification
+      await mockedConnection.push_position_snapshot(0)
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._positionInitialized == True
+      assert mockedConnection.ws.tracked_exposure == 0
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit wallet snapshot notification
+      await mockedConnection.push_wallet_snapshot(1500)
+      assert taker.isReady() == True
+      assert taker._balanceInitialized == True
+      assert round(taker.getExposure(), 8) == 0
+      assert dealer.isReady() == True
+      assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 1500
+
+      #notify maker of new order, taker exposure should be updated accordingly
+      await maker.newOrder(Order(1, 1, 1, 10200))
+      assert round(maker.getExposure(), 8) == 1
+      assert round(taker.getExposure(), 8) == -1
+
+      #another one
+      await maker.newOrder(Order(2, 2, -0.6, 9900))
+      assert round(maker.getExposure(), 8) == 0.4
+      assert round(taker.getExposure(), 8) == -0.4
