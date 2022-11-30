@@ -143,6 +143,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -151,6 +154,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert dealer.isReady() == False
       assert maker._positionInitialized == True
       assert len(mockedConnection.offers) == 0
+
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
 
       #reply to load balances request
       assert mockedConnection.balance_callback != None
@@ -163,6 +169,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker._balanceInitialized == True
       assert len(mockedConnection.offers) == 0
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       #reply to session sub
       assert mockedConnection.session_product != None
       await mockedConnection.notifySessionOpen(
@@ -172,6 +181,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       )
       assert maker.isReady() == True
       assert dealer.isReady() == True
+      assert maker.getExposure() == 0
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
@@ -207,6 +217,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.isReady() == True
       assert dealer.isReady() == False
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       await taker.populateOrderBook(10)
       assert len(mockedConnection.offers) == 0
       assert maker.isReady() == False
@@ -219,6 +232,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker._connected == True
       assert len(mockedConnection.offers) == 0
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       #reply to session sub
       assert mockedConnection.session_product != None
       await mockedConnection.notifySessionOpen(
@@ -229,6 +245,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
       assert maker.isReady() == False
       assert dealer.isReady() == False
+
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
 
       #reply to load balances request
       assert mockedConnection.balance_callback != None
@@ -241,6 +260,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker._balanceInitialized == True
       assert len(mockedConnection.offers) == 0
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -248,6 +270,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert dealer.isReady() == True
       assert maker._positionInitialized == True
       assert mockedConnection.positions_callback == None
+      assert maker.getExposure() == 0
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
@@ -283,6 +306,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.isReady() == True
       assert dealer.isReady() == False
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       await taker.populateOrderBook(10)
       assert len(mockedConnection.offers) == 0
 
@@ -303,6 +329,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert len(mockedConnection.offers) == 0
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -312,15 +341,20 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker._positionInitialized == True
       assert len(mockedConnection.offers) == 0
 
+      #provider shouldn't be able to return exposure until it's ready
+      assert maker.getExposure() == None
+
       #reply to load balances request
       assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
       assert mockedConnection.balance_callback == None
+      await dealer.waitOnReady()
       assert maker.isReady() == True
       assert dealer.isReady() == True
       assert maker._balanceInitialized == True
       assert maker.balances['usdt'] == 1000
+      assert maker.getExposure() == 0
 
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]

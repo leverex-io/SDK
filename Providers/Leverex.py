@@ -75,8 +75,9 @@ class LeverexProvider(Factory):
       await super().setConnected(True)
 
       async def balanceCallback(balances):
-         await self.setInitBalance()
          await self.onLoadBalance(balances)
+         await self.setInitBalance()
+         await self.evaluateReadyState()
       self.connection.loadBalances(balanceCallback)
 
       await self.connection.load_open_positions(
@@ -92,7 +93,6 @@ class LeverexProvider(Factory):
          self.balances[balance_info['currency']] = float(balance_info['balance'])
 
       await super().onBalanceUpdate()
-      await self.evaluateReadyState()
 
    ## position events ##
    async def on_positions_loaded(self, orders):

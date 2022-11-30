@@ -30,7 +30,7 @@ class TestProvider(Factory):
       await super().setInitPosition()
 
    def getOpenVolume(self):
-      if self.isReady() == False:
+      if not self.isReady():
          return None
 
       vol = ( self.balance * 100 ) / ( self.leverageRatio * price )
@@ -77,6 +77,17 @@ class TestMaker(TestProvider):
       return round(exposure, 8)
 
 ########
+def getOrderBookSnapshot(volume):
+   orders = []
+   vol = volume / 2
+   for i in range(0, 5):
+      spread = 20*vol
+      orders.append([price + spread, 1, -vol]) #ask
+      orders.append([price - spread, 1,  vol]) #bid
+      vol = vol / 2
+   return orders
+
+########
 class TestTaker(TestProvider):
    def __init__(self, startBalance=0, startExposure=0):
       super().__init__("TestTaker", 15, startBalance)
@@ -95,14 +106,8 @@ class TestTaker(TestProvider):
 
    async def populateOrderBook(self, volume):
       self.order_book.reset()
-
-      vol = volume / 2
-      for i in range(0, 5):
-         spread = 20*vol
-         self.order_book.process_update([price + spread, 1, -vol]) #ask
-         self.order_book.process_update([price - spread, 1,  vol]) #bid
-         vol = vol / 2
-
+      orders = getOrderBookSnapshot(volume)
+      self.order_book.setup_from_snapshot(orders)
       await super().onOrderBookUpdate()
 
    def getExposure(self):

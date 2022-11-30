@@ -11,6 +11,7 @@ import Providers.bfxapi.bfxapi.models as bfx_models
 
 BFX_USD_NET = 'USD Net'
 BFX_USD_TOTAL = 'USD total'
+BFX_DERIVATIVES_WALLET = 'margin'
 
 ################################################################################
 class BitfinexException(Exception):
@@ -33,11 +34,15 @@ class BitfinexProvider(Factory):
       ]
    }
 
+   #############################################################################
+   #### setup
+   #############################################################################
    def __init__(self, config):
       super().__init__("Bitfinex")
       self.connection = None
       self.positions = {}
       self.balances = {}
+      self.lastReadyState = False
 
       #check for required config entries
       #check for required config entries
@@ -94,9 +99,6 @@ class BitfinexProvider(Factory):
       self.connection.ws.on('position_close', self.on_position_close)
       self.connection.ws.on('margin_info_update', self.on_margin_info_update)
 
-   def getAsyncIOTask(self):
-      return asyncio.create_task(self.connection.ws.get_task_executable())
-
    #############################################################################
    #### events
    #############################################################################
@@ -111,7 +113,9 @@ class BitfinexProvider(Factory):
             wallet=self.deposit_wallet, method=self._rebalance_method)
          self.deposit_addresses = DepositWithdrawAddresses()
          self.deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
-         self._validate_rebalance_feature_state()
+
+         #check dealer rebalance feature readyness, should live in dealer, not bfx provider
+         #self._validate_rebalance_feature_state()
       except Exception as e:
          logging.error(f'Failed to load Bitfinex deposit address: {str(e)}')
 
@@ -142,6 +146,8 @@ class BitfinexProvider(Factory):
 
       for wallet in wallets_snapshot:
          await self.on_wallet_update(wallet)
+      await super().setInitBalance()
+      await self.evaluateReadyState()
 
    async def on_wallet_update(self, wallet):
       if wallet.type not in self.balances:
@@ -187,6 +193,8 @@ class BitfinexProvider(Factory):
       for data in raw_data[2]:
          position = bfx_models.Position.from_raw_rest_position(data)
          await self.update_position(position)
+      await super().setInitPosition()
+      await self.evaluateReadyState()
 
    async def on_position_new(self, data):
       position = bfx_models.Position.from_raw_rest_position(data[2])
@@ -211,28 +219,46 @@ class BitfinexProvider(Factory):
       logging.info(f'======= on_bitfinex_margin_info_update: {data}')
 
    #############################################################################
-   #### methods
+   #### Provider overrides
    #############################################################################
+
+   ## setup ##
+   def getAsyncIOTask(self):
+      return asyncio.create_task(self.connection.ws.get_task_executable())
+
+   ## state ##
+   def isReady(self):
+      return self.lastReadyState
 
    ## volume ##
    def getOpenVolume(self):
       if not self.isReady():
          return None
 
+      if BFX_DERIVATIVES_WALLET not in self.balances or \
+         self.derivatives_currency not in self.balances[BFX_DERIVATIVES_WALLET]:
+         logging.warning("Missing margin wallet balance")
+         return None
+      balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
+      #TODO: account for exposure that can be freed from current orders
+
       leverageRatio = self.leverage / 100
       priceBid = self.order_book.get_aggregated_bid_price(self.max_offer_volume)
       priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume)
-      balance = self.balances[BFX_USD_NET]
 
-      #TODO: account for exposure that can be freed from current orders
+      if priceBid == None or priceAsk == None:
+         return None
 
       result = {}
-      result["ask"] = balance / (leverageRatio * priceAsk.price)
-      result["bid"] = balance / (leverageRatio * priceBid.price)
+      result["ask"] = balance['free'] / (leverageRatio * priceAsk.price)
+      result["bid"] = balance['free'] / (leverageRatio * priceBid.price)
       return result
 
    ## exposure ##
    def getExposure(self):
+      if not self.isReady():
+         return None
+
       if self.product not in self.positions:
          return 0
       return self.positions[self.product].amount
@@ -243,3 +269,14 @@ class BitfinexProvider(Factory):
          price=None, # this is a market order, price is ignored
          amount=quantity,
          market_type=BitfinexOrder.Type.MARKET)
+
+   #############################################################################
+   #### state
+   #############################################################################
+   async def evaluateReadyState(self):
+      currentReadyState = super().isReady()
+      if self.lastReadyState == currentReadyState:
+         return
+
+      self.lastReadyState = currentReadyState
+      await super().onReady()
