@@ -264,11 +264,11 @@ class BitfinexProvider(Factory):
       return self.positions[self.product].amount
 
    async def updateExposure(self, quantity):
-      await self._bfx.ws.submit_order(symbol=self.product,
+      await self.connection.ws.submit_order(symbol=self.product,
          leverage=self.leverage,
          price=None, # this is a market order, price is ignored
          amount=quantity,
-         market_type=BitfinexOrder.Type.MARKET)
+         market_type=bfx_models.order.OrderType.MARKET)
 
    #############################################################################
    #### state

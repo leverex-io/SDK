@@ -115,7 +115,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
-      #test hedger making/pulling offers
+      #setup dealer
       maker = LeverexProvider(self.config)
       taker = TestTaker()
       hedger = SimpleHedger(self.config)
@@ -203,7 +203,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
-      #test hedger making/pulling offers
+      #setup dealer
       maker = LeverexProvider(self.config)
       taker = TestTaker(startBalance=1500)
       hedger = SimpleHedger(self.config)
@@ -292,7 +292,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
-      #test hedger making/pulling offers
+      #setup dealer
       maker = LeverexProvider(self.config)
       taker = TestTaker(startBalance=1500)
       hedger = SimpleHedger(self.config)
@@ -376,6 +376,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
+      #setup dealer
       maker = LeverexProvider(self.config)
       taker = TestTaker(startBalance=1500)
       hedger = SimpleHedger(self.config)
@@ -456,7 +457,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
-      #setup test dealer
+      #setup dealer
       maker = LeverexProvider(self.config)
       taker = TestTaker(startBalance=1500)
       hedger = SimpleHedger(self.config)
@@ -564,7 +565,3 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check exposure
       assert maker.getExposure() == -0.4
       assert taker.getExposure() == 0.4
-
-################################################################################
-if __name__ == '__main__':
-   unittest.main()

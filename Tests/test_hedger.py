@@ -265,11 +265,3 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1500
       assert maker.getExposure() == 0.3
       assert taker.getExposure() == -0.3
-
-
-
-#TODO: cover bitfinex provider
-
-################################################################################
-if __name__ == '__main__':
-   unittest.main()

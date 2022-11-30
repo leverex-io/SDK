@@ -5,7 +5,7 @@ from unittest.mock import patch
 from .utils import TestMaker, getOrderBookSnapshot
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
-from Factories.Definitions import AggregationOrderBook
+from Factories.Definitions import AggregationOrderBook, Order
 
 from Providers.Bitfinex import BitfinexProvider, BFX_DERIVATIVES_WALLET
 from Providers.bfxapi.bfxapi.models.wallet import Wallet
@@ -19,6 +19,7 @@ class FakeBfxWsInterface(object):
    def __init__(self):
       self.callbacks = {}
       self.order_books = {}
+      self.tracked_exposure = 0
 
    def on(self, name, callback):
       self.callbacks[name] = callback
@@ -28,6 +29,50 @@ class FakeBfxWsInterface(object):
 
    async def subscribe(self, name, product, len, prec):
       self.order_books[name] = AggregationOrderBook()
+
+   async def push_position_snapshot(self, amount):
+      self.tracked_exposure = amount
+      await self.callbacks['position_snapshot']([
+         None, None, [[
+            'usdt',     #symbol
+            None,       #status
+            amount,     #amount
+            10000,      #base price
+            0, 0,       #margin funding stuff
+            0, 0,       #pl stuff
+            0,          #PRICE_LIQ
+            15,         #leverage
+            None,       #placeholder
+            0,          #position id
+            0, 0,       #MTS create, update
+            None,       #placeholder
+            None,       #TYPE
+            None,       #placeholder
+            0, 0,       #collateral, min collateral
+            None        #meta
+      ]]])
+
+   async def submit_order(self, symbol, leverage, price, amount, market_type):
+      self.tracked_exposure += amount
+      await self.callbacks['position_update'](
+         [None, None, [
+            symbol,                 #symbol
+            None,                   #status
+            self.tracked_exposure,  #amount
+            10000,                  #base price
+            0, 0,                   #margin funding stuff
+            0, 0,                   #pl stuff
+            0,                      #PRICE_LIQ
+            leverage,               #leverage
+            None,                   #placeholder
+            0,                      #position id
+            0, 0,                   #MTS create, update
+            None,                   #placeholder
+            market_type,            #TYPE
+            None,                   #placeholder
+            0, 0,                   #collateral, min collateral
+            None                    #meta
+      ]])
 
 ########
 class MockedBfxClientClass(object):
@@ -43,26 +88,8 @@ class MockedBfxClientClass(object):
             'usdt', balance, 0, balance
          )])
 
-   async def push_position_snapshot(self):
-      await self.ws.callbacks['position_snapshot']([
-         None, None, [[
-            'usdt',     #symbol
-            None,       #status
-            0,          #amount
-            10000,      #base price
-            0, 0,       #margin funding stuff
-            0, 0,       #pl stuff
-            0,          #PRICE_LIQ
-            15,         #leverage
-            None,       #placeholder
-            0,          #position id
-            0, 0,       #MTS create, update
-            None,       #placeholder
-            None,       #TYPE
-            None,       #placeholder
-            0, 0,       #collateral, min collateral
-            None        #meta
-      ]]])
+   async def push_position_snapshot(self, amount=0):
+      await self.ws.push_position_snapshot(amount)
 
    def push_orderbook_snapshot(self, volume):
       orders = getOrderBookSnapshot(volume)
@@ -104,7 +131,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection = MockedBfxClientClass()
       MockedBfxClientObj.return_value = mockedConnection
 
-      #test hedger making/pulling offers
+      #setup dealer
       maker = TestMaker(1000)
       taker = BitfinexProvider(self.config)
       hedger = SimpleHedger(self.config)
@@ -163,8 +190,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       ## check price offers ##
       '''
-      offers should be empty right as push_ordebook_snapshot is not
-      async, so it cannot trigger the orderbook update signal
+      offers should be empty as push_ordebook_snapshot is not
+      async, so it cannot trigger the orderbook update notification
       '''
       assert len(maker.offers) == 0
 
@@ -189,7 +216,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection = MockedBfxClientClass()
       MockedBfxClientObj.return_value = mockedConnection
 
-      #test hedger making/pulling offers
+      #setup dealer
       maker = TestMaker(1000)
       taker = BitfinexProvider(self.config)
       hedger = SimpleHedger(self.config)
@@ -203,6 +230,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == True
       assert taker.isReady() == False
       assert dealer.isReady() == False
+      assert hedger.isReady() == False
       assert taker._connected == False
       assert taker._balanceInitialized == False
 
@@ -246,8 +274,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       ## check price offers ##
       '''
-      offers should be empty right as push_ordebook_snapshot is not
-      async, so it cannot trigger the orderbook update signal
+      offers should be empty as push_ordebook_snapshot is not
+      async, so it cannot trigger the orderbook update notification
       '''
       assert len(maker.offers) == 0
 
@@ -264,3 +292,59 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert offers0[1].volume == 1
       assert offers0[1].bid == round(9979.17  * 0.99, 2)
       assert offers0[1].ask == None
+
+   @patch('Providers.Bitfinex.Client')
+   async def test_bootstrap_with_exposure(self, MockedBfxClientObj):
+      #return mocked finex connection object instead of an instance
+      #of bfxapi.Client
+      mockedConnection = MockedBfxClientClass()
+      MockedBfxClientObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = TestMaker(1000, [Order(1, 1, -0.2, 10000)])
+      taker = BitfinexProvider(self.config)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert taker.connection is mockedConnection
+
+      #sanity check on ready states
+      assert maker.isReady() == True
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert hedger.isReady() == False
+      assert taker._connected == False
+      assert taker._balanceInitialized == False
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit authorize notification
+      await mockedConnection.push_authorize()
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._connected == True
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit position notification
+      await mockedConnection.push_position_snapshot(1)
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._positionInitialized == True
+      assert mockedConnection.ws.tracked_exposure == 1
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit wallet snapshot notification
+      await mockedConnection.push_wallet_snapshot(1500)
+      assert taker.isReady() == True
+      assert taker._balanceInitialized == True
+      assert round(taker.getExposure(), 8) == 0.2
+      assert dealer.isReady() == True
+      assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 1500
+      assert round(mockedConnection.ws.tracked_exposure, 8) == 0.2

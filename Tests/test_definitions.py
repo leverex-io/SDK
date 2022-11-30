@@ -80,7 +80,3 @@ class TestOrderBook(unittest.TestCase):
       result = orderBook.get_aggregated_bid_price(10)
       self.assertEqual(result.price, 9923.75)
       self.assertEqual(result.volume, 8)
-
-################################################################################
-if __name__ == '__main__':
-   unittest.main()
