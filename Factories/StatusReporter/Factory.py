@@ -9,6 +9,9 @@ class Factory(object):
          'taker'  : False
       }
 
+   def getAsyncIOTask(self):
+      return None
+
    async def report(self, event):
       pass
 

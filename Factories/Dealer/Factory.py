@@ -25,6 +25,10 @@ class DealerFactory(object):
       self.taker.setup(self.onEvent)
       tasks.append(self.taker.getAsyncIOTask())
 
+      statusReporterTask = self.statusReporter.getAsyncIOTask()
+      if statusReporterTask != None:
+         tasks.append(statusReporterTask)
+
       done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
    def stop(self):
