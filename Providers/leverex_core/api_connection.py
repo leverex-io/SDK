@@ -286,9 +286,9 @@ class AsyncApiConnection(object):
    def loadBalances(self, callback):
       reference = self._generate_reference_id()
       loadBalanceRequest = {
-         'load_balance' : {},
+         'load_balance' : {
          'reference': reference
-      }
+      }}
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
 
    async def load_deposit_address(self, callback: Callable = None):
@@ -503,14 +503,12 @@ class AsyncApiConnection(object):
 
          if self._login_client is not None:
             cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
-            #updateTask = asyncio.create_task(self.listener.updateOffer(), name="Leverex update offers task")
 
          await readTask
          await writeTask
 
          if self._login_client is not None:
             await cycleTask
-            #await updateTask
 
    async def readLoop(self):
       while True:

@@ -2,15 +2,17 @@ import logging
 import asyncio
 
 import Factories.Definitions as Definitions
+from Factories.StatusReporter.Factory import Factory
 
 class DealerException(Exception):
    pass
 
 class DealerFactory(object):
-   def __init__(self, maker, taker, hedgingStrat):
+   def __init__(self, maker, taker, hedgingStrat, statusReporter = Factory()):
       self.maker = maker         #Provider
       self.taker = taker         #Provider
       self.hedger = hedgingStrat #HedgerFactory
+      self.statusReporter = statusReporter
 
    async def run(self):
       #sanity checks
@@ -75,6 +77,7 @@ class DealerFactory(object):
    ## ready ##
    async def onReadyEvent(self):
       await self.hedger.onReadyEvent(self.maker, self.taker)
+      await self.statusReporter.onReadyEvent(self)
 
    def isReady(self):
       return self.maker.isReady() \
