@@ -32,7 +32,7 @@ class TradeHistory():
    def __init__(self, data):
       self._loaded = data['loaded']
       if self._loaded:
-         self._orders = [Order(order_data) for order_data in data['orders']]
+         self._orders = [LeverexOrder(order_data) for order_data in data['orders']]
          self._start_time = datetime.fromtimestamp(data['start_time'])
          self._end_time = datetime.fromtimestamp(data['end_time'])
       else:
@@ -289,6 +289,8 @@ class AsyncApiConnection(object):
          'load_balance' : {
          'reference': reference
       }}
+      if callback is not None:
+         self._requests_cb[reference] = callback
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
 
    async def load_deposit_address(self, callback: Callable = None):
@@ -523,8 +525,8 @@ class AsyncApiConnection(object):
          elif 'load_balance' in update:
             if 'reference' in update['load_balance'] and \
                update['load_balance']['reference'] in self._requests_cb:
-               cb = self._requests_cb.pop(reference)
-               await self._call_listener_cb(cb, orders)
+               cb = self._requests_cb.pop(update['load_balance']['reference'])
+               await self._call_listener_cb(cb, update['load_balance']['balances'])
             else:
                await self._call_listener_method('onLoadBalance', update['load_balance']['balances'])
 
@@ -610,7 +612,7 @@ class AsyncApiConnection(object):
                logging.error(f'load_deposits response with unregistered request reference:{reference}')
 
          elif 'load_orders' in update:
-            orders = [Order(order_data) for order_data in update['load_orders']['orders']]
+            orders = [LeverexOrder(order_data) for order_data in update['load_orders']['orders']]
             reference = update['load_orders']['reference']
 
             if reference in self._requests_cb:
@@ -620,7 +622,7 @@ class AsyncApiConnection(object):
                logging.error(f'load_orders response with unregistered request  reference:{reference}')
 
          elif 'order_update' in update:
-            order = Order(update['order_update']['order'])
+            order = LeverexOrder(update['order_update']['order'])
             action = int(update['order_update']['action'])
             if action == ORDER_ACTION_CREATED:
                await self.listener.on_order_created(order)

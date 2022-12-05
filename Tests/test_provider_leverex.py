@@ -43,7 +43,7 @@ class MockedLeverexConnectionClass(object):
          raise Exception("balances were not requested")
 
       await self.balance_callback([{
-         'currency' : 'usdt',
+         'currency' : 'USDT',
          'balance' : self.balance
       }])
       self.balance_callback = None
@@ -93,7 +93,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       'login_endpoint' : 'login_endpoint',
       'key_file_path' : 'key/path',
       'email' : 'user_email',
-      'product' : 'usdt'
+      'product' : 'xbtusd_rf'
    }
    config['hedging_settings'] = {
       'price_ratio' : 0.01,
@@ -163,7 +163,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
       assert mockedConnection.balance_callback == None
-      assert maker.balances['usdt'] == 1000
+      assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
       assert maker._balanceInitialized == True
@@ -254,7 +254,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
       assert mockedConnection.balance_callback == None
-      assert maker.balances['usdt'] == 1000
+      assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
       assert maker._balanceInitialized == True
@@ -353,7 +353,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == True
       assert dealer.isReady() == True
       assert maker._balanceInitialized == True
-      assert maker.balances['usdt'] == 1000
+      assert maker.balances['USDT'] == 1000
       assert maker.getExposure() == 0
 
       assert len(mockedConnection.offers) == 1
@@ -406,7 +406,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
       assert mockedConnection.balance_callback == None
-      assert maker.balances['usdt'] == 1000
+      assert maker.balances['USDT'] == 1000
 
       #reply to session sub
       assert mockedConnection.session_product != None
@@ -481,7 +481,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(maker.balances) == 0
       await mockedConnection.replyLoadBalances()
       assert mockedConnection.balance_callback == None
-      assert maker.balances['usdt'] == 1000
+      assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
 

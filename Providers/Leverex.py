@@ -5,6 +5,7 @@ import json
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position
 from .leverex_core.api_connection import AsyncApiConnection, SessionInfo
+from .leverex_core.product_mapping import get_product_info
 
 ################################################################################
 class LeverexException(Exception):
@@ -44,6 +45,8 @@ class LeverexProvider(Factory):
                raise LeverexException(f'Missing \"{kk}\" in config group \"{k}\"')
 
       self.product = self.config['leverex']['product']
+      productInfo = get_product_info(self.product)
+      self.ccy = productInfo.cash_ccy
 
    ##
    def setup(self, callback):
@@ -161,10 +164,11 @@ class LeverexProvider(Factory):
 
       leverageRatio = 0.1
       price = self.currentSession.getOpenPrice()
-      if self.product not in self.balances:
-         logging.error("Missing balances from Leverex!")
+      if self.ccy not in self.balances:
+         logging.error(f"Missing balance {self.ccy} from Leverex provider!\n"
+            f"balances are: {str(self.balances)}")
          return None
-      balance = self.balances[self.product]
+      balance = self.balances[self.ccy]
 
       #TODO: account for exposure that can be freed from current orders
 
