@@ -29,6 +29,10 @@ class SimpleHedger(HedgerFactory):
       self.price_ratio = config['hedging_settings']['price_ratio']
       self.max_offer_volume = config['hedging_settings']['max_offer_volume']
 
+      self.offer_refresh_delay = 200 #in milliseconds
+      if 'offer_refresh_delay_ms' in config['hedging_settings']:
+         self.offer_refresh_delay = config['hedging_settings']['offer_refresh_delay_ms']
+
       self.offers = []
 
    #############################################################################
@@ -47,7 +51,7 @@ class SimpleHedger(HedgerFactory):
          return False
 
       for i in range(0, len(offers)):
-         if self.offers[i].compare(offers[i]) == False:
+         if self.offers[i].compare(offers[i], self.offer_refresh_delay) == False:
             return False
 
       return True

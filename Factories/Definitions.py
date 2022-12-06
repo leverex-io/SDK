@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 
 ####
 Position = 'position'
@@ -58,6 +59,7 @@ class PriceOffer():
       self._volume = volume
       self._ask = ask
       self._bid = bid
+      self._timestamp = time.time_ns() / 1000000 #time in ms
 
    @property
    def volume(self):
@@ -83,7 +85,11 @@ class PriceOffer():
          result['bid'] = str(self._bid)
       return result
 
-   def compare(self, offer):
+   def compare(self, offer, delay_ms):
+      if offer._timestamp <= self._timestamp + delay_ms:
+         #return false if delay is met
+         return False
+
       if self._volume != offer._volume:
          return False
       if self._ask != offer._ask or self._bid != offer._bid:

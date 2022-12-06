@@ -97,7 +97,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
    }
    config['hedging_settings'] = {
       'price_ratio' : 0.01,
-      'max_offer_volume' : 5
+      'max_offer_volume' : 5,
+      'offer_refresh_delay_ms' : 0
    }
 
    '''

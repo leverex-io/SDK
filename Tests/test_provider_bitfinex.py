@@ -121,7 +121,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
    }
    config['hedging_settings'] = {
       'max_offer_volume' : 5,
-      'price_ratio' : 0.01
+      'price_ratio' : 0.01,
+      'offer_refresh_delay_ms' : 0
    }
 
    @patch('Providers.Bitfinex.Client')

@@ -145,9 +145,9 @@ class BitfinexProvider(Factory):
    ## balance events ##
    async def on_balance_updated(self, data):
       '''
-      This balance update has little use and only serves
-      as a vague indicative value. We trigger specific notifications
-      to updates to the bfx reserved wallet names instead.
+      This balance update has little use and only serves as a
+      vague indicative value. We trigger specific notifications
+      on updates to the bfx reserved wallet names instead.
       '''
       self.balances[BFX_USD_TOTAL] = float(data[0])
       self.balances[BFX_USD_NET] = float(data[1])
