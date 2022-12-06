@@ -12,10 +12,29 @@ import Providers.bfxapi.bfxapi.models as bfx_models
 BFX_USD_NET = 'USD Net'
 BFX_USD_TOTAL = 'USD total'
 BFX_DERIVATIVES_WALLET = 'margin'
+BFX_DEPOSIT_METHOD = 'TETHERUSL'
 
 ################################################################################
 class BitfinexException(Exception):
    pass
+
+################################################################################
+class DepositWithdrawAddresses():
+   def __init__(self):
+      self._deposit_address = None
+      self._withdraw_address = None
+
+   def set_withdraw_addresses(self, addresses):
+      self._withdraw_address = addresses
+
+   def get_withdraw_addresses(self):
+      return self._withdraw_address
+
+   def set_deposit_address(self, address):
+      self._deposit_address = address
+
+   def get_deposit_address(self):
+      return self._deposit_address
 
 ################################################################################
 class BitfinexProvider(Factory):
@@ -110,7 +129,7 @@ class BitfinexProvider(Factory):
 
       try:
          deposit_address = await self.connection.rest.get_wallet_deposit_address(
-            wallet=self.deposit_wallet, method=self._rebalance_method)
+            wallet=BFX_DERIVATIVES_WALLET, method=BFX_DEPOSIT_METHOD)
          self.deposit_addresses = DepositWithdrawAddresses()
          self.deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
 
@@ -125,9 +144,13 @@ class BitfinexProvider(Factory):
 
    ## balance events ##
    async def on_balance_updated(self, data):
+      '''
+      This balance update has little use and only serves
+      as a vague indicative value. We trigger specific notifications
+      to updates to the bfx reserved wallet names instead.
+      '''
       self.balances[BFX_USD_TOTAL] = float(data[0])
       self.balances[BFX_USD_NET] = float(data[1])
-      await super().onBalanceUpdate()
 
    def _explicitly_reset_derivatives_wallet(self):
       logging.info('Setting derivatives wallet balance to 0 explicitly')
@@ -168,7 +191,8 @@ class BitfinexProvider(Factory):
       balances['reserved'] = reserved_balance
 
       self.balances[wallet.type][wallet.currency] = balances
-      await super().onBalanceUpdate()
+      if wallet.type == BFX_DERIVATIVES_WALLET:
+         await super().onBalanceUpdate()
 
    ## order book events ##
    async def on_order_book_update(self, data):

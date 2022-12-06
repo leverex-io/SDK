@@ -49,7 +49,7 @@ class Factory(object):
          await asyncio.sleep(0.1)
 
    def printReadyState(self):
-      print (f"Provider: {self._name}, ready: {self.isReady()}\n"
+      print (f"----- Provider: {self._name}, ready: {self.isReady()} -----\n"
          f"  connected: {self._connected}, balance init: {self._balanceInitialized}, position init: {self._positionInitialized}")
 
    ## notifications ##

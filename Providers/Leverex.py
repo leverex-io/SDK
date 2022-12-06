@@ -59,7 +59,7 @@ class LeverexProvider(Factory):
          api_endpoint=leverexConfig['api_endpoint'],
          login_endpoint=leverexConfig['login_endpoint'],
          key_file_path=leverexConfig['key_file_path'],
-         dump_communication=True)
+         dump_communication=False)
 
    ##
    def getAsyncIOTask(self):
