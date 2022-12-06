@@ -70,7 +70,7 @@ class LeverexOrder(Order):
       #self._side = int(data['side'])
       #self._cut_off_price = float(data['cut_off_price'])
       #self._trade_im = data['trade_im']
-      #self._trade_pnl = data['trade_pnl']
+      self._trade_pnl = data['trade_pnl']
       self._reference_exposure = data['reference_exposure']
       self._session_id = int(data['session_id'])
       self._rollover_type = data['rollover_type']
@@ -96,11 +96,11 @@ class LeverexOrder(Order):
    @property
    def trade_im(self):
       return self._trade_im
+   '''
 
    @property
    def trade_pnl(self):
       return self._trade_pnl
-   '''
 
    @property
    def total_net_exposure(self):
@@ -127,6 +127,11 @@ class LeverexOrder(Order):
    @property
    def fee(self):
       return self._fee
+
+   def __str__(self):
+      text = "<vol: {}, price: {}, pnl: {}>"
+      return text.format(self.quantity, self.price, self.trade_pnl)
+
 
 
 class WithdrawInfo():

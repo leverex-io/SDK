@@ -14,7 +14,7 @@
     {
        "api_key" : "finex_api_key",
        "api_secret" : "finex_api_secret",
-       "log_level" : "INFO",
+       "log_level" : "WARN",
        "orderbook_product" : "tTESTBTCF0:TESTUSDTF0",
        "order_book_len" : 100,
        "order_book_aggregation" : "P0",
@@ -28,7 +28,8 @@
     "hedging_settings" :
     {
        "max_offer_volume" : 5.0,
-       "price_ratio" : 0.002
+       "price_ratio" : 0.002,
+       "offer_refresh_delay_ms" : 200
     },
     "rebalance_settings" :
     {
@@ -38,5 +39,5 @@
        "rebalance_threshold" : 0.1,
        "transfer_funds_threshold" : 10
     },
-    "log_level" : "INFO"
+    "log_level" : "WARN"
 }

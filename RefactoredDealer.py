@@ -6,6 +6,9 @@ from Providers.Leverex import LeverexProvider
 from Providers.Bitfinex import BitfinexProvider
 from Factories.Dealer.Factory import DealerFactory
 from Hedger.SimpleHedger import SimpleHedger
+from StatusReporter.LocalReporter import LocalReporter
+
+#import pdb; pdb.set_trace()
 
 ################################################################################
 if __name__ == '__main__':
@@ -21,6 +24,7 @@ if __name__ == '__main__':
    maker = LeverexProvider(config)
    taker = BitfinexProvider(config)
    hedger = SimpleHedger(config)
-   dealer = DealerFactory(maker, taker, hedger)
+   statusReporter = LocalReporter()
+   dealer = DealerFactory(maker, taker, hedger, [statusReporter])
 
    asyncio.run(dealer.run())

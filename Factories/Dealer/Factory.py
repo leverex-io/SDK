@@ -8,27 +8,33 @@ class DealerException(Exception):
    pass
 
 class DealerFactory(object):
-   def __init__(self, maker, taker, hedgingStrat, statusReporter = Factory()):
+   def __init__(self, maker, taker, hedgingStrat, statusReporters=[]):
       self.maker = maker         #Provider
       self.taker = taker         #Provider
       self.hedger = hedgingStrat #HedgerFactory
-      self.statusReporter = statusReporter
+      self.statusReporters = statusReporters
 
    async def run(self):
       #sanity checks
       if self.hedger == None:
          raise DealerException("[DealerFactory::run] missing hedging strat")
 
+      #maker init task
       self.maker.setup(self.onEvent)
       tasks = [self.maker.getAsyncIOTask()]
 
+      #taker init task
       self.taker.setup(self.onEvent)
       tasks.append(self.taker.getAsyncIOTask())
 
-      statusReporterTask = self.statusReporter.getAsyncIOTask()
-      if statusReporterTask != None:
-         tasks.append(statusReporterTask)
+      #status reporters init task
+      for reporter in self.statusReporters:
+         reporterTask = reporter.getAsyncIOTask()
+         if reporterTask == None:
+            continue
+         tasks.append(reporterTask)
 
+      #start asyncio loops
       done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
    def stop(self):
@@ -57,6 +63,8 @@ class DealerFactory(object):
       if eventType == Definitions.Position:
          #maker positions changed, update taker positions accordingly
          await self.hedger.onMakerPositionEvent(self.maker, self.taker)
+         for reporter in self.statusReporters:
+            await reporter.onPositionEvent(self)
 
       else:
          logging.debug(f"[onMakerEvent] ignoring event {eventType}")
@@ -66,6 +74,8 @@ class DealerFactory(object):
       if eventType == Definitions.Position:
          #taker positions changed, sanity check vs maker positions
          await self.hedger.onTakerPositionEvent(self.maker, self.taker)
+         for reporter in self.statusReporters:
+            await reporter.onPositionEvent(self)
 
       elif eventType == Definitions.OrderBook:
          #taker order book update, recompute offers accordingly
@@ -77,11 +87,14 @@ class DealerFactory(object):
    ## balance ##
    async def onBalanceEvent(self):
       await self.hedger.onBalanceEvent(self.maker, self.taker)
+      for reporter in self.statusReporters:
+         await reporter.onBalanceEvent(self)
 
    ## ready ##
    async def onReadyEvent(self):
       await self.hedger.onReadyEvent(self.maker, self.taker)
-      await self.statusReporter.onReadyEvent(self)
+      for reporter in self.statusReporters:
+         await reporter.onReadyEvent(self)
 
    def isReady(self):
       return self.maker.isReady() \
@@ -94,4 +107,3 @@ class DealerFactory(object):
       await self.hedger.waitOnReady()
 
       await self.onReadyEvent()
-      return

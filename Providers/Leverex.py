@@ -74,7 +74,6 @@ class LeverexProvider(Factory):
       pass
 
    async def on_authorized(self):
-      logging.info('================= Authenticated to Leverex')
       await super().setConnected(True)
 
       async def balanceCallback(balances):
@@ -91,7 +90,6 @@ class LeverexProvider(Factory):
 
    ## balance events ##
    async def onLoadBalance(self, balances):
-      logging.info('Balance loaded {}'.format(balances))
       for balance_info in balances:
          self.balances[balance_info['currency']] = float(balance_info['balance'])
 
@@ -110,13 +108,11 @@ class LeverexProvider(Factory):
       for order in orders:
          self.storeActiveOrder(order)
 
-      logging.info(f'======== {len(orders)} positions loaded from Leverex')
       await super().setInitPosition()
       await self.evaluateReadyState()
 
    async def on_order_created(self, order):
       self.storeActiveOrder(order)
-      logging.info(f'======== matched in Leverex for order {str(order)}')
       await super().onPositionUpdate()
 
    async def on_order_filled(self, order):
@@ -165,8 +161,6 @@ class LeverexProvider(Factory):
       leverageRatio = 0.1
       price = self.currentSession.getOpenPrice()
       if self.ccy not in self.balances:
-         logging.error(f"Missing balance {self.ccy} from Leverex provider!\n"
-            f"balances are: {str(self.balances)}")
          return None
       balance = self.balances[self.ccy]
 
@@ -207,10 +201,15 @@ class LeverexProvider(Factory):
       else:
          self.netExposure = self.netExposure + order.quantity
 
-      logging.info(f'[store_active_order] Net exposure : {self.netExposure}')
+   def getPositions(self):
+      return self.orders
 
    ## exposure ##
    def getExposure(self):
       if not self.isReady():
          return None
       return round(self.netExposure, 8)
+
+   ## balance ##
+   def getBalance(self):
+      return self.balances

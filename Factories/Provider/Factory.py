@@ -87,3 +87,9 @@ class Factory(object):
 
    def getOpenVolume(self):
       logging.debug("[getOpenVolume]")
+
+   def getBalance(self):
+      logging.debug("[getBalance]")
+
+   def getPositions(self):
+      logging.debug("[getPositions]")

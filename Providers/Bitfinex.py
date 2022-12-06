@@ -124,7 +124,6 @@ class BitfinexProvider(Factory):
 
    ## connection events ##
    async def on_authenticated(self, auth_message):
-      logging.info('================= Authenticated to Bitfinex')
       await super().setConnected(True)
 
       try:
@@ -149,12 +148,9 @@ class BitfinexProvider(Factory):
       vague indicative value. We trigger specific notifications
       on updates to the bfx reserved wallet names instead.
       '''
-      self.balances[BFX_USD_TOTAL] = float(data[0])
-      self.balances[BFX_USD_NET] = float(data[1])
+      pass
 
    def _explicitly_reset_derivatives_wallet(self):
-      logging.info('Setting derivatives wallet balance to 0 explicitly')
-
       balances = {}
 
       balances['total'] = 0
@@ -230,7 +226,6 @@ class BitfinexProvider(Factory):
 
    async def on_position_close(self, data):
       position = Position.from_raw_rest_position(data[2])
-      logging.info(f'Position closed for {position.symbol}')
       self.positions[position.symbol] = None
       await super().onPositionUpdate()
 
@@ -261,7 +256,6 @@ class BitfinexProvider(Factory):
 
       if BFX_DERIVATIVES_WALLET not in self.balances or \
          self.derivatives_currency not in self.balances[BFX_DERIVATIVES_WALLET]:
-         logging.warning("Missing margin wallet balance")
          return None
       balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
       #TODO: account for exposure that can be freed from current orders
@@ -293,6 +287,13 @@ class BitfinexProvider(Factory):
          price=None, # this is a market order, price is ignored
          amount=quantity,
          market_type=bfx_models.order.OrderType.MARKET)
+
+   def getPositions(self):
+      return self.positions
+
+   ## balance ##
+   def getBalance(self):
+      return self.balances
 
    #############################################################################
    #### state
