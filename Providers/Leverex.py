@@ -34,6 +34,7 @@ class LeverexProvider(Factory):
       self.orders = {}
       self.currentSession = None
       self.lastReadyState = False
+      self.indexPrice = None
 
       #check for required config entries
       for k in self.required_settings:
@@ -85,6 +86,7 @@ class LeverexProvider(Factory):
       await self.connection.load_open_positions(
          target_product=self.product, callback=self.on_positions_loaded)
       await self.connection.subscribe_session_open(self.product)
+      await self.connection.subscribe_to_product(self.product)
       #await self._leverex_connection.load_deposit_address(callback=self.on_leverex_deposit_address_loaded)
       #await self._leverex_connection.load_whitelisted_addresses(callback=self.on_leverex_addresses_loaded)
 
@@ -97,10 +99,6 @@ class LeverexProvider(Factory):
 
    ## position events ##
    async def on_positions_loaded(self, orders):
-
-      #TODO: order timestamp and/or orderId. If the session has a roll,
-      #it should ALWAYS be the first trade in the list
-
       def getId(order):
          return order.id
       orders.sort(key=getId)
@@ -121,11 +119,16 @@ class LeverexProvider(Factory):
    ## session notifications
    async def on_session_open(self, sessionInfo):
       self.currentSession = SessionInfo(sessionInfo)
+      for orderId in self.orders:
+         self.orders[orderId].setSessionIM(self.currentSession)
       await self.evaluateReadyState()
 
    async def on_session_closed(self, sessionInfo):
       self.currentSession = SessionInfo(sessionInfo)
       await self.evaluateReadyState()
+
+   def on_market_data(self, marketData):
+      self.indexPrice = float(marketData['live_cutoff'])
 
    #############################################################################
    #### methods
@@ -195,6 +198,7 @@ class LeverexProvider(Factory):
          # therefor wipe the order map
          self.orders = {}
 
+      order.setSessionIM(self.currentSession)
       self.orders[order.id] = order
       if order.is_sell:
          self.netExposure = self.netExposure - order.quantity
@@ -202,6 +206,8 @@ class LeverexProvider(Factory):
          self.netExposure = self.netExposure + order.quantity
 
    def getPositions(self):
+      for orderId in self.orders:
+         self.orders[orderId].setIndexPrice(self.indexPrice)
       return self.orders
 
    ## exposure ##

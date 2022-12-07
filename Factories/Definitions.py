@@ -20,7 +20,7 @@ class SessionOpenInfo():
       self.product_type = data['product_type']
       self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
       self.last_cut_off_price = float(data['last_cut_off_price'])
-      self.session_id = data['session_id']
+      self.session_id = int(data['session_id'])
       self.previous_session_id = data['previous_session_id']
 
 ####
@@ -49,6 +49,17 @@ class SessionInfo():
       if self.open is None:
          return 0
       return self.open.last_cut_off_price
+
+   def getSessionIM(self):
+      return self.getOpenPrice() / 10
+
+   def getSessionId(self):
+      if self.open != None:
+         return self.open.session_id
+      elif self.close != None:
+         return self.close.session_id
+      else:
+         raise Exception("invalid session object")
 
 ################################################################################
 class PriceOffer():

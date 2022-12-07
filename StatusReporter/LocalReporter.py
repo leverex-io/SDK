@@ -33,7 +33,15 @@ class LocalReporter(Factory):
 
       #maker
       makerPositions = self.positions[MAKER]
-      print (f"  * maker:")
+
+      #grab index price from first order
+      leverexPrice = ""
+      if len(makerPositions) != 0:
+         firstPos = next(iter(makerPositions))
+         leverexPrice = " (index price: {})".format(
+            makerPositions[firstPos].indexPrice)
+
+      print (f"  * maker{leverexPrice}:")
       for pos in makerPositions:
          print (f"    +{str(makerPositions[pos])}")
 

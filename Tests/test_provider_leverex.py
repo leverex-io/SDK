@@ -13,6 +13,8 @@ from Providers.leverex_core.api_connection import LeverexOrder, \
    ORDER_STATUS_FILLED, ORDER_TYPE_TRADE_POSITION, \
    ORDER_TYPE_NORMAL_ROLLOVER_POSITION
 
+#import pdb; pdb.set_trace()
+
 ################################################################################
 ##
 #### Leverex Provider Tests
@@ -66,6 +68,9 @@ class MockedLeverexConnectionClass(object):
    async def subscribe_session_open(self, product):
       self.session_product = product
 
+   async def subscribe_to_product(self, product):
+      pass
+
    async def notifySessionOpen(self, session_id, open_price, timestamp):
       await self.listener.on_session_open(SessionOpenInfo({
          'product_type' : self.session_product,
@@ -84,6 +89,11 @@ class MockedLeverexConnectionClass(object):
    async def push_new_order(self, order):
       order['product_type'] = self.session_product
       await self.listener.on_order_created(LeverexOrder(order))
+
+   def push_market_data(self, price):
+      self.listener.on_market_data({
+         'live_cutoff' : str(price)
+      })
 
 ########
 class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
@@ -436,6 +446,13 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == 1
       assert taker.getExposure() == -1
 
+      #check pnl
+      mockedConnection.push_market_data(10200)
+      positions = maker.getPositions()
+      assert len(positions) == 1
+      pos1 = positions[1]
+      assert pos1.trade_pnl == 100
+
       #order for -0.5
       await mockedConnection.push_new_order({
          'id' : 2,
@@ -450,6 +467,32 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       })
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
+
+      #check pnl
+      positions = maker.getPositions()
+      assert len(positions) == 2
+      pos1 = positions[1]
+      assert pos1.trade_pnl == 100
+      pos2 = positions[2]
+      assert pos2.trade_pnl == -75
+
+      #set price over cap, check pnl
+      mockedConnection.push_market_data(12000)
+      positions = maker.getPositions()
+      assert len(positions) == 2
+      pos1 = positions[1]
+      assert pos1.trade_pnl == 1000
+      pos2 = positions[2]
+      assert pos2.trade_pnl == -500
+
+      #one last time
+      mockedConnection.push_market_data(10000)
+      positions = maker.getPositions()
+      assert len(positions) == 2
+      pos1 = positions[1]
+      assert pos1.trade_pnl == -100
+      pos2 = positions[2]
+      assert pos2.trade_pnl == 25
 
    #cover exposure sync at startup with existing maker orders
    @patch('Providers.Leverex.AsyncApiConnection')
@@ -538,6 +581,11 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          'fee' : 1.5
       })
 
+      #check pnl
+      mockedConnection.push_market_data(10200)
+      positions = maker.getPositions()
+      assert len(positions) == 0
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions(orders)
@@ -549,6 +597,16 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check exposure
       assert maker.getExposure() == -0.6
       assert taker.getExposure() == 0.6
+
+      #check pnl
+      positions = maker.getPositions()
+      assert len(positions) == 3
+      pos2 = positions[2]
+      assert pos2.trade_pnl == -200
+      pos5 = positions[5]
+      assert pos5.trade_pnl == 50
+      pos6 = positions[6]
+      assert pos6.trade_pnl == 0
 
       #order for 0.2
       await mockedConnection.push_new_order({
@@ -566,3 +624,16 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check exposure
       assert maker.getExposure() == -0.4
       assert taker.getExposure() == 0.4
+
+      #check pnl
+      mockedConnection.push_market_data(9800)
+      positions = maker.getPositions()
+      assert len(positions) == 4
+      pos2 = positions[2]
+      assert pos2.trade_pnl == 200
+      pos5 = positions[5]
+      assert pos5.trade_pnl == -150
+      pos6 = positions[6]
+      assert pos6.trade_pnl == 40
+      pos12 = positions[12]
+      assert pos12.trade_pnl == -50

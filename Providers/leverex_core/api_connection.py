@@ -70,11 +70,14 @@ class LeverexOrder(Order):
       #self._side = int(data['side'])
       #self._cut_off_price = float(data['cut_off_price'])
       #self._trade_im = data['trade_im']
-      self._trade_pnl = data['trade_pnl']
+      self._trade_pnl = None
       self._reference_exposure = data['reference_exposure']
       self._session_id = int(data['session_id'])
       self._rollover_type = data['rollover_type']
       self._fee = data['fee']
+
+      self.indexPrice = None
+      self.sessionIM = None
 
    @property
    def is_filled(self):
@@ -129,9 +132,41 @@ class LeverexOrder(Order):
       return self._fee
 
    def __str__(self):
-      text = "<vol: {}, price: {}, pnl: {}>"
-      return text.format(self.quantity, self.price, self.trade_pnl)
+      text = "<id: {} -- vol: {}, price: {}, pl: {}>"
+      return text.format(self.id, self.quantity, self.price, self.trade_pnl)
 
+   def setSessionIM(self, session):
+      if session == None:
+         return
+      if self.session_id != session.getSessionId():
+         return
+
+      self.sessionIM = session.getSessionIM()
+
+   def setIndexPrice(self, price):
+      self.indexPrice = price
+      self.computePnL()
+
+   def computePnL(self):
+      if self.indexPrice == None or self.sessionIM == None:
+         self._trade_pnl = None
+         return
+
+      #calculate difference between entry and index price
+      #cap by max nominal move
+      priceDelta = abs(self.indexPrice - self.price)
+      priceDelta = min(priceDelta, self.sessionIM)
+
+      #apply operation sign
+      if self.price > self.indexPrice:
+         priceDelta = -priceDelta
+
+      #apply side sign
+      if self.is_sell:
+         priceDelta = -priceDelta
+
+      #set pnl
+      self._trade_pnl = self.quantity * priceDelta
 
 
 class WithdrawInfo():
