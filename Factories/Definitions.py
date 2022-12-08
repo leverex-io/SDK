@@ -271,7 +271,7 @@ class PositionsReport(object):
 
    @property
    def timestamp(self):
-      return abs(self._timestamp)
+      return self._timestamp
 
    def __str__(self):
       return ""
@@ -285,3 +285,20 @@ class PositionsReport(object):
 
       #60 sec intervals
       return abs(obj._timestamp - self._timestamp) <= 60000
+
+################################################################################
+class BalanceReport(object):
+   def __init__(self, provider):
+      self.name = provider.name
+      self._timestamp = time.time_ns() / 1000000
+
+   @property
+   def timestamp(self):
+      return self._timestamp
+
+   def __eq__(self, obj):
+      if not isinstance(obj, BalanceReport):
+         return False
+
+      #5min sec intervals
+      return abs(obj._timestamp - self._timestamp) <= 300000

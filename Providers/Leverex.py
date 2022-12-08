@@ -3,7 +3,8 @@ import asyncio
 import json
 
 from Factories.Provider.Factory import Factory
-from Factories.Definitions import ProviderException, Position, PositionsReport
+from Factories.Definitions import ProviderException, Position, \
+   PositionsReport, BalanceReport
 from .leverex_core.api_connection import AsyncApiConnection, SessionInfo
 from .leverex_core.product_mapping import get_product_info
 
@@ -24,10 +25,8 @@ class LeverexPositionsReport(PositionsReport):
          self.positions[pos].setIndexPrice(self.indexPrice)
 
    def __str__(self):
-      result = ""
-
       #header
-      result += "  * {} -- exp: {}".format(self.name, self.netExposure)
+      result = "  * {} -- exp: {}".format(self.name, self.netExposure)
 
       if self.session is not None and self.session.isOpen():
          result +=" -- session: {}, open price: {}".format(
@@ -46,6 +45,42 @@ class LeverexPositionsReport(PositionsReport):
          return False
 
       return self.positions.keys() == obj.positions.keys()
+
+################################################################################
+class LeverexBalanceReport(BalanceReport):
+   def __init__(self, provider):
+      super().__init__(provider)
+      self.balances = provider.balances
+      self.ccy = provider.ccy
+
+   def __str__(self):
+      #header
+      result = "  + {} +\n".format(self.name)
+
+      #breakdown
+      for ccy in self.balances:
+         result += "    <{}: {}".format(ccy, self.balances[ccy])
+         if ccy == self.ccy:
+            result += " (total)"
+         result += ">\n"
+
+      if len(self.balances) == 0:
+         result += "    <N/A>\n"
+
+      return result
+
+   def __eq__(self, obj):
+      if not super().__eq__(obj):
+         return False
+
+      if self.balances.keys() != obj.balances.keys():
+         return False
+
+      for ccy in self.balances:
+         if self.balances[ccy] != obj.balances[ccy]:
+            return False
+
+      return True
 
 ################################################################################
 class LeverexProvider(Factory):
@@ -252,4 +287,4 @@ class LeverexProvider(Factory):
 
    ## balance ##
    def getBalance(self):
-      return self.balances
+      return LeverexBalanceReport(self)

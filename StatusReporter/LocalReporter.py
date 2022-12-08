@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 
 from Factories.StatusReporter.Factory import Factory, MAKER, TAKER
@@ -13,33 +14,19 @@ class LocalReporter(Factory):
 
    #### print statements ####
    def printReady(self):
-      print (f"-- ready state update: --\n  {str(self.readyState)}")
+      print (f"-- READY --\n  {str(self.readyState)}\n")
 
    def printBalances(self):
-      print (f"-- balance update:")
+      print (f"-- BALANCE: {datetime.fromtimestamp(time.time())} --")
 
-      #maker
-      makerBalance = self.balances[MAKER]
-      print (f"  * maker: {str(makerBalance)}")
-
-      #taker
-      takerBalance = self.balances[TAKER]
-      print (f"  * taker:")
-      for wallet in takerBalance:
-         print (f"    +{wallet}:")
-         for ccy in takerBalance[wallet]:
-            print (f"      -{ccy}:{str(takerBalance[wallet][ccy])}")
+      print (str(self.balances[MAKER]))
+      print (str(self.balances[TAKER]))
 
    def printPositions(self):
-      maker = self.positions[MAKER]
-      taker = self.positions[TAKER]
+      print (f"-- POSITIONS: {datetime.fromtimestamp(time.time())} --")
 
-      #provider timestamps are in ms
-      timestamp = max(maker.timestamp, taker.timestamp) / 1000
-      print (f"-- {datetime.fromtimestamp(timestamp)}: positions update --")
-
-      print (str(maker))
-      print (str(taker))
+      print (str(self.positions[MAKER]))
+      print (str(self.positions[TAKER]))
 
    #### report override ####
    async def report(self, notification):

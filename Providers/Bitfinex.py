@@ -3,7 +3,7 @@ import asyncio
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
-   AggregationOrderBook, PositionsReport
+   AggregationOrderBook, PositionsReport, BalanceReport
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -13,6 +13,10 @@ BFX_USD_NET = 'USD Net'
 BFX_USD_TOTAL = 'USD total'
 BFX_DERIVATIVES_WALLET = 'margin'
 BFX_DEPOSIT_METHOD = 'TETHERUSL'
+
+BALANCE_TOTAL = 'total'
+BALANCE_FREE = 'free'
+BALANCE_RESERVED = 'reserved'
 
 ################################################################################
 class BitfinexException(Exception):
@@ -54,7 +58,7 @@ class BfxPosition(object):
       if isinstance(liq, float):
          liq = round(liq, 2)
 
-      text = "<id: {} -- vol: {}, price: {}, pl: {} -- lev: {}, liq: {}>"
+      text = "<id: {} -- vol: {}, price: {}, pnl: {} -- lev: {}, liq: {}>"
       return text.format(self.position.id, self.position.amount,
          round(self.position.base_price, 2), pl, lev, liq)
 
@@ -72,10 +76,8 @@ class BfxPositionsReport(PositionsReport):
             self.positions[symbol][id] = BfxPosition(provider.positions[symbol][id])
 
    def __str__(self):
-      result = ""
-
       #header
-      result += "  * {} -- exp: {} -- product: {} *\n".format(
+      result = "  * {} -- exp: {} -- product: {} *\n".format(
          self.name, self.netExposure, self.product)
 
       #positions
@@ -98,6 +100,80 @@ class BfxPositionsReport(PositionsReport):
                result += "      {}\n".format(str(productPos[pos]))
 
       return result
+
+################################################################################
+class BfxBalanceReport(BalanceReport):
+   def __init__(self, provider):
+      super().__init__(provider)
+      self.ccy = provider.derivatives_currency
+      self.balances = provider.balances
+
+   def __str__(self):
+      mainAcc = {}
+      mainCcy = {}
+      if BFX_DERIVATIVES_WALLET in self.balances:
+         mainAcc = self.balances[BFX_DERIVATIVES_WALLET]
+
+      if self.ccy in mainAcc:
+         mainCcy = mainAcc[self.ccy]
+
+      #header
+      result = "  + {} +\n".format(self.name)
+
+      mainTotal = "N/A"
+      if BALANCE_TOTAL in mainCcy:
+         mainTotal = mainCcy[BALANCE_TOTAL]
+
+      mainFree = "N/A"
+      if BALANCE_FREE in mainCcy:
+         mainFree = mainCcy[BALANCE_FREE]
+
+      #main {account:ccy}
+      result += "    * Derivatives Account ({})*\n".format(BFX_DERIVATIVES_WALLET)
+      result += "      <[{}] total: {}, free: {}>\n".format(
+         self.ccy, mainTotal, mainFree)
+
+      #alt ccy in main acc
+      miscCcy = []
+      for ccy in mainAcc:
+         if ccy != self.ccy:
+            miscCcy.append(ccy)
+
+      if len(miscCcy) != 0:
+         #header
+         result += "\n      - misc currencies -\n"
+
+         #body
+         for ccyKey in miscCcy:
+            ccy = mainAcc[ccyKey]
+            mainTotal = "N/A"
+            if BALANCE_TOTAL in ccy:
+               mainTotal = ccy[BALANCE_TOTAL]
+
+            mainFree = "N/A"
+            if BALANCE_FREE in ccy:
+               mainFree = ccy[BALANCE_FREE]
+
+            result += "        <[{}] total: {}, free: {}>\n".format(
+               ccyKey, mainTotal, mainFree)
+
+      return result
+
+   def __eq__(self, obj):
+      if not super().__eq__(obj):
+         return False
+
+      if not BFX_DERIVATIVES_WALLET in obj.balances or \
+         not BFX_DERIVATIVES_WALLET in self.balances:
+         return False
+
+      wltSelf = self.balances[BFX_DERIVATIVES_WALLET]
+      wltObj = obj.balances[BFX_DERIVATIVES_WALLET]
+
+      if wltSelf.keys() != wltObj.keys():
+         return False
+
+      return wltSelf == wltObj
 
 ################################################################################
 class BitfinexProvider(Factory):
@@ -216,12 +292,12 @@ class BitfinexProvider(Factory):
    def _explicitly_reset_derivatives_wallet(self):
       balances = {}
 
-      balances['total'] = 0
-      balances['free'] = 0
-      balances['reserved'] = 0
+      balances[BALANCE_TOTAL] = 0
+      balances[BALANCE_FREE] = 0
+      balances[BALANCE_RESERVED] = 0
 
-      self.balances['margin'] = {}
-      self.balances['margin'][self.derivatives_currency] = balances
+      self.balances[BFX_DERIVATIVES_WALLET] = {}
+      self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency] = balances
 
    async def on_wallet_snapshot(self, wallets_snapshot):
       self._explicitly_reset_derivatives_wallet()
@@ -245,9 +321,9 @@ class BitfinexProvider(Factory):
 
       balances = {}
 
-      balances['total'] = total_balance
-      balances['free'] = free_balance
-      balances['reserved'] = reserved_balance
+      balances[BALANCE_TOTAL] = total_balance
+      balances[BALANCE_FREE] = free_balance
+      balances[BALANCE_RESERVED] = reserved_balance
 
       self.balances[wallet.type][wallet.currency] = balances
       if wallet.type == BFX_DERIVATIVES_WALLET:
@@ -332,13 +408,13 @@ class BitfinexProvider(Factory):
       if priceBid == None or priceAsk == None:
          return None
 
-      if balance['free'] == None or leverageRatio == None or priceAsk.price == None:
-         logging.error(f"invalid data: bal: {balance['free']}, lev: {leverageRatio}, price: {priceAsk.price}")
+      if balance[BALANCE_FREE] == None or leverageRatio == None or priceAsk.price == None:
+         logging.error(f"invalid data: bal: {balance[BALANCE_FREE]}, lev: {leverageRatio}, price: {priceAsk.price}")
          return None
 
       result = {}
-      result["ask"] = balance['free'] / (leverageRatio * priceAsk.price)
-      result["bid"] = balance['free'] / (leverageRatio * priceBid.price)
+      result["ask"] = balance[BALANCE_FREE] / (leverageRatio * priceAsk.price)
+      result["bid"] = balance[BALANCE_FREE] / (leverageRatio * priceBid.price)
       return result
 
    ## exposure ##
@@ -365,7 +441,7 @@ class BitfinexProvider(Factory):
 
    ## balance ##
    def getBalance(self):
-      return self.balances
+      return BfxBalanceReport(self)
 
    #############################################################################
    #### state
