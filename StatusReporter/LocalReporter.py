@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from Factories.StatusReporter.Factory import Factory, MAKER, TAKER
 from Factories.Definitions import Position, Balance, Ready
 
@@ -29,27 +31,15 @@ class LocalReporter(Factory):
             print (f"      -{ccy}:{str(takerBalance[wallet][ccy])}")
 
    def printPositions(self):
-      print (f"-- positions update:")
+      maker = self.positions[MAKER]
+      taker = self.positions[TAKER]
 
-      #maker
-      makerPositions = self.positions[MAKER]
+      #provider timestamps are in ms
+      timestamp = max(maker.timestamp, taker.timestamp) / 1000
+      print (f"-- {datetime.fromtimestamp(timestamp)}: positions update --")
 
-      #grab index price from first order
-      leverexPrice = ""
-      if len(makerPositions) != 0:
-         firstPos = next(iter(makerPositions))
-         leverexPrice = " (index price: {})".format(
-            makerPositions[firstPos].indexPrice)
-
-      print (f"  * maker{leverexPrice}:")
-      for pos in makerPositions:
-         print (f"    +{str(makerPositions[pos])}")
-
-      #taker
-      takerPositions = self.positions[TAKER]
-      print (f"  * taker:")
-      for product in takerPositions:
-         print (f"    +{str(takerPositions[product])}")
+      print (str(maker))
+      print (str(taker))
 
    #### report override ####
    async def report(self, notification):

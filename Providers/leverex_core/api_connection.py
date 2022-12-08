@@ -27,7 +27,7 @@ ORDER_TYPE_NORMAL_ROLLOVER_POSITION       = 1
 ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION   = 2
 ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION    = 3
 
-
+################################################################################
 class TradeHistory():
    def __init__(self, data):
       self._loaded = data['loaded']
@@ -57,6 +57,7 @@ class TradeHistory():
       return self._orders
 
 
+################################################################################
 class LeverexOrder(Order):
    def __init__(self, data):
       super().__init__(data['id'],
@@ -131,9 +132,30 @@ class LeverexOrder(Order):
    def fee(self):
       return self._fee
 
+   @staticmethod
+   def tradeTypeStr(tradeType):
+      if tradeType == ORDER_TYPE_TRADE_POSITION:
+         return "TRADE"
+      elif tradeType == ORDER_TYPE_NORMAL_ROLLOVER_POSITION:
+         return "ROLL"
+      elif tradeType == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION:
+         return "ROLL - LIQUIDATED"
+      elif tradeType == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION:
+         return "ROLL - DEFAULTED"
+      return "N/A"
+
    def __str__(self):
-      text = "<id: {} -- vol: {}, price: {}, pl: {}>"
-      return text.format(self.id, self.quantity, self.price, self.trade_pnl)
+      text = "<id: {} -- vol: {}, price: {}, pl: {} -- type: {}>"
+      tradeType = self.tradeTypeStr(self._rollover_type)
+      if self._rollover_type == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION or \
+         self._rollover_type == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION:
+         tradeType += f": {abs(self._reference_exposure - self.quantity)}"
+
+      pl = self.trade_pnl
+      if isinstance(pl, float):
+         pl = round(pl, 6)
+
+      return text.format(self.id, self.quantity, self.price, pl, tradeType)
 
    def setSessionIM(self, session):
       if session == None:

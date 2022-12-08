@@ -448,9 +448,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #check pnl
       mockedConnection.push_market_data(10200)
-      positions = maker.getPositions()
-      assert len(positions) == 1
-      pos1 = positions[1]
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 1
+      pos1 = posrep.positions[1]
       assert pos1.trade_pnl == 100
 
       #order for -0.5
@@ -469,29 +469,29 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
 
       #check pnl
-      positions = maker.getPositions()
-      assert len(positions) == 2
-      pos1 = positions[1]
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 2
+      pos1 = posrep.positions[1]
       assert pos1.trade_pnl == 100
-      pos2 = positions[2]
+      pos2 = posrep.positions[2]
       assert pos2.trade_pnl == -75
 
       #set price over cap, check pnl
       mockedConnection.push_market_data(12000)
-      positions = maker.getPositions()
-      assert len(positions) == 2
-      pos1 = positions[1]
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 2
+      pos1 = posrep.positions[1]
       assert pos1.trade_pnl == 1000
-      pos2 = positions[2]
+      pos2 = posrep.positions[2]
       assert pos2.trade_pnl == -500
 
       #one last time
       mockedConnection.push_market_data(10000)
-      positions = maker.getPositions()
-      assert len(positions) == 2
-      pos1 = positions[1]
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 2
+      pos1 = posrep.positions[1]
       assert pos1.trade_pnl == -100
-      pos2 = positions[2]
+      pos2 = posrep.positions[2]
       assert pos2.trade_pnl == 25
 
    #cover exposure sync at startup with existing maker orders
@@ -583,8 +583,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #check pnl
       mockedConnection.push_market_data(10200)
-      positions = maker.getPositions()
-      assert len(positions) == 0
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 0
 
       #reply to load positions
       assert mockedConnection.positions_callback != None
@@ -599,13 +599,13 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0.6
 
       #check pnl
-      positions = maker.getPositions()
-      assert len(positions) == 3
-      pos2 = positions[2]
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 3
+      pos2 = posrep.positions[2]
       assert pos2.trade_pnl == -200
-      pos5 = positions[5]
+      pos5 = posrep.positions[5]
       assert pos5.trade_pnl == 50
-      pos6 = positions[6]
+      pos6 = posrep.positions[6]
       assert pos6.trade_pnl == 0
 
       #order for 0.2
@@ -627,13 +627,13 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #check pnl
       mockedConnection.push_market_data(9800)
-      positions = maker.getPositions()
-      assert len(positions) == 4
-      pos2 = positions[2]
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 4
+      pos2 = posrep.positions[2]
       assert pos2.trade_pnl == 200
-      pos5 = positions[5]
+      pos5 = posrep.positions[5]
       assert pos5.trade_pnl == -150
-      pos6 = positions[6]
+      pos6 = posrep.positions[6]
       assert pos6.trade_pnl == 40
-      pos12 = positions[12]
+      pos12 = posrep.positions[12]
       assert pos12.trade_pnl == -50

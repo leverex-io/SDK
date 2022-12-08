@@ -38,11 +38,38 @@ class Factory(object):
       await self.report(Definitions.Ready)
 
    async def onBalanceEvent(self, dealer):
-      self.balances[MAKER] = dealer.maker.getBalance()
-      self.balances[TAKER] = dealer.taker.getBalance()
-      await self.report(Definitions.Balance)
+      changes = False
+
+      #maker balances
+      makerBalance = dealer.maker.getBalance()
+      if self.balances[MAKER] != makerBalance:
+         self.balances[MAKER] = makerBalance
+         changes = True
+
+      #taker balances
+      takerBalance = dealer.taker.getBalance()
+      if self.balances[TAKER] != takerBalance:
+         self.balances[TAKER] = takerBalance
+         changes = True
+
+      #only notify on balance changes
+      if changes:
+         await self.report(Definitions.Balance)
 
    async def onPositionEvent(self, dealer):
-      self.positions[MAKER] = dealer.maker.getPositions()
-      self.positions[TAKER] = dealer.taker.getPositions()
-      await self.report(Definitions.Position)
+      changes = False
+
+      #maker
+      makerPos = dealer.maker.getPositions()
+      if self.positions[MAKER] != makerPos:
+         self.positions[MAKER] = makerPos
+         changes = True
+
+      #taker
+      takerPos = dealer.taker.getPositions()
+      if self.positions[TAKER] != takerPos:
+         self.positions[TAKER] = takerPos
+         changes = True
+
+      if changes:
+         await self.report(Definitions.Position)

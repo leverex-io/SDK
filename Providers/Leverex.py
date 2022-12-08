@@ -3,13 +3,49 @@ import asyncio
 import json
 
 from Factories.Provider.Factory import Factory
-from Factories.Definitions import ProviderException, Position
+from Factories.Definitions import ProviderException, Position, PositionsReport
 from .leverex_core.api_connection import AsyncApiConnection, SessionInfo
 from .leverex_core.product_mapping import get_product_info
 
 ################################################################################
 class LeverexException(Exception):
    pass
+
+################################################################################
+class LeverexPositionsReport(PositionsReport):
+   def __init__(self, provider):
+      super().__init__(provider)
+      self.session = provider.currentSession
+      self.indexPrice = provider.indexPrice
+      self.positions = provider.orders
+
+      #set index price for orders, it will update pnl
+      for pos in self.positions:
+         self.positions[pos].setIndexPrice(self.indexPrice)
+
+   def __str__(self):
+      result = ""
+
+      #header
+      result += "  * {} -- exp: {}".format(self.name, self.netExposure)
+
+      if self.session is not None and self.session.isOpen():
+         result +=" -- session: {}, open price: {}".format(
+            self.session.getSessionId(), self.session.getOpenPrice())
+
+      result += " -- index price: {} *\n".format(self.indexPrice)
+
+      #positions
+      for pos in self.positions:
+         result += "    {}\n".format(str(self.positions[pos]))
+
+      return result
+
+   def __eq__(self, obj):
+      if not super().__eq__(obj):
+         return False
+
+      return self.positions.keys() == obj.positions.keys()
 
 ################################################################################
 class LeverexProvider(Factory):
@@ -190,12 +226,12 @@ class LeverexProvider(Factory):
    ## orders ##
    def storeActiveOrder(self, order):
       if not order.is_trade_position:
-         # this position is rollover position
-         # and it carries full exposure for a session
+         #this is a rolled over position, it carries the full exposure
+         #for this session, therefor we reset the net exposure
          self.netExposure = 0
 
-         # it is also the only active order as of this moment
-         # therefor wipe the order map
+         #it is also the only active order as of this moment,
+         #therefor wipe the order map
          self.orders = {}
 
       order.setSessionIM(self.currentSession)
@@ -206,9 +242,7 @@ class LeverexProvider(Factory):
          self.netExposure = self.netExposure + order.quantity
 
    def getPositions(self):
-      for orderId in self.orders:
-         self.orders[orderId].setIndexPrice(self.indexPrice)
-      return self.orders
+      return LeverexPositionsReport(self)
 
    ## exposure ##
    def getExposure(self):

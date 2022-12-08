@@ -3,7 +3,7 @@ import asyncio
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
-   AggregationOrderBook
+   AggregationOrderBook, PositionsReport
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -35,6 +35,69 @@ class DepositWithdrawAddresses():
 
    def get_deposit_address(self):
       return self._deposit_address
+
+################################################################################
+class BfxPosition(object):
+   def __init__(self, position):
+      self.position = position
+
+   def __str__(self):
+      pl = self.position.profit_loss
+      if isinstance(pl, float):
+         pl = round(pl, 6)
+
+      lev = self.position.leverage
+      if isinstance(lev, float):
+         lev = round(lev, 2)
+
+      liq = self.position.liquidation_price
+      if isinstance(liq, float):
+         liq = round(liq, 2)
+
+      text = "<id: {} -- vol: {}, price: {}, pl: {} -- lev: {}, liq: {}>"
+      return text.format(self.position.id, self.position.amount,
+         round(self.position.base_price, 2), pl, lev, liq)
+
+################################################################################
+class BfxPositionsReport(PositionsReport):
+   def __init__(self, provider):
+      super().__init__(provider)
+      self.product = provider.product
+
+      #convert position to BfxPosition
+      self.positions = {}
+      for symbol in provider.positions:
+         self.positions[symbol] = {}
+         for id in provider.positions[symbol]:
+            self.positions[symbol][id] = BfxPosition(provider.positions[symbol][id])
+
+   def __str__(self):
+      result = ""
+
+      #header
+      result += "  * {} -- exp: {} -- product: {} *\n".format(
+         self.name, self.netExposure, self.product)
+
+      #positions
+      productPos = self.positions[self.product]
+      for pos in productPos:
+         result += "    {}\n".format(str(productPos[pos]))
+
+      #untracked products
+      untrackedProducts = []
+      for prod in self.positions:
+         if prod != self.product:
+            untrackedProducts.append(prod)
+
+      if len(untrackedProducts) != 0:
+         result += "\n  + positions for untracked products +\n"
+         for prod in untrackedProducts:
+            result += "    - {} -".format(prod)
+            productPos = self.positions[prod]
+            for pos in productPos:
+               result += "      {}\n".format(str(productPos[pos]))
+
+      return result
 
 ################################################################################
 class BitfinexProvider(Factory):
@@ -177,7 +240,7 @@ class BitfinexProvider(Factory):
          free_balance = wallet.balance_available
          reserved_balance = wallet.balance - wallet.balance_available
       else:
-         free_balance = None
+         free_balance = wallet.balance
          reserved_balance = None
 
       balances = {}
@@ -226,11 +289,13 @@ class BitfinexProvider(Factory):
 
    async def on_position_close(self, data):
       position = Position.from_raw_rest_position(data[2])
-      self.positions[position.symbol] = None
+      self.positions[position.symbol][position.id] = None
       await super().onPositionUpdate()
 
-   async def update_position(self, position):
-      self.positions[position.symbol] = position
+   async def update_position(self, posObj):
+      if posObj.symbol not in self.positions:
+         self.positions[posObj.symbol] = {}
+      self.positions[posObj.symbol][posObj.id] = posObj
       await super().onPositionUpdate()
 
    ## margin events ##
@@ -267,6 +332,10 @@ class BitfinexProvider(Factory):
       if priceBid == None or priceAsk == None:
          return None
 
+      if balance['free'] == None or leverageRatio == None or priceAsk.price == None:
+         logging.error(f"invalid data: bal: {balance['free']}, lev: {leverageRatio}, price: {priceAsk.price}")
+         return None
+
       result = {}
       result["ask"] = balance['free'] / (leverageRatio * priceAsk.price)
       result["bid"] = balance['free'] / (leverageRatio * priceBid.price)
@@ -279,7 +348,10 @@ class BitfinexProvider(Factory):
 
       if self.product not in self.positions:
          return 0
-      return self.positions[self.product].amount
+      exposure = 0
+      for id in self.positions[self.product]:
+         exposure += self.positions[self.product][id].amount
+      return exposure
 
    async def updateExposure(self, quantity):
       await self.connection.ws.submit_order(symbol=self.product,
@@ -289,7 +361,7 @@ class BitfinexProvider(Factory):
          market_type=bfx_models.order.OrderType.MARKET)
 
    def getPositions(self):
-      return self.positions
+      return BfxPositionsReport(self)
 
    ## balance ##
    def getBalance(self):

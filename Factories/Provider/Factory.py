@@ -93,3 +93,7 @@ class Factory(object):
 
    def getPositions(self):
       logging.debug("[getPositions]")
+
+   @property
+   def name(self):
+      return self._name

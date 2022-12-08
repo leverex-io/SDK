@@ -261,3 +261,27 @@ class Order():
    @property
    def price(self):
       return self._price
+
+################################################################################
+class PositionsReport(object):
+   def __init__(self, provider):
+      self.name = provider.name
+      self.netExposure = provider.getExposure()
+      self._timestamp = time.time_ns() / 1000000
+
+   @property
+   def timestamp(self):
+      return abs(self._timestamp)
+
+   def __str__(self):
+      return ""
+
+   def __eq__(self, obj):
+      if not isinstance(obj, PositionsReport):
+         return False
+
+      if self.netExposure != obj.netExposure:
+         return False
+
+      #10 sec intervals
+      return abs(obj._timestamp - self._timestamp) <= 10000
