@@ -637,3 +637,166 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos6.trade_pnl == 40
       pos12 = posrep.positions[12]
       assert pos12.trade_pnl == -50
+
+   #cover new order handling and exposure signals
+   @patch('Providers.Leverex.AsyncApiConnection')
+   async def test_session_roll(self, MockedLeverexConnObj):
+      #return mocked leverex connection object instead of an instance
+      #of leverex_core.api_connection.AsyncApiConnection
+      mockedConnection = MockedLeverexConnectionClass(1000)
+      MockedLeverexConnObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = LeverexProvider(self.config)
+      taker = TestTaker(startBalance=1500)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert maker.connection is mockedConnection
+      assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+      assert dealer.isReady() == False
+
+      #Leverex authorized event (login successful)
+      await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+      assert len(mockedConnection.offers) == 0
+
+      #reply to load balances request
+      assert mockedConnection.balance_callback != None
+      assert len(maker.balances) == 0
+      await mockedConnection.replyLoadBalances()
+      assert mockedConnection.balance_callback == None
+      assert maker.balances['USDT'] == 1000
+
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+      assert maker.isReady() == True
+      assert dealer.isReady() == True
+
+      #push new order for 1btc
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      await mockedConnection.push_new_order({
+         'id' : 1,
+         'timestamp' : 1,
+         'quantity' : 1,
+         'price' : 10100,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 15
+      })
+      assert maker.getExposure() == 1
+      assert taker.getExposure() == -1
+
+      #check pnl
+      mockedConnection.push_market_data(10200)
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 1
+      pos1 = posrep.positions[1]
+      assert pos1.trade_pnl == 100
+
+      #order for -0.5
+      await mockedConnection.push_new_order({
+         'id' : 2,
+         'timestamp' : 1,
+         'quantity' : -0.5,
+         'price' : 10050,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 7.5
+      })
+      assert maker.getExposure() == 0.5
+      assert taker.getExposure() == -0.5
+
+      #check pnl
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 2
+      pos1 = posrep.positions[1]
+      assert pos1.trade_pnl == 100
+      pos2 = posrep.positions[2]
+      assert pos2.trade_pnl == -75
+
+      #set price over cap, check pnl
+      mockedConnection.push_market_data(12000)
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 2
+      pos1 = posrep.positions[1]
+      assert pos1.trade_pnl == 1000
+      pos2 = posrep.positions[2]
+      assert pos2.trade_pnl == -500
+
+      #one last time
+      mockedConnection.push_market_data(10000)
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 2
+      pos1 = posrep.positions[1]
+      assert pos1.trade_pnl == -100
+      pos2 = posrep.positions[2]
+      assert pos2.trade_pnl == 25
+
+      ## roll the session ##
+
+      #push session end
+      await mockedConnection.notifySessionClose(5)
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+      assert dealer.isReady() == False
+
+      #TODO: previous orders should be FILLED first
+
+      #push rolled over trade
+      await mockedConnection.push_new_order({
+         'id' : 3,
+         'timestamp' : 1,
+         'quantity' : 0.5,
+         'price' : 10200,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0.5,
+         'session_id' : 6,
+         'rollover_type' : ORDER_TYPE_NORMAL_ROLLOVER_POSITION,
+         'fee' : 0
+      })
+
+      #start new session
+      await mockedConnection.notifySessionOpen(
+         6, #id
+         10200, #price
+         1, #timestamp, ignored
+      )
+
+      assert maker.isReady() == True
+      assert taker.isReady() == True
+      assert dealer.isReady() == True
+
+      #check pnl
+      mockedConnection.push_market_data(10200)
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 1
+      pos3 = posrep.positions[3]
+      assert pos3.trade_pnl == 0
+
+      #check pnl
+      mockedConnection.push_market_data(10100)
+      posrep = maker.getPositions()
+      assert len(posrep.positions) == 1
+      pos3 = posrep.positions[3]
+      assert pos3.trade_pnl == -50

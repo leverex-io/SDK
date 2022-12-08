@@ -283,5 +283,5 @@ class PositionsReport(object):
       if self.netExposure != obj.netExposure:
          return False
 
-      #10 sec intervals
-      return abs(obj._timestamp - self._timestamp) <= 10000
+      #60 sec intervals
+      return abs(obj._timestamp - self._timestamp) <= 60000
