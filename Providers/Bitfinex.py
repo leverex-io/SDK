@@ -81,6 +81,10 @@ class BfxPositionsReport(PositionsReport):
          self.name, self.netExposure, self.product)
 
       #positions
+      if not self.product in self.positions:
+         result += "    N/A\n"
+         return result
+
       productPos = self.positions[self.product]
       for pos in productPos:
          result += "    {}\n".format(str(productPos[pos]))

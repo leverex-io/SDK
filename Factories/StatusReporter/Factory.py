@@ -36,6 +36,7 @@ class Factory(object):
       self.readyState[MAKER]  = dealer.maker.isReady()
       self.readyState[TAKER]  = dealer.taker.isReady()
       await self.report(Definitions.Ready)
+      await self.onPositionEvent(dealer)
 
    async def onBalanceEvent(self, dealer):
       changes = False

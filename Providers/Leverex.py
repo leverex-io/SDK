@@ -4,8 +4,8 @@ import json
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
-   PositionsReport, BalanceReport
-from .leverex_core.api_connection import AsyncApiConnection, SessionInfo
+   PositionsReport, BalanceReport, SessionInfo
+from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
 ################################################################################
@@ -13,37 +13,145 @@ class LeverexException(Exception):
    pass
 
 ################################################################################
+class SessionOrders(object):
+   def __init__(self, sessionId):
+      self.id = sessionId
+      self.orders = {}
+      self.netExposure = 0
+      self.session = None
+
+   def setSessionObj(self, sessionObj):
+      if sessionObj.getSessionId() != self.id:
+         return
+      self.session = sessionObj
+      for order in self.orders:
+         self.orders[order].setSessionIM(self.session)
+
+   def setIndexPrice(self, price):
+      for order in self.orders:
+         self.orders[order].setIndexPrice(price)
+
+   def setOrder(self, order, eventType):
+      #set session IM
+      if self.session != None:
+         order.setSessionIM(self.session)
+
+      self.orders[order.id] = order
+      if order.is_filled() and eventType == ORDER_ACTION_UPDATED:
+         #filled orders do not affect exposure, return false
+         return False
+
+      vol = order.quantity
+      if order.is_sell():
+         vol *= -1
+      self.netExposure += vol
+
+      #return true if setting this order affected net exposure
+      return True
+
+   def getNetExposure(self):
+      return round(self.netExposure, 8)
+
+   def getCount(self):
+      return len(self.orders)
+
+   def __eq__(self, obj):
+      if obj == None:
+         return False
+
+      return self.id == obj.id and self.orders.keys() == obj.orders.keys()
+
+################################################################################
 class LeverexPositionsReport(PositionsReport):
    def __init__(self, provider):
       super().__init__(provider)
-      self.session = provider.currentSession
-      self.indexPrice = provider.indexPrice
-      self.positions = provider.orders
 
-      #set index price for orders, it will update pnl
-      for pos in self.positions:
-         self.positions[pos].setIndexPrice(self.indexPrice)
+      #get sessionId for current session
+      sessionId = None
+      if provider.currentSession != None:
+         sessionId = provider.currentSession.getSessionId()
+      self.indexPrice = provider.indexPrice
+
+      #grab orders for session id
+      self.orderData = None
+      if sessionId in provider.orderData:
+         self.orderData = provider.orderData[sessionId]
+
+         #set index price for orders, it will update pnl
+         self.orderData.setIndexPrice(self.indexPrice)
 
    def __str__(self):
       #header
-      result = "  * {} -- exp: {}".format(self.name, self.netExposure)
+      pnl = self.getPnl()
+      result = "  * {} -- exp: {}, pnl: {}".format(\
+         self.name, self.netExposure, pnl)
 
-      if self.session is not None and self.session.isOpen():
+      #grab session from orderData
+      session = None
+      if self.orderData != None:
+         session = self.orderData.session
+
+      #print session info
+      if session is not None and session.isOpen():
          result += " -- session: {}, open price: {}".format(
-            self.session.getSessionId(), self.session.getOpenPrice())
+            session.getSessionId(), session.getOpenPrice())
       result += " -- index price: {} *\n".format(self.indexPrice)
 
+      if self.getOrderCount() == 0:
+         result += "    N/A\n"
+         return result
+
       #positions
-      for pos in self.positions:
-         result += "    {}\n".format(str(self.positions[pos]))
+      orderDict = {
+         'ROLL' : [],
+         'MAKER' : [],
+         'TAKER' : []
+      }
+
+      if self.orderData != None:
+         for pos in self.orderData.orders:
+            order = self.orderData.orders[pos]
+            if order.is_trade_position():
+               if order.is_taker:
+                  orderDict['TAKER'].append(pos)
+               else:
+                  orderDict['MAKER'].append(pos)
+            else:
+               orderDict['ROLL'].append(pos)
+
+      for posType in orderDict:
+         orderList = orderDict[posType]
+         if len(orderList) == 0:
+            continue
+
+         result += "    - {} -\n".format(posType)
+         for orderId in orderList:
+            result += "      {}\n".format(str(self.orderData.orders[orderId]))
+         result += "\n"
 
       return result
 
    def __eq__(self, obj):
       if not super().__eq__(obj):
          return False
+      return self.orderData == obj.orderData
 
-      return self.positions.keys() == obj.positions.keys()
+   def getOrderCount(self):
+      if self.orderData == None:
+         return 0
+      return self.orderData.getCount()
+
+   def getPnl(self):
+      if self.orderData == None:
+         return "N/A"
+
+      pnl = 0
+      for orderId in self.orderData.orders:
+         orderPL = self.orderData.orders[orderId].trade_pnl
+         if orderPL == None:
+            return "N/A"
+         pnl += orderPL
+      return round(pnl, 6)
 
 ################################################################################
 class LeverexBalanceReport(BalanceReport):
@@ -101,7 +209,7 @@ class LeverexProvider(Factory):
       self.balances = {}
 
       self.netExposure = 0
-      self.orders = {}
+      self.orderData = {}
       self.currentSession = None
       self.lastReadyState = False
       self.indexPrice = None
@@ -169,32 +277,29 @@ class LeverexProvider(Factory):
 
    ## position events ##
    async def on_positions_loaded(self, orders):
-      def getId(order):
-         return order.id
-      orders.sort(key=getId)
-
       for order in orders:
-         self.storeActiveOrder(order)
+         self.storeOrder(order, ORDER_ACTION_UPDATED)
 
       await super().setInitPosition()
       await self.evaluateReadyState()
 
-   async def on_order_created(self, order):
-      self.storeActiveOrder(order)
-      await super().onPositionUpdate()
-
-   async def on_order_filled(self, order):
-      logging.warning("++++++++++ [Leverex.on_order_filled] implement me")
+   async def on_order_event(self, order, eventType):
+      if self.storeOrder(order, eventType):
+         await super().onPositionUpdate()
 
    ## session notifications
    async def on_session_open(self, sessionInfo):
-      self.currentSession = SessionInfo(sessionInfo)
-      for orderId in self.orders:
-         self.orders[orderId].setSessionIM(self.currentSession)
-      await self.evaluateReadyState()
+      await self.setSession(SessionInfo(sessionInfo))
 
    async def on_session_closed(self, sessionInfo):
-      self.currentSession = SessionInfo(sessionInfo)
+      await self.setSession(SessionInfo(sessionInfo))
+
+   async def setSession(self, session):
+      self.currentSession = session
+      sessionId = session.getSessionId()
+      if sessionId not in self.orderData:
+         self.orderData[sessionId] = SessionOrders(sessionId)
+      self.orderData[sessionId].setSessionObj(session)
       await self.evaluateReadyState()
 
    def on_market_data(self, marketData):
@@ -258,22 +363,18 @@ class LeverexProvider(Factory):
          target_product=self.product, offers=offers, callback=callback)
 
    ## orders ##
-   def storeActiveOrder(self, order):
-      if not order.is_trade_position:
-         #this is a rolled over position, it carries the full exposure
-         #for this session, therefor we reset the net exposure
-         self.netExposure = 0
+   def storeOrder(self, order, eventType):
+      sessionId = order.session_id
+      if sessionId not in self.orderData:
+         #create SessionOrders object
+         self.orderData[sessionId] = SessionOrders(sessionId)
 
-         #it is also the only active order as of this moment,
-         #therefor wipe the order map
-         self.orders = {}
+         #set session object if we have one
+         if self.currentSession != None and \
+            self.currentSession.getSessionId() == sessionId:
+            self.orderData[sessionId].setSessionObj(self.currentSession)
 
-      order.setSessionIM(self.currentSession)
-      self.orders[order.id] = order
-      if order.is_sell():
-         self.netExposure -= order.quantity
-      else:
-         self.netExposure += order.quantity
+      return self.orderData[sessionId].setOrder(order, eventType)
 
    def getPositions(self):
       return LeverexPositionsReport(self)
@@ -282,7 +383,15 @@ class LeverexProvider(Factory):
    def getExposure(self):
       if not self.isReady():
          return None
-      return round(self.netExposure, 8)
+
+      if self.currentSession == None or not self.currentSession.isOpen():
+         return None
+
+      sessionId = self.currentSession.getSessionId() 
+      if sessionId not in self.orderData:
+         return None
+
+      return self.orderData[sessionId].getNetExposure()
 
    ## balance ##
    def getBalance(self):

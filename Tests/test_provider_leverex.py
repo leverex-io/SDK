@@ -10,8 +10,9 @@ from Factories.Definitions import SessionInfo, \
 
 from Providers.Leverex import LeverexProvider
 from Providers.leverex_core.api_connection import LeverexOrder, \
-   ORDER_STATUS_FILLED, ORDER_TYPE_TRADE_POSITION, \
-   ORDER_TYPE_NORMAL_ROLLOVER_POSITION
+   ORDER_STATUS_FILLED, ORDER_STATUS_PENDING, \
+   ORDER_TYPE_TRADE_POSITION, ORDER_TYPE_NORMAL_ROLLOVER_POSITION, \
+   ORDER_ACTION_CREATED, ORDER_ACTION_UPDATED
 
 #import pdb; pdb.set_trace()
 
@@ -64,6 +65,7 @@ class MockedLeverexConnectionClass(object):
          if order['quantity'] < 0:
             side = SIDE_SELL
          order['side'] = side
+         order['is_taker'] = False
 
          leverexOrders.append(LeverexOrder(order))
 
@@ -97,7 +99,8 @@ class MockedLeverexConnectionClass(object):
       if order['quantity'] < 0:
          side = SIDE_SELL
       order['side'] = side
-      await self.listener.on_order_created(LeverexOrder(order))
+      order['is_taker'] = False
+      await self.listener.on_order_event(LeverexOrder(order), ORDER_ACTION_CREATED)
 
    def push_market_data(self, price):
       self.listener.on_market_data({
@@ -415,6 +418,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
+      posrep = maker.getPositions()
+      assert posrep.getOrderCount() == 0
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -458,8 +464,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check pnl
       mockedConnection.push_market_data(10200)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 1
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 1
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == 100
 
       #order for -0.5
@@ -479,28 +485,28 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #check pnl
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 2
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 2
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == 100
-      pos2 = posrep.positions[2]
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == -75
 
       #set price over cap, check pnl
       mockedConnection.push_market_data(12000)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 2
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 2
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == 1000
-      pos2 = posrep.positions[2]
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == -500
 
       #one last time
       mockedConnection.push_market_data(10000)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 2
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 2
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == -100
-      pos2 = posrep.positions[2]
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == 25
 
    #cover exposure sync at startup with existing maker orders
@@ -557,7 +563,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          'timestamp' : 5,
          'quantity' : 0.5,
          'price' : 10100,
-         'status' : ORDER_STATUS_FILLED,
+         'status' : ORDER_STATUS_PENDING,
          'reference_exposure' : 0,
          'session_id' : 10,
          'rollover_type' : ORDER_TYPE_TRADE_POSITION,
@@ -570,7 +576,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          'timestamp' : 1,
          'quantity' : -1,
          'price' : 10000,
-         'status' : ORDER_STATUS_FILLED,
+         'status' : ORDER_STATUS_PENDING,
          'reference_exposure' : -1,
          'session_id' : 10,
          'rollover_type' : ORDER_TYPE_NORMAL_ROLLOVER_POSITION,
@@ -583,7 +589,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          'timestamp' : 15,
          'quantity' : -0.1,
          'price' : 10200,
-         'status' : ORDER_STATUS_FILLED,
+         'status' : ORDER_STATUS_PENDING,
          'reference_exposure' : 0,
          'session_id' : 10,
          'rollover_type' : ORDER_TYPE_TRADE_POSITION,
@@ -593,7 +599,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check pnl
       mockedConnection.push_market_data(10200)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 0
+      assert posrep.getOrderCount() == 0
 
       #reply to load positions
       assert mockedConnection.positions_callback != None
@@ -609,12 +615,12 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #check pnl
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 3
-      pos2 = posrep.positions[2]
+      assert posrep.getOrderCount() == 3
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == -200
-      pos5 = posrep.positions[5]
+      pos5 = posrep.orderData.orders[5]
       assert pos5.trade_pnl == 50
-      pos6 = posrep.positions[6]
+      pos6 = posrep.orderData.orders[6]
       assert pos6.trade_pnl == 0
 
       #order for 0.2
@@ -637,14 +643,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check pnl
       mockedConnection.push_market_data(9800)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 4
-      pos2 = posrep.positions[2]
+      assert posrep.getOrderCount() == 4
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == 200
-      pos5 = posrep.positions[5]
+      pos5 = posrep.orderData.orders[5]
       assert pos5.trade_pnl == -150
-      pos6 = posrep.positions[6]
+      pos6 = posrep.orderData.orders[6]
       assert pos6.trade_pnl == 40
-      pos12 = posrep.positions[12]
+      pos12 = posrep.orderData.orders[12]
       assert pos12.trade_pnl == -50
 
    #cover new order handling and exposure signals
@@ -717,8 +723,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check pnl
       mockedConnection.push_market_data(10200)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 1
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 1
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == 100
 
       #order for -0.5
@@ -738,28 +744,28 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #check pnl
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 2
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 2
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == 100
-      pos2 = posrep.positions[2]
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == -75
 
       #set price over cap, check pnl
       mockedConnection.push_market_data(12000)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 2
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 2
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == 1000
-      pos2 = posrep.positions[2]
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == -500
 
       #one last time
       mockedConnection.push_market_data(10000)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 2
-      pos1 = posrep.positions[1]
+      assert posrep.getOrderCount() == 2
+      pos1 = posrep.orderData.orders[1]
       assert pos1.trade_pnl == -100
-      pos2 = posrep.positions[2]
+      pos2 = posrep.orderData.orders[2]
       assert pos2.trade_pnl == 25
 
       ## roll the session ##
@@ -799,13 +805,13 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #check pnl
       mockedConnection.push_market_data(10200)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 1
-      pos3 = posrep.positions[3]
+      assert posrep.getOrderCount() == 1
+      pos3 = posrep.orderData.orders[3]
       assert pos3.trade_pnl == 0
 
       #check pnl
       mockedConnection.push_market_data(10100)
       posrep = maker.getPositions()
-      assert len(posrep.positions) == 1
-      pos3 = posrep.positions[3]
+      assert posrep.getOrderCount() == 1
+      pos3 = posrep.orderData.orders[3]
       assert pos3.trade_pnl == -50

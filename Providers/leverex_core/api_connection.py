@@ -11,7 +11,7 @@ from typing import Callable
 
 from .login_connection import LoginServiceClientWS
 from Factories.Definitions import PriceOffer, \
-   SessionCloseInfo, SessionOpenInfo, SessionInfo, Order
+   SessionCloseInfo, SessionOpenInfo, Order
 
 LOGIN_ENDPOINT = "wss://login-live.leverex.io/ws/v1/websocket"
 API_ENDPOINT = "wss://api-live.leverex.io"
@@ -76,17 +76,21 @@ class LeverexOrder(Order):
       self._session_id = int(data['session_id'])
       self._rollover_type = data['rollover_type']
       self._fee = data['fee']
+      self._is_taker = data['is_taker']
 
       self.indexPrice = None
       self.sessionIM = None
 
-   @property
    def is_filled(self):
       return self._status == ORDER_STATUS_FILLED
 
    @property
    def product_type(self):
       return self._product_type
+
+   @property
+   def is_taker(self):
+      return self._is_taker
 
    '''
    @property
@@ -103,16 +107,9 @@ class LeverexOrder(Order):
       return self._trade_pnl
 
    @property
-   def total_net_exposure(self):
-      if self.is_trade_position:
-         return self._reference_exposure
-      return self.quantity
-
-   @property
    def session_id(self):
       return self._session_id
 
-   @property
    def is_trade_position(self):
       return self._rollover_type == ORDER_TYPE_TRADE_POSITION
 
@@ -130,22 +127,19 @@ class LeverexOrder(Order):
 
    @staticmethod
    def tradeTypeStr(tradeType):
-      if tradeType == ORDER_TYPE_TRADE_POSITION:
-         return "TRADE"
-      elif tradeType == ORDER_TYPE_NORMAL_ROLLOVER_POSITION:
-         return "ROLL"
-      elif tradeType == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION:
-         return "ROLL - LIQUIDATED"
+      if tradeType == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION:
+         return "LIQUIDATED"
       elif tradeType == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION:
-         return "ROLL - DEFAULTED"
-      return "N/A"
+         return "DEFAULTED"
+      return None
 
    def __str__(self):
-      text = "<id: {} -- vol: {}, price: {}, pl: {} -- type: {}>"
+      text = "<id: {} -- vol: {}, price: {}, pnl: {}"
       tradeType = self.tradeTypeStr(self._rollover_type)
-      if self._rollover_type == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION or \
-         self._rollover_type == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION:
-         tradeType += f": {abs(self._reference_exposure) - self.quantity}"
+      if tradeType != None:
+         text += "-- {}: {}".format(tradeType, \
+            abs(self._reference_exposure) - self.quantity)
+      text += ">"
 
       pl = self.trade_pnl
       if isinstance(pl, float):
@@ -686,10 +680,7 @@ class AsyncApiConnection(object):
          elif 'order_update' in update:
             order = LeverexOrder(update['order_update']['order'])
             action = int(update['order_update']['action'])
-            if action == ORDER_ACTION_CREATED:
-               await self.listener.on_order_created(order)
-            elif action == ORDER_ACTION_UPDATED:
-               await self.listener.on_order_filled(order)
+            await self.listener.on_order_event(order, action)
 
          # _call_listener_method
          elif 'update_deposit' in update:
