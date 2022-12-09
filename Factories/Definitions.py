@@ -48,6 +48,9 @@ class SessionInfo():
          return True
       return False
 
+   def isHealthy(self):
+      return True
+
    def getOpenPrice(self):
       if self.open is None:
          return 0

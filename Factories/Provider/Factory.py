@@ -94,6 +94,17 @@ class Factory(object):
    def getPositions(self):
       logging.debug("[getPositions]")
 
+   def getStatusStr(self):
+      if not self.isReady():
+         if not self._connected:
+            return "awaiting login..."
+         if not self._balanceInitialized:
+            return "awaiting balance snapshot..."
+         if not self._positionInitialized:
+            return "awaiting orders snapshot..."
+
+      return "N/A"
+
    @property
    def name(self):
       return self._name

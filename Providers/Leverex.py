@@ -184,6 +184,9 @@ class LeverexBalanceReport(BalanceReport):
          return False
 
       for ccy in self.balances:
+         if self.balances[ccy] == None:
+            return False
+
          if self.balances[ccy] != obj.balances[ccy]:
             return False
 
@@ -313,13 +316,28 @@ class LeverexProvider(Factory):
    def isReady(self):
       return self.lastReadyState
 
+   def getStatusStr(self):
+      if not super().isReady():
+         return super().getStatusStr()
+
+      if self.currentSession == None:
+         return "missing session data"
+      if not self.currentSession.isOpen():
+         return "session is closed"
+      if not self.currentSession.isHealthy():
+         return "session is damaged"
+
+      return "N/A"
+
    async def evaluateReadyState(self):
       def assessReadyState():
          if not super(LeverexProvider, self).isReady():
             return False
 
          #check session is opened
-         if self.currentSession == None or not self.currentSession.isOpen():
+         if self.currentSession == None or \
+            not self.currentSession.isOpen() or \
+            not self.currentSession.isHealthy():
             return False
 
          return True

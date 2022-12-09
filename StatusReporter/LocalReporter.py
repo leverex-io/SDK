@@ -14,7 +14,11 @@ class LocalReporter(Factory):
 
    #### print statements ####
    def printReady(self):
-      print (f"-- READY --\n  {str(self.readyState)}\n")
+      print (f"-- STATUS: {datetime.fromtimestamp(time.time())} --")
+      for state in self.state:
+         print(state)
+
+      print ("")
 
    def printBalances(self):
       print (f"-- BALANCE: {datetime.fromtimestamp(time.time())} --")

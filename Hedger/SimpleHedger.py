@@ -15,7 +15,7 @@ class SimpleHedger(HedgerFactory):
    }
 
    def __init__(self, config):
-      super().__init__()
+      super().__init__("Hedger")
 
       #check for required config entries
       for k in self.required_settings:

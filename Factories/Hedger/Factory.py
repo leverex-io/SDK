@@ -2,12 +2,17 @@ import logging
 import asyncio
 
 class HedgerFactory(object):
-   def __init__(self):
+   def __init__(self, name):
+      self._name = name
       self._ready = False
 
    ## ready ##
    async def onReadyEvent(self, maker, taker):
       logging.debug("[HedgerFactory::onReadyEvent]")
+
+   @property
+   def name(self):
+      return self._name
 
    def isReady(self):
       return self._ready
@@ -37,3 +42,6 @@ class HedgerFactory(object):
    ## order book ##
    async def onTakerOrderBookEvent(self, maker, taker):
       logging.debug("[HedgerFactory::onTakerOrderBookEvent]")
+
+   def getStatusStr(self):
+      return "N/A"

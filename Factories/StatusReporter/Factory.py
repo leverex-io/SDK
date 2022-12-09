@@ -5,14 +5,28 @@ HEDGER = 'hedger'
 MAKER = 'maker'
 TAKER = 'taker'
 
+class ReadyStatus(object):
+   def __init__(self, factory):
+      self.name = factory.name
+      self.ready = factory.isReady()
+      self.status = ""
+      if not self.ready:
+         self.status = factory.getStatusStr()
+
+   def __str__(self):
+      statusStr = "Ready"
+      if not self.ready:
+         statusStr = "Not Ready"
+      result = f"  - {self.name}: {statusStr} -"
+
+      if not self.ready:
+         result += f"\n    * reason: {self.status}"
+
+      return result
+
 class Factory(object):
    def __init__(self):
-      self.readyState = {
-         DEALER : False,
-         HEDGER : False,
-         MAKER  : False,
-         TAKER  : False
-      }
+      self.state = []
 
       self.balances = {
          MAKER : None,
@@ -31,10 +45,11 @@ class Factory(object):
       pass
 
    async def onReadyEvent(self, dealer):
-      self.readyState[DEALER] = dealer.isReady()
-      self.readyState[HEDGER] = dealer.hedger.isReady()
-      self.readyState[MAKER]  = dealer.maker.isReady()
-      self.readyState[TAKER]  = dealer.taker.isReady()
+      self.state = []
+      self.state.append(ReadyStatus(dealer))
+      self.state.append(ReadyStatus(dealer.hedger))
+      self.state.append(ReadyStatus(dealer.maker))
+      self.state.append(ReadyStatus(dealer.taker))
       await self.report(Definitions.Ready)
       await self.onPositionEvent(dealer)
 

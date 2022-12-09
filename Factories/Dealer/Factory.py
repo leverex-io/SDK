@@ -13,6 +13,7 @@ class DealerFactory(object):
       self.taker = taker         #Provider
       self.hedger = hedgingStrat #HedgerFactory
       self.statusReporters = statusReporters
+      self._name = "Dealer"
 
    async def run(self):
       #sanity checks
@@ -39,6 +40,10 @@ class DealerFactory(object):
 
    def stop(self):
       pass
+
+   @property
+   def name(self):
+      return self._name
 
    #### events ####
    async def onEvent(self, provider, eventType):
@@ -90,7 +95,7 @@ class DealerFactory(object):
       for reporter in self.statusReporters:
          await reporter.onBalanceEvent(self)
 
-   ## ready ##
+   ## status ##
    async def onReadyEvent(self):
       await self.hedger.onReadyEvent(self.maker, self.taker)
       for reporter in self.statusReporters:
@@ -107,3 +112,11 @@ class DealerFactory(object):
       await self.hedger.waitOnReady()
 
       await self.onReadyEvent()
+
+   def getStatusStr(self):
+      if not self.taker.isReady():
+         return f"{self.taker.name} is not ready"
+      if not self.maker.isReady():
+         return f"{self.maker.name} is not ready"
+      if not self.hedger.isReady():
+         return f"{self.hedger.name} is not ready"
