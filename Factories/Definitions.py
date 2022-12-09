@@ -7,6 +7,9 @@ Balance = 'balance'
 OrderBook = 'orderbook'
 Ready = 'ready'
 
+SIDE_BUY = 1
+SIDE_SELL = 2
+
 ################################################################################
 class ProviderException(Exception):
    pass
@@ -236,11 +239,12 @@ class AggregationOrderBook():
 
 ################################################################################
 class Order():
-   def __init__(self, id, timestamp, quantity, price):
+   def __init__(self, id, timestamp, quantity, price, side):
       self._id = id
       self._timestamp = timestamp
-      self._quantity = quantity
+      self._quantity = abs(quantity)
       self._price = price
+      self._side = side
 
    @property
    def id(self):
@@ -250,13 +254,12 @@ class Order():
    def timestamp(self):
       return self._timestamp
 
-   @property
    def is_sell(self):
-      return self._quantity < 0
+      return self._side == SIDE_SELL
 
    @property
    def quantity(self):
-      return abs(self._quantity)
+      return self._quantity
 
    @property
    def price(self):

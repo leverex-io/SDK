@@ -63,12 +63,12 @@ class LeverexOrder(Order):
       super().__init__(data['id'],
          data['timestamp'],
          float(data['quantity']),
-         float(data['price'])
+         float(data['price']),
+         int(data['side'])
       )
 
       self._status = int(data['status'])
       self._product_type = data['product_type']
-      #self._side = int(data['side'])
       #self._cut_off_price = float(data['cut_off_price'])
       #self._trade_im = data['trade_im']
       self._trade_pnl = None
@@ -89,10 +89,6 @@ class LeverexOrder(Order):
       return self._product_type
 
    '''
-   @property
-   def is_sell(self):
-      return self._side == SIDE_SELL
-
    @property
    def cut_off_price(self):
       return self._cut_off_price
@@ -184,7 +180,7 @@ class LeverexOrder(Order):
          priceDelta = -priceDelta
 
       #apply side sign
-      if self.is_sell:
+      if self.is_sell():
          priceDelta = -priceDelta
 
       #set pnl

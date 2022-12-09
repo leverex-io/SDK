@@ -70,7 +70,7 @@ class TestMaker(TestProvider):
       exposure = 0
       for order in self.orders:
          orderQ = order.quantity
-         if order.is_sell:
+         if order.is_sell():
             orderQ *= -1
          exposure += orderQ
 

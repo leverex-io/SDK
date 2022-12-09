@@ -29,9 +29,8 @@ class LeverexPositionsReport(PositionsReport):
       result = "  * {} -- exp: {}".format(self.name, self.netExposure)
 
       if self.session is not None and self.session.isOpen():
-         result +=" -- session: {}, open price: {}".format(
+         result += " -- session: {}, open price: {}".format(
             self.session.getSessionId(), self.session.getOpenPrice())
-
       result += " -- index price: {} *\n".format(self.indexPrice)
 
       #positions
@@ -271,10 +270,10 @@ class LeverexProvider(Factory):
 
       order.setSessionIM(self.currentSession)
       self.orders[order.id] = order
-      if order.is_sell:
-         self.netExposure = self.netExposure - order.quantity
+      if order.is_sell():
+         self.netExposure -= order.quantity
       else:
-         self.netExposure = self.netExposure + order.quantity
+         self.netExposure += order.quantity
 
    def getPositions(self):
       return LeverexPositionsReport(self)

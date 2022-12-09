@@ -6,7 +6,7 @@ from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 
 from Factories.Definitions import SessionInfo, \
-   SessionOpenInfo, SessionCloseInfo
+   SessionOpenInfo, SessionCloseInfo, SIDE_BUY, SIDE_SELL
 
 from Providers.Leverex import LeverexProvider
 from Providers.leverex_core.api_connection import LeverexOrder, \
@@ -60,6 +60,11 @@ class MockedLeverexConnectionClass(object):
       leverexOrders = []
       for order in orders:
          order['product_type'] = self.session_product
+         side = SIDE_BUY
+         if order['quantity'] < 0:
+            side = SIDE_SELL
+         order['side'] = side
+
          leverexOrders.append(LeverexOrder(order))
 
       await self.positions_callback(leverexOrders)
@@ -88,6 +93,10 @@ class MockedLeverexConnectionClass(object):
 
    async def push_new_order(self, order):
       order['product_type'] = self.session_product
+      side = SIDE_BUY
+      if order['quantity'] < 0:
+         side = SIDE_SELL
+      order['side'] = side
       await self.listener.on_order_created(LeverexOrder(order))
 
    def push_market_data(self, price):

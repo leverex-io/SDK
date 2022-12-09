@@ -2,7 +2,7 @@
 import unittest
 
 from .utils import TestTaker, TestMaker, price
-from Factories.Definitions import Order
+from Factories.Definitions import Order, SIDE_BUY, SIDE_SELL
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 
@@ -134,7 +134,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert offers0[0].ask == round(10006.25 * 1.01, 2)
 
       #new order event
-      newOrder = Order(id=1, timestamp=0, quantity=0.1, price=10100)
+      newOrder = Order(id=1, timestamp=0, quantity=0.1, price=10100, side=SIDE_BUY)
       await maker.newOrder(newOrder)
       assert len(maker.offers) == 2
 
@@ -170,8 +170,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       taker = TestTaker(startBalance=1500)
 
       startOrders = []
-      startOrders.append(Order(id=1, timestamp=0, quantity=0.1, price=10100))
-      startOrders.append(Order(id=2, timestamp=0, quantity=0.2, price=10150))
+      startOrders.append(Order(id=1, timestamp=0, quantity=0.1, price=10100, side=SIDE_BUY))
+      startOrders.append(Order(id=2, timestamp=0, quantity=0.2, price=10150, side=SIDE_BUY))
       maker = TestMaker(startBalance=1000, startPositions=startOrders)
 
       #check they have no balance nor exposure pre dealer start
@@ -192,7 +192,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.3
 
       #add another order
-      newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900)
+      newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900, side=SIDE_SELL)
       await maker.newOrder(newOrder)
 
       assert maker.balance == 1000
@@ -223,7 +223,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
 
       #add another order
-      newOrder = Order(id=3, timestamp=0, quantity=0.1, price=9900)
+      newOrder = Order(id=3, timestamp=0, quantity=0.1, price=9900, side=SIDE_BUY)
       await maker.newOrder(newOrder)
 
       assert maker.balance == 1000
@@ -236,8 +236,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       taker = TestTaker(startBalance=1500, startExposure=0.5)
 
       startOrders = []
-      startOrders.append(Order(id=1, timestamp=0, quantity=0.3, price=10100))
-      startOrders.append(Order(id=2, timestamp=0, quantity=0.1, price=10150))
+      startOrders.append(Order(id=1, timestamp=0, quantity=0.3, price=10100, side=SIDE_BUY))
+      startOrders.append(Order(id=2, timestamp=0, quantity=0.1, price=10150, side=SIDE_BUY))
       maker = TestMaker(startBalance=1000, startPositions=startOrders)
 
       #check they have no balance nor exposure pre dealer start
@@ -258,7 +258,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.4
 
       #add another order
-      newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900)
+      newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900, side=SIDE_SELL)
       await maker.newOrder(newOrder)
 
       assert maker.balance == 1000
