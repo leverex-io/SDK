@@ -145,13 +145,17 @@ class LeverexOrder(Order):
       tradeType = self.tradeTypeStr(self._rollover_type)
       if self._rollover_type == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION or \
          self._rollover_type == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION:
-         tradeType += f": {abs(self._reference_exposure - self.quantity)}"
+         tradeType += f": {abs(self._reference_exposure) - self.quantity}"
 
       pl = self.trade_pnl
       if isinstance(pl, float):
          pl = round(pl, 6)
 
-      return text.format(self.id, self.quantity, self.price, pl, tradeType)
+      vol = self.quantity
+      if self.is_sell():
+         vol *= -1
+
+      return text.format(self.id, vol, self.price, pl, tradeType)
 
    def setSessionIM(self, session):
       if session == None:
