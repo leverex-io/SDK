@@ -44,4 +44,6 @@ class HedgerFactory(object):
       logging.debug("[HedgerFactory::onTakerOrderBookEvent]")
 
    def getStatusStr(self):
+      if not self.isReady():
+         return "waiting on exposure sync..."
       return "N/A"

@@ -20,7 +20,7 @@ class ReadyStatus(object):
       result = f"  - {self.name}: {statusStr} -"
 
       if not self.ready:
-         result += f"\n    * reason: {self.status}"
+         result += f"\n    !!! reason: {self.status} !!!"
 
       return result
 
