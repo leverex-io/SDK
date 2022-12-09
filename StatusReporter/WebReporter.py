@@ -10,13 +10,13 @@ class DataProxyObject:
       self.positions = None
 
 class WebReporter(Factory):
-   def __init__(self):
+   def __init__(self, config):
       self._connection = None
       self._buffer = []
-      super().__init__()
+      super().__init__(config)
 
    async def connect(self):
-      self._connection = await websockets.connect(self.config['service_url'])
+      self._connection = await websockets.connect(self.config["exporter_service"]["url"])
    
    async def sendMessage(self, data):
       if self._connection:

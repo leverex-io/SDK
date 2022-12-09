@@ -6,8 +6,8 @@ from Factories.Definitions import Position, Balance, Ready, PriceEvent
 
 class LocalReporter(Factory):
    #### setup ####
-   def __init__(self):
-      super().__init__()
+   def __init__(self, config):
+      super().__init__(config)
 
    def getAsyncIOTask(self):
       return None

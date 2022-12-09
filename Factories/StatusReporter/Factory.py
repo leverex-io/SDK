@@ -26,9 +26,13 @@ class ReadyStatus(object):
       return result
 
 class Factory(object):
-   def __init__(self):
-      self.state = []
-      self.lastPriceEvent = 0
+   def __init__(self, config):
+      self.readyState = {
+         DEALER : False,
+         HEDGER : False,
+         MAKER  : False,
+         TAKER  : False
+      }
 
       self.balances = {
          MAKER : None,
@@ -39,6 +43,7 @@ class Factory(object):
          MAKER : None,
          TAKER : None
       }
+      self.config = config
 
    def getAsyncIOTask(self):
       return None
