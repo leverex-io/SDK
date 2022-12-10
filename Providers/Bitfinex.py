@@ -369,7 +369,7 @@ class BitfinexProvider(Factory):
 
    async def on_position_close(self, data):
       position = bfx_models.Position.from_raw_rest_position(data[2])
-      self.positions[position.symbol][position.id] = None
+      del self.positions[position.symbol][position.id]
       await super().onPositionUpdate()
 
    async def update_position(self, posObj):
