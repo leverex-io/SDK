@@ -5,7 +5,7 @@ from Factories.Definitions import AggregationOrderBook
 
 price = 10000
 
-#### test providers
+####### test providers
 class TestProvider(Factory):
    def __init__(self, name, leverageRatio, startBalance=0):
       super().__init__(name)
@@ -13,6 +13,7 @@ class TestProvider(Factory):
       self.startBalance = startBalance
       self.balance = 0
       self.leverageRatio = leverageRatio
+      self.explicitState = True
 
    def getAsyncIOTask(self):
       return asyncio.create_task(self.bootstrap())
@@ -39,6 +40,16 @@ class TestProvider(Factory):
       ask = vol + exposure
       return { 'ask' : ask, 'bid' : bid }
 
+   def isReady(self):
+      if self.explicitState == True:
+         return super().isReady()
+      else:
+         return self.explicitState
+
+   async def setExplicitState(self, state):
+      self.explicitState = state
+      await super().onReady()
+
 ########
 class TestMaker(TestProvider):
    def __init__(self, startBalance=0, startPositions=[]):
@@ -47,6 +58,7 @@ class TestMaker(TestProvider):
       self.startPositions = startPositions
       self.offers = []
       self.orders = []
+      self.brokenState = False
 
    async def bootstrap(self):
       await super().bootstrap()
@@ -75,6 +87,13 @@ class TestMaker(TestProvider):
          exposure += orderQ
 
       return round(exposure, 8)
+
+   async def explicitBreak(self):
+      self.brokenState = True
+      await self.setExplicitState(False)
+
+   def isBroken(self):
+      return self.brokenState
 
 ########
 def getOrderBookSnapshot(volume):

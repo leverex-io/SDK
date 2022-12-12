@@ -42,6 +42,10 @@ class Factory(object):
          self._balanceInitialized and \
          self._positionInitialized
 
+   def isBroken(self):
+      #by default, we assume we cannot detect a broken state
+      return False
+
    async def waitOnReady(self):
       while True:
          if self.isReady():

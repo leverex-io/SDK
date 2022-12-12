@@ -84,13 +84,22 @@ class MockedLeverexConnectionClass(object):
          'cut_off_at' : timestamp,
          'last_cut_off_price' : open_price,
          'session_id' : session_id,
-         'previous_session_id' : session_id - 1
+         'previous_session_id' : session_id - 1,
+         'healthy' : True
       }))
 
    async def notifySessionClose(self, session_id):
       await self.listener.on_session_closed(SessionCloseInfo({
          'product_type' : self.session_product,
-         'session_id' : session_id
+         'session_id' : session_id,
+         'healthy' : True
+      }))
+
+   async def notifySessionBroken(self, session_id):
+      await self.listener.on_session_closed(SessionCloseInfo({
+         'product_type' : self.session_product,
+         'session_id' : session_id,
+         'healthy' : False
       }))
 
    async def push_new_order(self, order):
@@ -653,7 +662,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       pos12 = posrep.orderData.orders[12]
       assert pos12.trade_pnl == -50
 
-   #cover new order handling and exposure signals
+   #cover session end and roll overs
    @patch('Providers.Leverex.AsyncApiConnection')
    async def test_session_roll(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
@@ -815,3 +824,101 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert posrep.getOrderCount() == 1
       pos3 = posrep.orderData.orders[3]
       assert pos3.trade_pnl == -50
+
+   #break session, taker exposure should go to 0
+   @patch('Providers.Leverex.AsyncApiConnection')
+   async def test_unhealthy_session(self, MockedLeverexConnObj):
+      #return mocked leverex connection object instead of an instance
+      #of leverex_core.api_connection.AsyncApiConnection
+      mockedConnection = MockedLeverexConnectionClass(1000)
+      MockedLeverexConnObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = LeverexProvider(self.config)
+      taker = TestTaker(startBalance=1500)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert maker.connection is mockedConnection
+      assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+      assert dealer.isReady() == False
+
+      #Leverex authorized event (login successful)
+      await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+      assert len(mockedConnection.offers) == 0
+
+      #reply to load balances request
+      assert mockedConnection.balance_callback != None
+      assert len(maker.balances) == 0
+      await mockedConnection.replyLoadBalances()
+      assert mockedConnection.balance_callback == None
+      assert maker.balances['USDT'] == 1000
+
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert dealer.isReady() == True
+
+      #push new order for 1btc
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      await mockedConnection.push_new_order({
+         'id' : 1,
+         'timestamp' : 1,
+         'quantity' : 1,
+         'price' : 10100,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 15
+      })
+      assert maker.getExposure() == 1
+      assert taker.getExposure() == -1
+
+      #check pnl
+      mockedConnection.push_market_data(10200)
+      posrep = maker.getPositions()
+      assert posrep.getOrderCount() == 1
+      pos1 = posrep.orderData.orders[1]
+      assert pos1.trade_pnl == 100
+
+      #break the session
+      await mockedConnection.notifySessionBroken(5)
+      assert maker.isReady() == False
+      assert maker.isBroken() == True
+      assert dealer.isReady() == False
+
+      assert maker.getExposure() == None
+      assert taker.getExposure() == 0
+
+      #fix the session
+      await mockedConnection.notifySessionOpen(
+         6, #session_id
+         10000, #open price
+         1 #open timestamp
+      )
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert dealer.isReady() == True
+
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0

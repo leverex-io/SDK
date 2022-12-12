@@ -316,6 +316,11 @@ class LeverexProvider(Factory):
    def isReady(self):
       return self.lastReadyState
 
+   def isBroken(self):
+      if self.currentSession == None:
+         return False
+      return not self.currentSession.isHealthy()
+
    def getStatusStr(self):
       if not super().isReady():
          return super().getStatusStr()

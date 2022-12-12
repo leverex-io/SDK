@@ -127,8 +127,38 @@ class SimpleHedger(HedgerFactory):
       makerExposure = maker.getExposure()
       takerExposure = taker.getExposure()
 
-      if makerExposure == None or takerExposure == None:
+      '''
+      - A provider that isn't "ready" means it is not able to provide
+        functionality for an underlying healthy service.
+      - A provider that is "broken" means the underlying service is unable
+        to provide the functionality (unhealthy).
+
+      * There is no action to take while a provider is not ready, besides
+        trying to ready it. Once it recovers, exposure synchronization
+        can be reassessed (we need to be able to query balance and
+        exposure for synchronization).
+
+      * A broken provider means the underlying service is dead, we assume
+        the exposure is not effective anymore and we need to wipe
+        counterparty exposure with the counterparty provider.
+
+      . Changing exposure at the taker is straight forward, so we expect
+        we can always zero out the taker when the maker breaks.
+      . Changing the maker's exposure is complex. We don't address broken
+        taker in this hedger implementation.
+      '''
+
+      if takerExposure == None:
+         #taker isn't ready, skip exposure sync
          return
+
+      if makerExposure == None:
+         if not maker.isBroken():
+            #maker is not ready, skip exposure sync
+            return
+
+         #maker is broken, wipe taker exposure
+         makerExposure = 0
 
       #NOTE: taker exposure is expected to be the opposite of the maker exposure
       #this is why we add the 2, and expect the diff to be 0

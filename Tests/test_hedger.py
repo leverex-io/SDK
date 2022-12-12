@@ -251,7 +251,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       await dealer.run()
       await dealer.waitOnReady()
 
-      #check taker exposure is zero'd out since maker has none
+      #check taker exposure matches maker
       assert maker.balance == 1000
       assert taker.balance == 1500
       assert maker.getExposure() == 0.4
@@ -265,3 +265,71 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1500
       assert maker.getExposure() == 0.3
       assert taker.getExposure() == -0.3
+
+   async def test_bad_session(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=1500, startExposure=0.5)
+
+      startOrders = []
+      startOrders.append(Order(id=1, timestamp=0, quantity=0.3, price=10100, side=SIDE_BUY))
+      startOrders.append(Order(id=2, timestamp=0, quantity=0.1, price=10150, side=SIDE_BUY))
+      maker = TestMaker(startBalance=1000, startPositions=startOrders)
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert dealer.isReady() == True
+
+      #check taker exposure matches maker
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0.4
+      assert taker.getExposure() == -0.4
+
+      #stop the maker, taker exposure shouldn't change
+      await maker.setExplicitState(False)
+
+      assert maker.isReady() == False
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert dealer.isReady() == False
+
+      assert maker.getExposure() == None
+      assert taker.getExposure() == -0.4
+
+      #restart the maker, taker exposure shouldn't change
+      await maker.setExplicitState(True)
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert dealer.isReady() == True
+
+      assert maker.getExposure() == 0.4
+      assert taker.getExposure() == -0.4
+
+      #break the maker, taker exposure should go to 0
+      await maker.explicitBreak()
+
+      assert maker.isReady() == False
+      assert maker.isBroken() == True
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert dealer.isReady() == False
+
+      assert maker.getExposure() == None
+      assert taker.getExposure() == 0

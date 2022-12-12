@@ -25,12 +25,14 @@ class SessionOpenInfo():
       self.last_cut_off_price = float(data['last_cut_off_price'])
       self.session_id = int(data['session_id'])
       self.previous_session_id = data['previous_session_id']
+      self._healthy = data['healthy']
 
 ####
 class SessionCloseInfo():
    def __init__(self, data):
       self.product_type = data['product_type']
       self.session_id = data['session_id']
+      self._healthy = data['healthy']
 
 ####
 class SessionInfo():
@@ -49,7 +51,12 @@ class SessionInfo():
       return False
 
    def isHealthy(self):
-      return True
+      if self.open != None:
+         return self.open._healthy
+      elif self.close != None:
+         return self.close._healthy
+      else:
+         raise Exception("invalid session object")
 
    def getOpenPrice(self):
       if self.open is None:
