@@ -11,13 +11,38 @@ class Factory(object):
       self._balanceInitialized = False
       self._positionInitialized = False
 
+      #in multiples
+      self._leverage = None
+
+      #in pct
+      self.collateral_pct = None
+
    def setup(self, callback):
       if callback == None:
          raise Definitions.ProviderException("missing hedging callback")
       self.dealerCallback = callback
+      if self.leverage == None:
+         raise Definitions.ProviderException(\
+            f"leverage for provider {self.name} was not set")
 
    def getAsyncIOTask(self):
       pass
+
+   def setLeverage(self, leverage):
+      if self._leverage != None:
+         raise Definitions.ProviderException(\
+            f"leverage for provider {self.name} was not set")
+      self._leverage = leverage
+
+   @property
+   def leverage(self):
+      return self._leverage
+
+   def getCollateralRatio(self):
+      #use leverage if collateral_pct is not explicit
+      if self.collateral_pct != None:
+         return self.collateral_pct / 100
+      return 1 / self.leverage
 
    ## initialization events ##
    async def setConnected(self, value):

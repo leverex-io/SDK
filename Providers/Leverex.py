@@ -199,7 +199,6 @@ class LeverexProvider(Factory):
          'api_endpoint',
          'login_endpoint',
          'key_file_path',
-         'email',
          'product'
       ]
    }
@@ -230,6 +229,9 @@ class LeverexProvider(Factory):
       productInfo = get_product_info(self.product)
       self.ccy = productInfo.cash_ccy
 
+      #leverex leverage is locked at 10x
+      self.setLeverage(10)
+
    ##
    def setup(self, callback):
       super().setup(callback)
@@ -237,7 +239,6 @@ class LeverexProvider(Factory):
       #setup leverex connection
       leverexConfig = self.config['leverex']
       self.connection = AsyncApiConnection(
-         customer_email=leverexConfig['email'],
          api_endpoint=leverexConfig['api_endpoint'],
          login_endpoint=leverexConfig['login_endpoint'],
          key_file_path=leverexConfig['key_file_path'],
@@ -359,7 +360,7 @@ class LeverexProvider(Factory):
       if not self.isReady():
          return None
 
-      leverageRatio = 0.1
+      leverageRatio = 1 / self.leverage
       price = self.currentSession.getOpenPrice()
       if self.ccy not in self.balances:
          return None

@@ -7,12 +7,11 @@ price = 10000
 
 ####### test providers
 class TestProvider(Factory):
-   def __init__(self, name, leverageRatio, startBalance=0):
+   def __init__(self, name, startBalance=0):
       super().__init__(name)
 
       self.startBalance = startBalance
       self.balance = 0
-      self.leverageRatio = leverageRatio
       self.explicitState = True
 
    def getAsyncIOTask(self):
@@ -34,7 +33,7 @@ class TestProvider(Factory):
       if not self.isReady():
          return None
 
-      vol = ( self.balance * 100 ) / ( self.leverageRatio * price )
+      vol = self.balance / (price * self.getCollateralRatio())
       exposure = self.getExposure()
       bid = vol - exposure
       ask = vol + exposure
@@ -53,12 +52,13 @@ class TestProvider(Factory):
 ########
 class TestMaker(TestProvider):
    def __init__(self, startBalance=0, startPositions=[]):
-      super().__init__("TestMaker", 10, startBalance)
+      super().__init__("TestMaker", startBalance)
 
       self.startPositions = startPositions
       self.offers = []
       self.orders = []
       self.brokenState = False
+      self.setLeverage(10)
 
    async def bootstrap(self):
       await super().bootstrap()
@@ -109,11 +109,12 @@ def getOrderBookSnapshot(volume):
 ########
 class TestTaker(TestProvider):
    def __init__(self, startBalance=0, startExposure=0):
-      super().__init__("TestTaker", 15, startBalance)
+      super().__init__("TestTaker", startBalance)
 
       self.startExposure = startExposure
       self.order_book = AggregationOrderBook()
       self.exposure = 0
+      self.collateral_pct = 15
 
    async def bootstrap(self):
       await super().bootstrap()

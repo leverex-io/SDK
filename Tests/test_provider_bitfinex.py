@@ -116,9 +116,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       'futures_hedging_product' : 'usdt',
       'orderbook_product' : 'usdt',
       'derivatives_currency' : 'usdt',
-      'min_leverage' : 10,
-      'leverage' : 15,
-      'max_leverage' : 20
+      'collateral_pct' : 15,
+      'max_collateral_deviation' : 2
    }
    config['hedging_settings'] = {
       'max_offer_volume' : 5,
@@ -142,6 +141,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
+      assert taker.leverage == 10
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -227,6 +227,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
+      assert taker.leverage == 10
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -311,6 +312,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
+      assert taker.leverage == 10
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -367,6 +369,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
+      assert taker.leverage == 10
 
       #sanity check on ready states
       assert maker.isReady() == True

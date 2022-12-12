@@ -6,7 +6,6 @@
     {
        "api_endpoint" : "wss://api-dev.leverex.io",
        "login_endpoint" : "wss://login-dev.leverex.io/ws/v1/websocket",
-       "email" : "your@email",
        "key_file_path" : "priv/key/path",
        "product" : "xbtusd_rf"
     },
@@ -20,10 +19,10 @@
        "order_book_aggregation" : "P0",
        "futures_hedging_product" : "tTESTBTCF0:TESTUSDTF0",
        "derivatives_currency" : "TESTUSDTF0",
-       "min_leverage" : 10,
-       "leverage": 15,
-       "max_leverage" : 20
-
+       "collateral_pct" : 15,
+       "max_collateral_deviation" : 2,
+       "deposit_method" : "TETHERUSL",
+       "rebalance_currency" : "TESTUSDT"
     },
     "hedging_settings" :
     {
@@ -34,8 +33,6 @@
     "rebalance_settings" :
     {
        "force_rebalance_disabled" : true,
-       "bitfinex_method" : "TETHERUSL",
-       "bitfinex_rebalance_currency" : "TESTUSDT",
        "rebalance_threshold" : 0.1,
        "transfer_funds_threshold" : 10
     },

@@ -9,7 +9,8 @@ from jwcrypto import jwk, jws, jwe
 from jwcrypto.common import json_encode
 
 class LoginServiceClientWS():
-   def __init__(self, email, private_key_path, login_endpoint, dump_communication=False):
+   def __init__(self, private_key_path, login_endpoint,
+      email=None, dump_communication=False):
       self._dump_communication = dump_communication
       self._login_endpoint = login_endpoint
       self._email = email
@@ -20,6 +21,8 @@ class LoginServiceClientWS():
          self._key.import_from_pem(key_file.read().encode())
 
    def get_email(self):
+      if self._email == None:
+         raise Exception("missing email")
       return self._email
 
    def get_login_endpoint(self):

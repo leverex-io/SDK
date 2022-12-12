@@ -20,22 +20,23 @@ class DealerFactory(object):
       if self.hedger == None:
          raise DealerException("[DealerFactory::run] missing hedging strat")
 
-      #maker init task
+      ## maker setup ##
       self.maker.setup(self.onEvent)
       tasks = [self.maker.getAsyncIOTask()]
 
-      #taker init task
+      ## taker setup ##
+      self.taker.setLeverage(self.maker.leverage)
       self.taker.setup(self.onEvent)
       tasks.append(self.taker.getAsyncIOTask())
 
-      #status reporters init task
+      ## status reporters setup ##
       for reporter in self.statusReporters:
          reporterTask = reporter.getAsyncIOTask()
          if reporterTask == None:
             continue
          tasks.append(reporterTask)
 
-      #start asyncio loops
+      #start asyncio tasks
       done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
    def stop(self):

@@ -187,9 +187,8 @@ class BitfinexProvider(Factory):
          'orderbook_product',
          'derivatives_currency',
          'futures_hedging_product',
-         'min_leverage',
-         'leverage',
-         'max_leverage',
+         'collateral_pct',
+         'max_collateral_deviation'
       ],
       'hedging_settings': [
          'max_offer_volume'
@@ -220,9 +219,8 @@ class BitfinexProvider(Factory):
       self.orderbook_product = self.config['orderbook_product']
       self.derivatives_currency = self.config['derivatives_currency']
       self.product = self.config['futures_hedging_product']
-      self.min_leverage = self.config['min_leverage']
-      self.leverage = self.config['leverage']
-      self.max_leverage = self.config['max_leverage']
+      self.collateral_pct = self.config['collateral_pct']
+      self.max_collateral_deviation = self.config['max_collateral_deviation']
       self.max_offer_volume = config['hedging_settings']['max_offer_volume']
 
       self.order_book_len = 100
@@ -405,20 +403,20 @@ class BitfinexProvider(Factory):
       balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
       #TODO: account for exposure that can be freed from current orders
 
-      leverageRatio = self.leverage / 100
       priceBid = self.order_book.get_aggregated_bid_price(self.max_offer_volume)
       priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume)
 
       if priceBid == None or priceAsk == None:
          return None
 
-      if balance[BALANCE_FREE] == None or leverageRatio == None or priceAsk.price == None:
+      if balance[BALANCE_FREE] == None or priceAsk.price == None:
          logging.error(f"invalid data: bal: {balance[BALANCE_FREE]}, lev: {leverageRatio}, price: {priceAsk.price}")
          return None
 
+      collateralPct = self.getCollateralRatio()
       result = {}
-      result["ask"] = balance[BALANCE_FREE] / (leverageRatio * priceAsk.price)
-      result["bid"] = balance[BALANCE_FREE] / (leverageRatio * priceBid.price)
+      result["ask"] = balance[BALANCE_FREE] / (collateralPct * priceAsk.price)
+      result["bid"] = balance[BALANCE_FREE] / (collateralPct * priceBid.price)
       return result
 
    ## exposure ##

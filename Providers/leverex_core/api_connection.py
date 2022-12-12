@@ -298,8 +298,11 @@ PriceOffers = list[PriceOffer]
 
 
 class AsyncApiConnection(object):
-   def __init__(self, api_endpoint=API_ENDPOINT, login_endpoint=LOGIN_ENDPOINT,
-                customer_email=None, key_file_path=None, dump_communication=False):
+   def __init__(self, api_endpoint=API_ENDPOINT,
+      login_endpoint=LOGIN_ENDPOINT,
+      key_file_path=None,
+      dump_communication=False,
+      email=None):
 
       self._dump_communication = dump_communication
 
@@ -309,11 +312,12 @@ class AsyncApiConnection(object):
       self._api_endpoint = api_endpoint
       self._login_endpoint = login_endpoint
 
-      if key_file_path is not None and customer_email is not None:
-         self._login_client = LoginServiceClientWS(email=customer_email,
-                                                  private_key_path=key_file_path,
-                                                  login_endpoint=login_endpoint,
-                                                  dump_communication=dump_communication)
+      if key_file_path is not None:
+         self._login_client = LoginServiceClientWS(
+            private_key_path=key_file_path,
+            login_endpoint=login_endpoint,
+            email=email,
+            dump_communication=dump_communication)
 
       self.websocket = None
       self.listener = None
