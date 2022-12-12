@@ -10,6 +10,12 @@ class DataProxyObject:
       self.ready_state = None
       self.balances = None
       self.positions = None
+   
+from json import JSONEncoder
+
+class DataEncoder(JSONEncoder):
+    def default(self, obj):
+       return "{}".format(obj) if isinstance(obj, datetime.datetime) else obj.__dict__  
 
 class WebReporter(Factory):
    def __init__(self, config):
@@ -35,16 +41,47 @@ class WebReporter(Factory):
    async def sendMessage(self, data):
       if self._connection:
          try:
+            if type(data) == dict:
+               logging.info("Not sendintg data: {}".format(data))
+               return
+
             obj = data or self.createDataProxy()
-            await self._connection.send(json.dumps(obj.__dict__))
+            message = {
+               'type': 'native',
+               'service': 'status',
+               'method' : "service_report",
+               'args': {
+                    'func': 'service_report',
+                    'kwargs': {
+                       'data': obj.__dict__
+                    }
+                  }
+            }
+
+            await self._connection.send(json.dumps(message, cls=DataEncoder))
          except Exception as e:
-            logging.error("failed to send message: {}".format(traceback.format_exec()))
+            logging.error("failed to send message: {}".format(traceback.format_exc()))
 
    def createDataProxy(self):
        obj = DataProxyObject()
-       obj.ready_state = self.ready_state
-       obj.balances = self.balances
-       obj.positions = self.positions
+       obj.ready_state = self.readyState
+       
+       balance = {} 
+       pos = {}
+       if self.balances[MAKER]:
+          balance[MAKER] = self.balances[MAKER].__dict__ 
+       if self.balances[TAKER]:
+          balance[TAKER] = self.balances[TAKER].__dict__ 
+
+       obj.balances = balance
+
+       if self.positions[MAKER]:
+         pos[MAKER] = self.positions[MAKER].__dict__ 
+       if self.balances[TAKER]:
+         pos[TAKER] = self.positions[TAKER].__dict__ 
+   
+       obj.positions = pos
+
        return obj
 
    async def flushBuffer(self):
@@ -57,5 +94,7 @@ class WebReporter(Factory):
    async def report(self, __):
       if not self._connection:
          self._buffer.append(self.createDataProxy())
+         return
+      
       await self.flushBuffer()
-      await self.sendMessage(self.__dict__)
+      await self.sendMessage(self.createDataProxy())
