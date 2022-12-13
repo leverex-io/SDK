@@ -2,6 +2,8 @@ from Factories.StatusReporter.Factory import Factory, MAKER, TAKER
 from Factories.Definitions import Position, Balance, Ready
 
 import websockets, asyncio, traceback, logging, json
+import datetime
+import ssl
 
 class DataProxyObject:
    def __init__(self):
@@ -16,7 +18,19 @@ class WebReporter(Factory):
       super().__init__(config)
 
    async def connect(self):
-      self._connection = await websockets.connect(self.config["exporter_service"]["url"])
+      ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+      ssl_context.load_verify_locations(self.config["exporter_service"]["client_cert"]))
+      async with websockets.connect(self.config["exporter_service"]["url"], ssl=ssl_context) as websocket:
+        self._connection = websocket
+        while True:
+            try:
+                message = await self._connection.recv()
+                logging.info(message)
+
+            except websockets.exceptions.ConnectionClosed:
+                print('ConnectionClosed')
+                break
+      
    
    async def sendMessage(self, data):
       if self._connection:
