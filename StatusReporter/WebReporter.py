@@ -25,7 +25,7 @@ class WebReporter(Factory):
 
    async def connect(self):
       ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-      ssl_context.load_verify_locations(self.config["exporter_service"]["client_cert"]))
+      ssl_context.load_verify_locations(self.config["exporter_service"]["client_cert"])
       async with websockets.connect(self.config["exporter_service"]["url"], ssl=ssl_context) as websocket:
         self._connection = websocket
         while True:
