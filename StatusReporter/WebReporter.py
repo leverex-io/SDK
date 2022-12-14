@@ -87,6 +87,7 @@ class WebReporter(Factory):
    async def flushBuffer(self):
       for data in self._buffer:
          await self.sendMessage(data)
+      self._buffer.clear()
 
    def getAsyncIOTask(self):
       return asyncio.create_task(self.connect())
