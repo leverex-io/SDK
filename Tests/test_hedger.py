@@ -333,3 +333,51 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       assert maker.getExposure() == None
       assert taker.getExposure() == 0
+
+   async def test_liquidation_target(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=1500)
+      maker = TestMaker(startBalance=1000)
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert dealer.isReady() == True
+
+      #check taker exposure matches maker
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+
+      await maker.setOpenPrice(10000)
+      assert taker.targetCollateral == None
+
+      newOrder = Order(id=3, timestamp=0, quantity=0.5, price=9900, side=SIDE_BUY)
+      await maker.newOrder(newOrder)
+
+      assert maker.getExposure() == 0.5
+      assert taker.getExposure() == -0.5
+      assert taker.targetCollateral == 750
+
+      newOrder = Order(id=4, timestamp=0, quantity=-0.9, price=9900, side=SIDE_SELL)
+      await maker.newOrder(newOrder)
+
+      assert maker.getExposure() == -0.4
+      assert taker.getExposure() == 0.4
+      assert taker.targetCollateral == 600
+
+      await maker.setOpenPrice(10100)
+      assert taker.targetCollateral == 606

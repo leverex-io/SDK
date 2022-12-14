@@ -1,4 +1,5 @@
 import Factories.Definitions as Definitions
+import time
 
 DEALER = 'dealer'
 HEDGER = 'hedger'
@@ -27,6 +28,7 @@ class ReadyStatus(object):
 class Factory(object):
    def __init__(self):
       self.state = []
+      self.lastPriceEvent = 0
 
       self.balances = {
          MAKER : None,
@@ -68,7 +70,9 @@ class Factory(object):
          self.balances[TAKER] = takerBalance
          changes = True
 
-      #only notify on balance changes
+      #only notify on __eq__ changes
+      #the __eq__ operators are tailored to ignore certain
+      #changes, such as pnl
       if changes:
          await self.report(Definitions.Balance)
 
@@ -89,3 +93,12 @@ class Factory(object):
 
       if changes:
          await self.report(Definitions.Position)
+
+   async def onPriceEvent(self, dealer):
+      if time.time() - self.lastPriceEvent < 30:
+         return
+      self.lastPriceEvent = time.time()
+
+      self.balances[MAKER] = dealer.maker.getBalance()
+      self.balances[TAKER] = dealer.taker.getBalance()
+      await self.report(Definitions.PriceEvent)

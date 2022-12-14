@@ -49,6 +49,22 @@ class TestProvider(Factory):
       self.explicitState = state
       await super().onReady()
 
+   async def checkCollateral(self, openPrice):
+      self.targetCollateral = None
+
+      if openPrice == None:
+         return
+
+      if not self.isReady():
+         return
+
+      exposure = abs(self.getExposure())
+      if exposure == None or exposure == 0:
+         return
+
+      self.targetCollateral = exposure * self.getCollateralRatio() * openPrice
+
+
 ########
 class TestMaker(TestProvider):
    def __init__(self, startBalance=0, startPositions=[]):
@@ -59,10 +75,12 @@ class TestMaker(TestProvider):
       self.orders = []
       self.brokenState = False
       self.setLeverage(10)
+      self.targetCollateral = None
 
    async def bootstrap(self):
       await super().bootstrap()
       await self.initPositions(self.startPositions)
+      await self.setOpenPrice(price)
 
    async def initPositions(self, startPositions):
       self.orders.extend(startPositions)

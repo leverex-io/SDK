@@ -11,11 +11,9 @@ class Factory(object):
       self._balanceInitialized = False
       self._positionInitialized = False
 
-      #in multiples
-      self._leverage = None
-
-      #in pct
-      self.collateral_pct = None
+      self._leverage      = None #in multiples
+      self.collateral_pct = None #in pct
+      self.openPrice = None
 
    def setup(self, callback):
       if callback == None:
@@ -85,9 +83,6 @@ class Factory(object):
    async def onReady(self):
       await self.dealerCallback(self, Definitions.Ready)
 
-   def onNewPrice(self, price):
-      pass
-
    def onNewOrder(self, order):
       pass
 
@@ -102,13 +97,28 @@ class Factory(object):
 
    ## methods ##
    async def updateExposure(self, exposure):
-      logging.debug("[updateExposure]")
+      #set exposure on service
+      #typically handled by the taker, as a consequence of
+      #maker position events
+      pass
 
    def withdraw(self, withdrawInfo):
       logging.debug("[withdraw]")
 
    async def submitOffers(self, offers):
-      logging.debug("[submitOffers]")
+      #push price offers to service
+      #typically a maker feature, called from hedger
+      pass
+
+   async def checkCollateral(self, openPrice):
+      #check and adjust collateral of position if necessary
+      #typically handled by the taker, as a consequence of
+      #maker position events
+      pass
+
+   async def setOpenPrice(self, price):
+      self.openPrice = price
+      await self.dealerCallback(self, Definitions.Collateral)
 
    ## getters ##
    def getExposure(self):
@@ -122,6 +132,11 @@ class Factory(object):
 
    def getPositions(self):
       logging.debug("[getPositions]")
+
+   def getOpenPrice(self):
+      if not self.isReady():
+         return None
+      return self.openPrice
 
    def getStatusStr(self):
       if not self.isReady():

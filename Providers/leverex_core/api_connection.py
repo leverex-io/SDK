@@ -134,7 +134,7 @@ class LeverexOrder(Order):
       return None
 
    def __str__(self):
-      text = "<id: {} -- vol: {}, price: {}, pnl: {}"
+      text = "<id: {} -- vol: {}, price: {} "
       tradeType = self.tradeTypeStr(self._rollover_type)
       if tradeType != None:
          text += "-- {}: {}".format(tradeType, \
@@ -149,7 +149,7 @@ class LeverexOrder(Order):
       if self.is_sell():
          vol *= -1
 
-      return text.format(self.id, vol, self.price, pl, tradeType)
+      return text.format(self.id, vol, self.price, tradeType)
 
    def setSessionIM(self, session):
       if session == None:
@@ -580,7 +580,7 @@ class AsyncApiConnection(object):
          update = json.loads(data)
 
          if 'market_data' in update:
-            self.listener.on_market_data(update['market_data'])
+            await self.listener.on_market_data(update['market_data'])
 
          elif 'load_balance' in update:
             if 'reference' in update['load_balance'] and \

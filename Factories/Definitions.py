@@ -6,6 +6,8 @@ Position = 'position'
 Balance = 'balance'
 OrderBook = 'orderbook'
 Ready = 'ready'
+Collateral = 'collateral'
+PriceEvent = 'index_price'
 
 SIDE_BUY = 1
 SIDE_SELL = 2
@@ -280,7 +282,6 @@ class PositionsReport(object):
    def __init__(self, provider):
       self.name = provider.name
       self.netExposure = provider.getExposure()
-      self._timestamp = time.time_ns() / 1000000
 
    @property
    def timestamp(self):
@@ -292,12 +293,10 @@ class PositionsReport(object):
    def __eq__(self, obj):
       if not isinstance(obj, PositionsReport):
          return False
+      return self.netExposure == obj.netExposure
 
-      if self.netExposure != obj.netExposure:
-         return False
-
-      #60 sec intervals
-      return abs(obj._timestamp - self._timestamp) <= 60000
+   def getPnlReport(self):
+      return "N/A"
 
 ################################################################################
 class BalanceReport(object):

@@ -46,10 +46,6 @@ class BfxPosition(object):
       self.position = position
 
    def __str__(self):
-      pl = self.position.profit_loss
-      if isinstance(pl, float):
-         pl = round(pl, 6)
-
       lev = self.position.leverage
       if isinstance(lev, float):
          lev = round(lev, 2)
@@ -58,9 +54,31 @@ class BfxPosition(object):
       if isinstance(liq, float):
          liq = round(liq, 2)
 
-      text = "<id: {} -- vol: {}, price: {}, pnl: {} -- lev: {}, liq: {}>"
+      collateral = self.position.collateral
+      if collateral != None:
+         collateral = round(collateral, 2)
+
+      text = "<id: {} -- vol: {}, price: {} -- lev: {}, liq: {}, col: {}>"
       return text.format(self.position.id, self.position.amount,
-         round(self.position.base_price, 2), pl, lev, liq)
+         round(self.position.base_price, 2), lev, liq, collateral)
+
+   def __eq__(self, obj):
+      if self.position.amount != obj.position.amount:
+         return False
+
+      if self.position.base_price != obj.position.base_price:
+         return False
+
+      if self.position.leverage != obj.position.leverage:
+         return False
+
+      if self.position.liquidation_price != obj.position.liquidation_price:
+         return False
+
+      if self.position.collateral != obj.position.collateral:
+         return False
+
+      return True
 
 ################################################################################
 class BfxPositionsReport(PositionsReport):
@@ -103,6 +121,44 @@ class BfxPositionsReport(PositionsReport):
             for pos in productPos:
                result += "      {}\n".format(str(productPos[pos]))
 
+      return result
+
+   def __eq__(self, obj):
+      if not super().__eq__(obj):
+         return False
+
+      if self.product not in self.positions or \
+         self.product not in obj.positions:
+         return False
+
+      slfPos = self.positions[self.product]
+      objPos = obj.positions[self.product]
+
+      if slfPos.keys() != objPos.keys():
+         return False
+
+      for id in slfPos:
+         if slfPos[id] != objPos[id]:
+            return False
+
+      return True
+
+   def getPnlReport(self):
+      pnl = 0
+      if not self.product in self.positions:
+         pnl = "N/A"
+      else:
+         pnl = 0
+         for id in self.positions[self.product]:
+            posPnl = self.positions[self.product][id].position.profit_loss
+            if posPnl == None:
+               pnl = "N/A"
+               break
+            pnl += posPnl
+
+      if isinstance(pnl, float):
+         pnl = round(pnl, 6)
+      result = f"  <{self.name} - pnl: {pnl}"
       return result
 
 ################################################################################
@@ -444,6 +500,70 @@ class BitfinexProvider(Factory):
    ## balance ##
    def getBalance(self):
       return BfxBalanceReport(self)
+
+   ## collateral ##
+   async def checkCollateral(self, openPrice):
+      '''
+      We want the liquidation price for our position to be in the
+      vicinity of openPrice * (1 - collateralRatio)
+
+      The goal is to keep this provider's liquidation price within
+      a specific range of the counterparty's liquidation price. Since
+      we can only affect collateral for the position, we first
+      establish the price swing from our positions to the target
+      liq_price then deduce the collateral amount.
+
+      openPrice comes from the counterparty, collateralRatio comes
+      from settings
+      '''
+
+      if openPrice == None:
+         return
+
+      if self.product not in self.positions:
+         return
+
+      if len(self.positions[self.product]) != 1:
+         logging.warn(f"{self.name} provider expected 1 position for" \
+            f" product {self.product}, got {len(self.positions[self.product])}")
+         return
+
+      key = next(iter(self.positions[self.product]))
+      position = self.positions[self.product][key]
+      if position.liquidation_price == None or position.amount == 0:
+         #liquidation price isn't documented right away, may have to wait
+         #a little before we can calculate collateral retargetting
+         return
+
+      #We want to cover a X% price swing from the open price. Check that
+      #the liquidation price on our position is within that margin
+      liqPct = abs(position.liquidation_price - openPrice) / openPrice
+      collateralPct = self.getCollateralRatio()
+      if abs(liqPct - collateralPct) * 100 < self.max_collateral_deviation:
+         return None
+
+      #compute the target liquidation price based on openPrice
+      swing = openPrice * collateralPct
+      if position.amount > 0:
+         swing *= -1
+      targetLiqPrice = openPrice + swing
+
+      #figure out the swing vs our position's price
+      totalSwing = position.base_price - targetLiqPrice
+      if position.amount < 0:
+         totalSwing *= -1
+
+      collateralTarget = position.collateral_min
+      if totalSwing > 0:
+         collateralTarget = max(collateralTarget, totalSwing * abs(position.amount))
+
+      #if the collateralTarget is within 10% of the minimum allowed
+      #collateral value, we ignore it
+      if position.collateral / position.collateral_min <= 1.1:
+         return
+
+      await self.connection.rest.set_derivative_collateral(
+         symbol=self.product, collateral=collateralTarget)
 
    #############################################################################
    #### state

@@ -56,6 +56,12 @@ class DealerFactory(object):
          #balances changed, check for rebalance condition
          await self.onBalanceEvent()
          return
+      elif eventType == Definitions.Collateral:
+         await self.onCollateralEvent()
+         return
+      elif eventType == Definitions.PriceEvent:
+         await self.onPriceEvent()
+         return
 
       if provider == self.maker:
          await self.onMakerEvent(eventType)
@@ -80,6 +86,7 @@ class DealerFactory(object):
       if eventType == Definitions.Position:
          #taker positions changed, sanity check vs maker positions
          await self.hedger.onTakerPositionEvent(self.maker, self.taker)
+         await self.onCollateralEvent()
          for reporter in self.statusReporters:
             await reporter.onPositionEvent(self)
 
@@ -121,3 +128,12 @@ class DealerFactory(object):
          return f"{self.maker.name} is not ready"
       if not self.hedger.isReady():
          return f"{self.hedger.name} is not ready"
+
+   ## collateral ##
+   async def onCollateralEvent(self):
+      await self.taker.checkCollateral(self.maker.getOpenPrice())
+
+   ## price ##
+   async def onPriceEvent(self):
+      for reporter in self.statusReporters:
+         await reporter.onPriceEvent(self)

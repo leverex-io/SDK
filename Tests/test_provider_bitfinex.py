@@ -11,6 +11,12 @@ from Factories.Definitions import AggregationOrderBook, Order, \
 from Providers.Bitfinex import BitfinexProvider, BFX_DERIVATIVES_WALLET
 from Providers.bfxapi.bfxapi.models.wallet import Wallet
 
+AMOUNT = 2
+PRICE = 3
+LIQ_PRICE = 8
+LEVERAGE = 9
+COLLATERAL = 17
+
 ################################################################################
 ##
 #### Bitfinex Provider Tests
@@ -21,6 +27,7 @@ class FakeBfxWsInterface(object):
       self.callbacks = {}
       self.order_books = {}
       self.tracked_exposure = 0
+      self.positions = {}
 
    def on(self, name, callback):
       self.callbacks[name] = callback
@@ -31,54 +38,80 @@ class FakeBfxWsInterface(object):
    async def subscribe(self, name, product, len, prec):
       self.order_books[name] = AggregationOrderBook()
 
-   async def push_position_snapshot(self, amount):
-      self.tracked_exposure = amount
+   @staticmethod
+   def getCollateral(amount, price, leverage):
+      #we assume leverage is collateral ratio
+      swing = price / leverage
+      return abs(swing * amount)
+
+   def setLiquidationPrice(self, symbol):
+      amount = self.positions[symbol][AMOUNT]
+      if amount == 0:
+         self.positions[symbol][LIQ_PRICE] = None
+         return
+
+      price = self.positions[symbol][PRICE]
+      collateral = self.positions[symbol][COLLATERAL]
+
+      priceBuffer = abs(collateral / amount)
+      if amount > 0:
+         priceBuffer *= -1
+      self.positions[symbol][LIQ_PRICE] = price + priceBuffer
+
+   async def push_position_snapshot(self, symbol, amount, leverage):
+      price = 10000
+      collateral = self.getCollateral(amount, price, leverage)
+      self.positions[symbol] = [
+         symbol,                 #symbol
+         None,                   #status
+         amount,                 #amount
+         price,                  #base price
+         0, 0,                   #margin funding stuff
+         0, 0,                   #pl stuff
+         None,                   #PRICE_LIQ
+         leverage,               #leverage
+         None,                   #placeholder
+         0,                      #position id
+         0, 0,                   #MTS create, update
+         None,                   #placeholder
+         'MARKET',               #TYPE
+         None,                   #placeholder
+         collateral, 100,        #collateral, min collateral
+         None                    #meta
+      ]
+      self.setLiquidationPrice(symbol)
+
       await self.callbacks['position_snapshot']([
-         None, None, [[
-            'usdt',     #symbol
-            None,       #status
-            amount,     #amount
-            10000,      #base price
-            0, 0,       #margin funding stuff
-            0, 0,       #pl stuff
-            0,          #PRICE_LIQ
-            15,         #leverage
-            None,       #placeholder
-            0,          #position id
-            0, 0,       #MTS create, update
-            None,       #placeholder
-            None,       #TYPE
-            None,       #placeholder
-            0, 0,       #collateral, min collateral
-            None        #meta
-      ]]])
+         None, None, [self.positions[symbol]]])
 
    async def submit_order(self, symbol, leverage, price, amount, market_type):
-      self.tracked_exposure += amount
-      await self.callbacks['position_update'](
-         [None, None, [
-            symbol,                 #symbol
-            None,                   #status
-            self.tracked_exposure,  #amount
-            10000,                  #base price
-            0, 0,                   #margin funding stuff
-            0, 0,                   #pl stuff
-            0,                      #PRICE_LIQ
-            leverage,               #leverage
-            None,                   #placeholder
-            0,                      #position id
-            0, 0,                   #MTS create, update
-            None,                   #placeholder
-            market_type,            #TYPE
-            None,                   #placeholder
-            0, 0,                   #collateral, min collateral
-            None                    #meta
-      ]])
+      price = self.positions[symbol][PRICE]
+      exposure = self.positions[symbol][AMOUNT] + amount
+      collateral = self.getCollateral(exposure, price, leverage)
+      await self.update_offer(symbol, amount, collateral)
+
+   async def update_offer(self, symbol, amount, collateral):
+      self.positions[symbol][AMOUNT]    += amount
+      self.positions[symbol][COLLATERAL] = collateral
+      self.setLiquidationPrice(symbol)
+
+      await self.callbacks['position_update']([
+         None, None, self.positions[symbol]])
+
+################################################################################
+class FakeBfxRestInterface(object):
+   def __init__(self, listener):
+      self.listener = listener
+
+   async def set_derivative_collateral(self, symbol, collateral):
+      await self.listener.ws.update_offer(symbol, 0, collateral)
 
 ########
 class MockedBfxClientClass(object):
    def __init__(self):
       self.ws = FakeBfxWsInterface()
+      self.rest = FakeBfxRestInterface(self)
+      self.symbol = 'usdt'
 
    async def push_authorize(self):
       await self.ws.callbacks['authenticated']("")
@@ -86,11 +119,11 @@ class MockedBfxClientClass(object):
    async def push_wallet_snapshot(self, balance):
       await self.ws.callbacks['wallet_snapshot']([
          Wallet(BFX_DERIVATIVES_WALLET,
-            'usdt', balance, 0, balance
+            self.symbol, balance, 0, balance
          )])
 
-   async def push_position_snapshot(self, amount=0):
-      await self.ws.push_position_snapshot(amount)
+   async def push_position_snapshot(self, amount, leverage):
+      await self.ws.push_position_snapshot(self.symbol, amount, leverage)
 
    def push_orderbook_snapshot(self, volume):
       orders = getOrderBookSnapshot(volume)
@@ -106,6 +139,12 @@ class MockedBfxClientClass(object):
             2,
             volume]
       })
+
+   def getPositionExposure(self):
+      return round(self.ws.positions[self.symbol][AMOUNT], 8)
+
+   def getPositionLiquidationPrice(self):
+      return round(self.ws.positions[self.symbol][LIQ_PRICE], 2)
 
 ########
 class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
@@ -174,7 +213,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == None
 
       #emit position notification
-      await mockedConnection.push_position_snapshot()
+      await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == True
       assert hedger.isReady() == True
       assert dealer.isReady() == True
@@ -250,7 +289,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == None
 
       #emit position notification
-      await mockedConnection.push_position_snapshot()
+      await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
       assert taker._positionInitialized == True
@@ -335,11 +374,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == None
 
       #emit position notification
-      await mockedConnection.push_position_snapshot(1)
+      await mockedConnection.push_position_snapshot(1, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
       assert taker._positionInitialized == True
-      assert mockedConnection.ws.tracked_exposure == 1
+      assert mockedConnection.getPositionExposure() == 1
 
       #get exposure should fail if the provider is not ready
       assert taker.getExposure() == None
@@ -351,7 +390,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert round(taker.getExposure(), 8) == 0.2
       assert dealer.isReady() == True
       assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 1500
-      assert round(mockedConnection.ws.tracked_exposure, 8) == 0.2
+      assert mockedConnection.getPositionExposure() == 0.2
 
    @patch('Providers.Bitfinex.Client')
    async def test_exposure_sync(self, MockedBfxClientObj):
@@ -392,7 +431,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == None
 
       #emit position notification
-      await mockedConnection.push_position_snapshot(0)
+      await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
       assert taker._positionInitialized == True
@@ -419,9 +458,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert round(maker.getExposure(), 8) == 0.4
       assert round(taker.getExposure(), 8) == -0.4
 
-   '''
    @patch('Providers.Bitfinex.Client')
-   async def test_adjust_leverage(self, MockedBfxClientObj):
+   async def test_adjust_collateral(self, MockedBfxClientObj):
       #return mocked finex connection object instead of an instance
       #of bfxapi.Client
       mockedConnection = MockedBfxClientClass()
@@ -458,7 +496,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == None
 
       #emit position notification
-      await mockedConnection.push_position_snapshot(0)
+      await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
       assert taker._positionInitialized == True
@@ -476,12 +514,25 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 1500
 
       #notify maker of new order, taker exposure should be updated accordingly
-      await maker.newOrder(Order(1, 1, 1, 10200))
+      await maker.newOrder(Order(1, 1, 1, 10200, SIDE_BUY))
       assert round(maker.getExposure(), 8) == 1
       assert round(taker.getExposure(), 8) == -1
 
+      #check collateral and liquidation price
+      assert mockedConnection.getPositionLiquidationPrice() == 11500
+
       #another one
-      await maker.newOrder(Order(2, 2, -0.6, 9900))
+      await maker.newOrder(Order(2, 2, -0.6, 9900, SIDE_SELL))
       assert round(maker.getExposure(), 8) == 0.4
       assert round(taker.getExposure(), 8) == -0.4
-   '''
+
+      #check collateral and liquidation price
+      assert mockedConnection.getPositionLiquidationPrice() == 11500
+
+      #set maker's open price way above the position's base price
+      await maker.setOpenPrice(12000)
+      assert mockedConnection.getPositionLiquidationPrice() == 13800
+
+      #set maker's open price way below the position's base price
+      await maker.setOpenPrice(8000)
+      assert mockedConnection.getPositionLiquidationPrice() == 10250

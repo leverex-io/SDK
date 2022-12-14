@@ -4,7 +4,7 @@ import json
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
-   PositionsReport, BalanceReport, SessionInfo
+   PositionsReport, BalanceReport, SessionInfo, PriceEvent
 from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
@@ -67,10 +67,13 @@ class LeverexPositionsReport(PositionsReport):
       super().__init__(provider)
 
       #get sessionId for current session
+      self.openPrice = None
+      self.indexPrice = provider.indexPrice
       sessionId = None
+
       if provider.currentSession != None:
          sessionId = provider.currentSession.getSessionId()
-      self.indexPrice = provider.indexPrice
+         self.openPrice = provider.currentSession.getOpenPrice()
 
       #grab orders for session id
       self.orderData = None
@@ -83,8 +86,8 @@ class LeverexPositionsReport(PositionsReport):
    def __str__(self):
       #header
       pnl = self.getPnl()
-      result = "  * {} -- exp: {}, pnl: {}".format(\
-         self.name, self.netExposure, pnl)
+      result = "  * {} -- exp: {}".format(\
+         self.name, self.netExposure)
 
       #grab session from orderData
       session = None
@@ -95,7 +98,7 @@ class LeverexPositionsReport(PositionsReport):
       if session is not None and session.isOpen():
          result += " -- session: {}, open price: {}".format(
             session.getSessionId(), session.getOpenPrice())
-      result += " -- index price: {} *\n".format(self.indexPrice)
+      result += "*\n"
 
       if self.getOrderCount() == 0:
          result += "    N/A\n"
@@ -152,6 +155,11 @@ class LeverexPositionsReport(PositionsReport):
             return "N/A"
          pnl += orderPL
       return round(pnl, 6)
+
+   def getPnlReport(self):
+      result = f"  <{self.name} - pnl: {self.getPnl()}"
+      result += f" - open price: {self.openPrice}, index price: {self.indexPrice}>"
+      return result
 
 ################################################################################
 class LeverexBalanceReport(BalanceReport):
@@ -291,7 +299,7 @@ class LeverexProvider(Factory):
       if self.storeOrder(order, eventType):
          await super().onPositionUpdate()
 
-   ## session notifications
+   ## session notifications ##
    async def on_session_open(self, sessionInfo):
       await self.setSession(SessionInfo(sessionInfo))
 
@@ -306,8 +314,13 @@ class LeverexProvider(Factory):
       self.orderData[sessionId].setSessionObj(session)
       await self.evaluateReadyState()
 
-   def on_market_data(self, marketData):
+      #notify on new open price
+      await self.setOpenPrice(self.currentSession.getOpenPrice())
+
+   ## index price ##
+   async def on_market_data(self, marketData):
       self.indexPrice = float(marketData['live_cutoff'])
+      await self.dealerCallback(self, PriceEvent)
 
    #############################################################################
    #### methods
@@ -355,7 +368,7 @@ class LeverexProvider(Factory):
       self.lastReadyState = currentReadyState
       await super().onReady()
 
-   ##offers
+   ## offers ##
    def getOpenVolume(self):
       if not self.isReady():
          return None
