@@ -98,6 +98,9 @@ class FakeBfxWsInterface(object):
       await self.callbacks['position_update']([
          None, None, self.positions[symbol]])
 
+   async def subscribe_derivative_status(self, symbol):
+      pass
+
 ################################################################################
 class FakeBfxRestInterface(object):
    def __init__(self, listener):

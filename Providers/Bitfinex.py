@@ -3,7 +3,8 @@ import asyncio
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
-   AggregationOrderBook, PositionsReport, BalanceReport
+   AggregationOrderBook, PositionsReport, BalanceReport, \
+   PriceEvent
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -143,23 +144,18 @@ class BfxPositionsReport(PositionsReport):
 
       return True
 
-   def getPnlReport(self):
-      pnl = 0
+   def getPnl(self):
       if not self.product in self.positions:
-         pnl = "N/A"
-      else:
-         pnl = 0
-         for id in self.positions[self.product]:
-            posPnl = self.positions[self.product][id].position.profit_loss
-            if posPnl == None:
-               pnl = "N/A"
-               break
-            pnl += posPnl
+         return "N/A"
 
-      if isinstance(pnl, float):
-         pnl = round(pnl, 6)
-      result = f"  <{self.name} - pnl: {pnl}"
-      return result
+      if len(self.positions[self.product]) != 1:
+         return "N/A"
+
+      id = next(iter(self.positions[self.product]))
+      pnl = self.positions[self.product][id].position.profit_loss
+      if pnl == None:
+         return "N/A"
+      return round(pnl, 6)
 
 ################################################################################
 class BfxBalanceReport(BalanceReport):
@@ -260,6 +256,7 @@ class BitfinexProvider(Factory):
       self.positions = {}
       self.balances = {}
       self.lastReadyState = False
+      self.indexPrice = 0
 
       #check for required config entries
       #check for required config entries
@@ -314,6 +311,7 @@ class BitfinexProvider(Factory):
       self.connection.ws.on('position_update', self.on_position_update)
       self.connection.ws.on('position_close', self.on_position_close)
       self.connection.ws.on('margin_info_update', self.on_margin_info_update)
+      self.connection.ws.on('status_update', self.on_status_update)
 
    #############################################################################
    #### events
@@ -337,6 +335,9 @@ class BitfinexProvider(Factory):
       # subscribe to order book
       await self.connection.ws.subscribe('book', self.orderbook_product,
          len=self.order_book_len, prec=self.order_book_aggregation)
+
+      # subscribe to status report
+      await self.connection.ws.subscribe_derivative_status(self.product)
 
    ## balance events ##
    async def on_balance_updated(self, data):
@@ -436,6 +437,13 @@ class BitfinexProvider(Factory):
    async def on_margin_info_update(self, data):
       logging.info(f'======= on_bitfinex_margin_info_update: {data}')
 
+   ## status event ##
+   async def on_status_update(self, status):
+      if status == None or 'deriv_price' not in status:
+         return
+      self.indexPrice = status['deriv_price']
+      await self.dealerCallback(self, PriceEvent)
+
    #############################################################################
    #### Provider overrides
    #############################################################################
@@ -500,6 +508,15 @@ class BitfinexProvider(Factory):
    ## balance ##
    def getBalance(self):
       return BfxBalanceReport(self)
+
+   def getOpenPrice(self):
+      if self.product not in self.positions:
+         return None
+      if len( self.positions[self.product]) != 1:
+         return None
+
+      id = next(iter(self.positions[self.product]))
+      return self.positions[self.product][id].base_price
 
    ## collateral ##
    async def checkCollateral(self, openPrice):

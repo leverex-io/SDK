@@ -67,13 +67,9 @@ class LeverexPositionsReport(PositionsReport):
       super().__init__(provider)
 
       #get sessionId for current session
-      self.openPrice = None
-      self.indexPrice = provider.indexPrice
       sessionId = None
-
       if provider.currentSession != None:
          sessionId = provider.currentSession.getSessionId()
-         self.openPrice = provider.currentSession.getOpenPrice()
 
       #grab orders for session id
       self.orderData = None
@@ -155,11 +151,6 @@ class LeverexPositionsReport(PositionsReport):
             return "N/A"
          pnl += orderPL
       return round(pnl, 6)
-
-   def getPnlReport(self):
-      result = f"  <{self.name} - pnl: {self.getPnl()}"
-      result += f" - open price: {self.openPrice}, index price: {self.indexPrice}>"
-      return result
 
 ################################################################################
 class LeverexBalanceReport(BalanceReport):

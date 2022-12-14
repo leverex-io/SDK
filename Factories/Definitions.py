@@ -282,6 +282,8 @@ class PositionsReport(object):
    def __init__(self, provider):
       self.name = provider.name
       self.netExposure = provider.getExposure()
+      self.indexPrice = provider.indexPrice
+      self.openPrice = provider.getOpenPrice()
 
    @property
    def timestamp(self):
@@ -295,8 +297,13 @@ class PositionsReport(object):
          return False
       return self.netExposure == obj.netExposure
 
-   def getPnlReport(self):
+   def getPnl(self):
       return "N/A"
+
+   def getPnlReport(self):
+      result = f"  <{self.name} - pnl: {self.getPnl()}"
+      result += f" - open price: {self.openPrice}, index price: {self.indexPrice}>"
+      return result
 
 ################################################################################
 class BalanceReport(object):
