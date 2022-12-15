@@ -4,6 +4,7 @@ from Factories.Definitions import Position, Balance, Ready
 import websockets, asyncio, traceback, logging, json
 import datetime
 import ssl
+import certifi
 
 class DataProxyObject:
    def __init__(self):
@@ -24,9 +25,10 @@ class WebReporter(Factory):
       super().__init__(config)
 
    async def connect(self):
-      #ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-      #ssl_context.load_verify_locations(self.config["exporter_service"]["client_cert"])
-      async with websockets.connect(self.config["exporter_service"]["url"]) as websocket:
+      ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+      ssl_context.load_verify_locations(certifi.where())
+      ssl_context.load_cert_chain(self.config["exporter_service"]["client_cert"])
+      async with websockets.connect(self.config["exporter_service"]["url"], ssl=ssl_context) as websocket:
         self._connection = websocket
         while True:
             try:
