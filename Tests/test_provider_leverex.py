@@ -125,6 +125,15 @@ class MockedLeverexConnectionClass(object):
          'live_cutoff' : str(price)
       })
 
+   async def load_deposit_address(self, callback):
+      await callback("leverex_address")
+
+   async def load_whitelisted_addresses(self, callback):
+      await callback(["whitelisted_address"])
+
+   async def load_withdrawals_history(self, callback):
+      await callback([])
+
 ########
 class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
    config = {}

@@ -24,24 +24,6 @@ class BitfinexException(Exception):
    pass
 
 ################################################################################
-class DepositWithdrawAddresses():
-   def __init__(self):
-      self._deposit_address = None
-      self._withdraw_address = None
-
-   def set_withdraw_addresses(self, addresses):
-      self._withdraw_address = addresses
-
-   def get_withdraw_addresses(self):
-      return self._withdraw_address
-
-   def set_deposit_address(self, address):
-      self._deposit_address = address
-
-   def get_deposit_address(self):
-      return self._deposit_address
-
-################################################################################
 class BfxPosition(object):
    def __init__(self, position):
       self.position = position
@@ -313,6 +295,18 @@ class BitfinexProvider(Factory):
       self.connection.ws.on('margin_info_update', self.on_margin_info_update)
       self.connection.ws.on('status_update', self.on_status_update)
 
+   async def loadAddresses(self, callback):
+      try:
+         deposit_address = await self.connection.rest.get_wallet_deposit_address(
+            wallet=BFX_DERIVATIVES_WALLET, method=BFX_DEPOSIT_METHOD)
+         self.chainAddresses.set_deposit_address(deposit_address.notify_info.address)
+         await callback()
+      except Exception as e:
+         logging.error(f'Failed to load Bitfinex deposit address: {str(e)}')
+
+   async def loadWithdrawals(self, callback):
+      await callback()
+
    #############################################################################
    #### events
    #############################################################################
@@ -320,17 +314,6 @@ class BitfinexProvider(Factory):
    ## connection events ##
    async def on_authenticated(self, auth_message):
       await super().setConnected(True)
-
-      try:
-         deposit_address = await self.connection.rest.get_wallet_deposit_address(
-            wallet=BFX_DERIVATIVES_WALLET, method=BFX_DEPOSIT_METHOD)
-         self.deposit_addresses = DepositWithdrawAddresses()
-         self.deposit_addresses.set_deposit_address(deposit_address.notify_info.address)
-
-         #check dealer rebalance feature readyness, should live in dealer, not bfx provider
-         #self._validate_rebalance_feature_state()
-      except Exception as e:
-         logging.error(f'Failed to load Bitfinex deposit address: {str(e)}')
 
       # subscribe to order book
       await self.connection.ws.subscribe('book', self.orderbook_product,
@@ -375,14 +358,15 @@ class BitfinexProvider(Factory):
          free_balance = wallet.balance_available
          reserved_balance = wallet.balance - wallet.balance_available
       else:
-         free_balance = wallet.balance
+         free_balance = None
          reserved_balance = None
 
       balances = {}
 
       balances[BALANCE_TOTAL] = total_balance
-      balances[BALANCE_FREE] = free_balance
-      balances[BALANCE_RESERVED] = reserved_balance
+      if free_balance != None:
+         balances[BALANCE_FREE] = free_balance
+         balances[BALANCE_RESERVED] = reserved_balance
 
       self.balances[wallet.type][wallet.currency] = balances
       if wallet.type == BFX_DERIVATIVES_WALLET:
@@ -473,11 +457,12 @@ class BitfinexProvider(Factory):
       if priceBid == None or priceAsk == None:
          return None
 
+      collateralPct = self.getCollateralRatio()
       if balance[BALANCE_FREE] == None or priceAsk.price == None:
-         logging.error(f"invalid data: bal: {balance[BALANCE_FREE]}, lev: {leverageRatio}, price: {priceAsk.price}")
+         logging.error(f"invalid data: bal: {balance[BALANCE_FREE]}, "\
+            f" col_rt: {collateralPct}, price: {priceAsk.price}")
          return None
 
-      collateralPct = self.getCollateralRatio()
       result = {}
       result["ask"] = balance[BALANCE_FREE] / (collateralPct * priceAsk.price)
       result["bid"] = balance[BALANCE_FREE] / (collateralPct * priceBid.price)

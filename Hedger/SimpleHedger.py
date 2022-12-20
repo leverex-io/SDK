@@ -9,6 +9,146 @@ class HedgerException(Exception):
    pass
 
 ################################################################################
+class RebalanceTarget(object):
+   def __init__(self, makerCash, makerTarget, takerCash, takerTarget):
+      self.makerCash = makerCash['total']
+      self.makerPendingCash = makerCash['pending']
+      self.makerTarget = makerTarget
+
+      self.takerCash = takerCash['total']
+      self.takerPendingCash = takerCash['pending']
+      self.takerTarget = takerTarget
+
+      #flag when withdrawals are being queued for this target
+      self._inTransit = False
+
+   def needsRebalance(self):
+      return False
+
+   @property
+   def inTransit(self):
+      return self._inTransit
+
+   def begin(self):
+      self._inTransit = True
+
+   def end(self):
+      self._inTransit = False
+
+################################################################################
+class RebalanceManager(object):
+
+   ## setup ##
+   def __init__(self, maker, taker, maxVol):
+      self.maker = maker
+      self.taker = taker
+      self.maxVol = maxVol
+      self.target = None
+
+      self.loadedWithdrawals = False
+      self.loadedAddresses = False
+
+   def canAssess(self):
+      #do not assess rebalance if we are requesting withdrawals
+      if self.target != None and self.target.inTransit:
+         return False
+      return self.loadedWithdrawals
+
+   def canWithdraw(self):
+      return self.loadedWithdrawals and self.loadedAddresses
+
+   async def setup(self):
+      #get providers' deposit address
+      async def addrCallback():
+         if self.maker.chainAddresses.hasDepositAddr() and \
+            self.taker.chainAddresses.hasDepositAddr():
+            self.loadedAddresses = True
+            await self.performRebalance()
+
+      await self.maker.loadAddresses(addrCallback)
+      await self.taker.loadAddresses(addrCallback)
+
+      #get pending withdrawals
+      async def wtdrCallback():
+         if self.maker.getPendingWithdrawals() != None and \
+            self.taker.getPendingWithdrawals() != None:
+            self.loadedWithdrawals = True
+            await self.assessRebalanceTarget()
+
+      await self.maker.loadWithdrawals(wtdrCallback)
+      await self.taker.loadWithdrawals(wtdrCallback)
+
+   ## rebalance math ##
+   async def assessRebalanceTarget(self):
+      #sanity check
+      if not self.canAssess():
+         return
+
+      ## 1. find total free exposure ##
+
+      #1.a: get cash metrics. Providers that are not ready will
+      #     return None
+      makerCash = self.maker.getCashMetrics()
+      takerCash = self.taker.getCashMetrics()
+      if makerCash is None or takerCash is None:
+         return
+
+      if self.target != None:
+         if makerCash['total'] == self.target.makerCash and \
+            takerCash['total'] == self.target.takerCash:
+            #total cash has not changed, nothing to do
+            return
+
+      #1.b: get total cash providers
+      makerTotal = makerCash['total'] + makerCash['pending']
+      takerTotal = takerCash['total'] + takerCash['pending']
+
+      ## 2. find point of equilibrium between providers ##
+
+      #2.a: total cash
+      totalCash = makerTotal + takerTotal
+
+      #2.b: distribute along collateral ratios
+      makerRatio = makerCash['ratio'] / \
+         (makerCash['ratio'] + takerCash['ratio'])
+      makerTarget = totalCash * makerRatio
+      takerTarget = totalCash - makerTarget
+
+      #2.c: apply 3x open volume ceiling
+      makerTarget = min(makerTarget,
+         self.maxVol * 3 * makerCash['ratio'] * makerCash['price'])
+      takerTarget = min(takerTarget,
+         self.maxVol * 3 * takerCash['ratio'] * takerCash['price'])
+
+      ## 3. assess the need for withdrawals ##
+
+      #3.a: apply results
+      self.target = RebalanceTarget(
+         makerCash, makerTarget,
+         takerCash, takerTarget
+      )
+
+      #3.b: perform rebalance if necessary
+      await self.performRebalance()
+
+   ## rebalance process ##
+   async def performRebalance(self):
+      if not self.canWithdraw():
+         return
+
+      if self.target == None or not self.target.needsRebalance():
+         return
+
+      if self.target.inTransit:
+         return
+
+      #flag transit
+      self.target.begin()
+
+      #unflag transit
+      self.target.end()
+
+################################################################################
 class SimpleHedger(HedgerFactory):
    required_settings = {
       'hedging_settings' : ['price_ratio', 'max_offer_volume']
@@ -34,6 +174,7 @@ class SimpleHedger(HedgerFactory):
          self.offer_refresh_delay = config['hedging_settings']['offer_refresh_delay_ms']
 
       self.offers = []
+      self.rebalMan = None
 
    #############################################################################
    ## price offers methods
@@ -180,6 +321,9 @@ class SimpleHedger(HedgerFactory):
       #report ready state to hedger factory. On first exposure sync, this will
       #set the hedger ready flag. Further calls will have no effect
       self.setReady()
+      if self.rebalMan == None:
+         self.rebalMan = RebalanceManager(maker, taker, self.max_offer_volume)
+         await self.rebalMan.setup()
 
    #############################################################################
    ## taker events
@@ -190,7 +334,7 @@ class SimpleHedger(HedgerFactory):
    ####
    async def onTakerPositionEvent(self, maker, taker):
       # check balance across maker and taker, rebalance if needed
-      await self.checkBalances(maker, taker)
+      await self.checkBalanceDistribution(maker, taker)
 
       # check exposure across maker and taker, resync accordingly
       await self.checkExposureSync(maker, taker)
@@ -200,7 +344,7 @@ class SimpleHedger(HedgerFactory):
    #############################################################################
    async def onMakerPositionEvent(self, maker, taker):
       # check balance across maker and taker, rebalance if needed
-      await self.checkBalances(maker, taker)
+      await self.checkBalanceDistribution(maker, taker)
 
       # check exposure across maker and taker, resync accordingly
       await self.checkExposureSync(maker, taker)
@@ -213,14 +357,15 @@ class SimpleHedger(HedgerFactory):
    #############################################################################
    async def onBalanceEvent(self, maker, taker):
       # check balance across maker and taker, rebalance if needed
-      await self.checkBalances(maker, taker)
+      await self.checkBalanceDistribution(maker, taker)
 
       # update offers
       await self.submitOffers(maker, taker)
 
    ####
-   async def checkBalances(self, maker, taker):
-      pass
+   async def checkBalanceDistribution(self, maker, taker):
+      if self.rebalMan != None:
+         await self.rebalMan.assessRebalanceTarget()
 
    #############################################################################
    ## ready events

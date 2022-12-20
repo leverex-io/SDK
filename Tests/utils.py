@@ -13,6 +13,7 @@ class TestProvider(Factory):
       self.startBalance = startBalance
       self.balance = 0
       self.explicitState = True
+      self.withdrawalHist = None
 
    def getAsyncIOTask(self):
       return asyncio.create_task(self.bootstrap())
@@ -39,6 +40,14 @@ class TestProvider(Factory):
       ask = vol + exposure
       return { 'ask' : ask, 'bid' : bid }
 
+   def getCashMetrics(self):
+      return {
+         'total' : self.balance,
+         'pending' : 0,
+         'ratio' : self.getCollateralRatio(),
+         'price' : price
+      }
+
    def isReady(self):
       if self.explicitState == True:
          return super().isReady()
@@ -64,6 +73,16 @@ class TestProvider(Factory):
 
       self.targetCollateral = exposure * self.getCollateralRatio() * openPrice
 
+   async def loadAddresses(self, callback):
+      self.chainAddresses.setDepositAddress("abcd")
+      await callback()
+
+   async def loadWithdrawals(self, callback):
+      self.withdrawalHist = []
+      await callback()
+
+   def getPendingWithdrawals(self):
+      return self.withdrawalHist
 
 ########
 class TestMaker(TestProvider):
@@ -156,3 +175,6 @@ class TestTaker(TestProvider):
    async def updateExposure(self, exposure):
       self.exposure += exposure
       await super().onPositionUpdate()
+
+   async def loadAddresses(self, callback):
+      await callback()

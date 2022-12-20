@@ -14,6 +14,7 @@ class Factory(object):
       self._leverage      = None #in multiples
       self.collateral_pct = None #in pct
       self.openPrice = None
+      self.chainAddresses = Definitions.DepositWithdrawAddresses()
 
    def setup(self, callback):
       if callback == None:
@@ -152,3 +153,9 @@ class Factory(object):
    @property
    def name(self):
       return self._name
+
+   def getPendingWithdrawals(self):
+      return None
+
+   def getCashMetrics(self):
+      return None

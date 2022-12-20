@@ -4,7 +4,8 @@ import json
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
-   PositionsReport, BalanceReport, SessionInfo, PriceEvent
+   PositionsReport, BalanceReport, SessionInfo, PriceEvent, \
+   DepositWithdrawAddresses
 from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
@@ -214,6 +215,7 @@ class LeverexProvider(Factory):
       self.currentSession = None
       self.lastReadyState = False
       self.indexPrice = None
+      self.withdrawalHistory = None
 
       #check for required config entries
       for k in self.required_settings:
@@ -247,8 +249,27 @@ class LeverexProvider(Factory):
    def getAsyncIOTask(self):
       return asyncio.create_task(self.connection.run(self))
 
+   ##
+   async def loadAddresses(self, callback):
+      async def depositAddressCallback(address):
+         self.chainAddresses.setDepositAddress(address)
+         await callback()
+
+      async def withdrawAddressCallback(addresses):
+         self.chainAddresses.setWithdrawAddresses(addresses)
+
+      await self.connection.load_deposit_address(depositAddressCallback)
+      await self.connection.load_whitelisted_addresses(withdrawAddressCallback)
+
+   ##
+   async def loadWithdrawals(self, callback):
+      async def whdrCallback(withdrawals):
+         self.withdrawalHistory = withdrawals
+         await callback()
+      await self.connection.load_withdrawals_history(whdrCallback)
+
    #############################################################################
-   #### notifications
+   #### events
    #############################################################################
 
    ## connection status events ##
@@ -268,8 +289,6 @@ class LeverexProvider(Factory):
          target_product=self.product, callback=self.on_positions_loaded)
       await self.connection.subscribe_session_open(self.product)
       await self.connection.subscribe_to_product(self.product)
-      #await self._leverex_connection.load_deposit_address(callback=self.on_leverex_deposit_address_loaded)
-      #await self._leverex_connection.load_whitelisted_addresses(callback=self.on_leverex_addresses_loaded)
 
    ## balance events ##
    async def onLoadBalance(self, balances):
@@ -375,6 +394,8 @@ class LeverexProvider(Factory):
       result = {}
       result['ask'] = balance / (leverageRatio * price)
       result['bid'] = balance / (leverageRatio * price)
+      result['free'] = balance
+      result['price'] = price
       return result
 
    async def submitOffers(self, offers):

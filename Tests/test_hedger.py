@@ -266,7 +266,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == 0.3
       assert taker.getExposure() == -0.3
 
-   async def test_bad_session(self):
+   async def test_broken_provider(self):
       #setup taker and maker
       taker = TestTaker(startBalance=1500, startExposure=0.5)
 
@@ -381,3 +381,80 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       await maker.setOpenPrice(10100)
       assert taker.targetCollateral == 606
+
+   async def test_rebalance_target(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=1500)
+      maker = TestMaker(startBalance=1000)
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert dealer.isReady() == True
+
+      #check rebalance target is same as balance
+      assert maker.balance == 1000
+      assert taker.balance == 1500
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == False
+      assert hedger.rebalMan.target.makerTarget == 1000
+      assert hedger.rebalMan.target.takerTarget == 1500
+
+      #reduce taker cash, maker rebalance target should go up
+      await taker.updateBalance(1200)
+      assert maker.balance == 1000
+      assert taker.balance == 1200
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.target.makerTarget == 880
+      assert hedger.rebalMan.target.takerTarget == 1320
+
+      #post an order, rebalance target shouldn't change
+      await maker.newOrder(Order(
+         id=1, timestamp=0, quantity=0.5, price=10100, side=SIDE_BUY))
+      assert maker.balance == 1000
+      assert taker.balance == 1200
+      assert maker.getExposure() == 0.5
+      assert taker.getExposure() == -0.5
+      assert hedger.rebalMan.target.makerTarget == 880
+      assert hedger.rebalMan.target.takerTarget == 1320
+
+      #increase maker balance to 50 coins worth of volume
+      await maker.updateBalance(50000)
+      assert maker.balance == 50000
+      assert taker.balance == 1200
+      assert maker.getExposure() == 0.5
+      assert taker.getExposure() == -0.5
+      assert hedger.rebalMan.target.makerTarget == 15000
+      assert hedger.rebalMan.target.takerTarget == 22500
+
+      #reduce balances near 1.5x max volume
+      await taker.updateBalance(20000)
+      assert maker.balance == 50000
+      assert taker.balance == 20000
+      assert maker.getExposure() == 0.5
+      assert taker.getExposure() == -0.5
+      assert hedger.rebalMan.target.makerTarget == 15000
+      assert hedger.rebalMan.target.takerTarget == 22500
+
+      await maker.updateBalance(15000)
+      assert maker.balance == 15000
+      assert taker.balance == 20000
+      assert maker.getExposure() == 0.5
+      assert taker.getExposure() == -0.5
+      assert hedger.rebalMan.target.makerTarget == 14000
+      assert hedger.rebalMan.target.takerTarget == 21000

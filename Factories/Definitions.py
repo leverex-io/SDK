@@ -282,8 +282,8 @@ class PositionsReport(object):
    def __init__(self, provider):
       self.name = provider.name
       self.netExposure = provider.getExposure()
-      self.indexPrice = provider.indexPrice
       self.openPrice = provider.getOpenPrice()
+      self.indexPrice = provider.indexPrice
 
    @property
    def timestamp(self):
@@ -321,3 +321,27 @@ class BalanceReport(object):
 
       #5min sec intervals
       return abs(obj._timestamp - self._timestamp) <= 300000
+
+################################################################################
+class DepositWithdrawAddresses():
+   def __init__(self):
+      self._deposit_address = None
+      self._withdraw_address = None
+
+   def setWithdrawAddresses(self, addresses):
+      self._withdraw_address = addresses
+
+   def getWithdrawAddresses(self):
+      return self._withdraw_address
+
+   def setDepositAddress(self, address):
+      self._deposit_address = address
+
+   def getDepositAddress(self):
+      return self._deposit_address
+
+   def hasDepositAddr(self):
+      return self._deposit_address != None
+
+   def hasWithdrawAddr(self):
+      return self._withdraw_address != None
