@@ -3,7 +3,7 @@ from unittest.mock import patch
 from typing import Callable
 import time
 
-from .utils import TestTaker
+from .utils import TestTaker, price
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 
@@ -34,6 +34,8 @@ class MockedLeverexConnectionClass(object):
       self.positions_callback = None
       self.withdrawRequest = []
 
+      self.orders = {}
+
    async def run(self, listener):
       self.listener = listener
       pass
@@ -48,10 +50,18 @@ class MockedLeverexConnectionClass(object):
       if self.balance_callback == None:
          raise Exception("balances were not requested")
 
-      await self.balance_callback([{
+      margin = self.getMarginedCash()
+      result = [{
          'currency' : 'USDT',
-         'balance' : self.balance
-      }])
+         'balance' : self.balance - margin
+      }]
+      if margin != 0:
+         result.append({
+         'currency' : 'USDP',
+         'balance' : margin
+      })
+
+      await self.balance_callback(result)
       self.balance_callback = None
 
    async def load_open_positions(self, target_product, callback):
@@ -70,7 +80,9 @@ class MockedLeverexConnectionClass(object):
          order['side'] = side
          order['is_taker'] = False
 
-         leverexOrders.append(LeverexOrder(order))
+         levOrder = LeverexOrder(order)
+         leverexOrders.append(levOrder)
+         self.orders[levOrder.id] = levOrder
 
       await self.positions_callback(leverexOrders)
       self.positions_callback = None
@@ -112,7 +124,22 @@ class MockedLeverexConnectionClass(object):
          side = SIDE_SELL
       order['side'] = side
       order['is_taker'] = False
-      await self.listener.on_order_event(LeverexOrder(order), ORDER_ACTION_CREATED)
+      levOrder = LeverexOrder(order)
+
+      self.orders[levOrder.id] = levOrder
+      await self.listener.on_order_event(levOrder, ORDER_ACTION_CREATED)
+
+      margin = self.getMarginedCash()
+      result = [{
+         'currency' : 'USDT',
+         'balance' : self.balance - margin
+      }]
+      if margin != 0:
+         result.append({
+         'currency' : 'USDP',
+         'balance' : margin
+      })
+      await self.listener.onLoadBalance(result)
 
    async def close_order(self, order):
       order['product_type'] = self.session_product
@@ -121,7 +148,10 @@ class MockedLeverexConnectionClass(object):
          side = SIDE_SELL
       order['side'] = side
       order['is_taker'] = False
-      await self.listener.on_order_event(LeverexOrder(order), ORDER_ACTION_UPDATED)
+
+      levOrder = LeverexOrder(order)
+      del self.orders[levOrder.id]
+      await self.listener.on_order_event(levOrder, ORDER_ACTION_UPDATED)
 
    async def push_market_data(self, price):
       await self.listener.on_market_data({
@@ -149,10 +179,17 @@ class MockedLeverexConnectionClass(object):
       for withdrawal in self.withdrawRequest:
 
          self.balance -= withdrawal['amount']
-         await self.listener.onLoadBalance([{
+         margin = self.getMarginedCash()
+         result = [{
             'currency' : withdrawal['ccy'],
-            'balance' : self.balance
-         }])
+            'balance' : self.balance - margin
+         }]
+         if margin != 0:
+            result.append({
+            'currency' : 'USDP',
+            'balance' : margin
+         })
+         await self.listener.onLoadBalance(result)
 
          wtd = WithdrawInfo({
             'id' : 0,
@@ -165,6 +202,20 @@ class MockedLeverexConnectionClass(object):
          await withdrawal['callback'](wtd)
 
       self.withdrawRequest = []
+
+   def getMarginedCash(self):
+      #this is a simplified version of leverex margin calculation,
+      #do not use this if you need accurate values
+      margin = 0
+      for orderId in self.orders:
+         order = self.orders[orderId]
+         val = order.quantity * 0.1 * price
+         if order.is_sell():
+            margin -= val
+         else:
+            margin += val
+      return margin
+
 
 ########
 class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
@@ -1189,6 +1240,27 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #ACK withdrawal request, should adjust maker balance, remove rebal target
       await mockedConnection.confirmWithdrawalRequest()
+      assert taker.balance == 1200
+      cashMetrics = maker.getCashMetrics()
+      assert cashMetrics['total'] == 880
+      assert cashMetrics['pending'] == 120
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False
+      assert len(mockedConnection.withdrawRequest) == 0
+
+      #push an order through, it shouldnt affect the rebalance target
+      await mockedConnection.push_new_order({
+         'id' : 1,
+         'timestamp' : 1,
+         'quantity' : 1,
+         'price' : 10100,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 15
+      })
+
       assert taker.balance == 1200
       cashMetrics = maker.getCashMetrics()
       assert cashMetrics['total'] == 880

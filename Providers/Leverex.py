@@ -229,6 +229,7 @@ class LeverexProvider(Factory):
       self.product = self.config['leverex']['product']
       productInfo = get_product_info(self.product)
       self.ccy = productInfo.cash_ccy
+      self.margin_ccy = productInfo.margin_ccy
 
       #leverex leverage is locked at 10x
       self.setLeverage(10)
@@ -428,10 +429,11 @@ class LeverexProvider(Factory):
       return result
 
    def getCashMetrics(self):
-      #TODO: need to add balance in margin to free balance to get total
       if self.ccy not in self.balances:
          return None
       balance = self.balances[self.ccy]
+      if self.margin_ccy in self.balances:
+         balance += self.balances[self.margin_ccy]
 
       pending = 0
       if self.withdrawalHistory != None:
