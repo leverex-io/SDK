@@ -261,12 +261,43 @@ class LeverexProvider(Factory):
       await self.connection.load_deposit_address(depositAddressCallback)
       await self.connection.load_whitelisted_addresses(withdrawAddressCallback)
 
-   ##
+   #############################################################################
+   #### withdrawals
+   #############################################################################
    async def loadWithdrawals(self, callback):
       async def whdrCallback(withdrawals):
-         self.withdrawalHistory = withdrawals
+         self.withdrawalHistory = {}
+         for wtd in withdrawals:
+            self.withdrawalHistory[wtd.id] = wtd
          await callback()
+
       await self.connection.load_withdrawals_history(whdrCallback)
+
+   ##
+   def getPendingWithdrawals(self):
+      if self.withdrawalHistory == None:
+         return None
+
+      withdrawalList = []
+      for wId in self.withdrawalHistory:
+         withdrawal = self.withdrawalHistory[wId]
+         if withdrawal.isPending():
+            withdrawalList.append(withdrawal)
+
+      return withdrawalList
+
+   ##
+   async def withdraw(self, amount, callback):
+      async def withdrawCallback(withdrawal):
+         self.withdrawalHistory[withdrawal.id] = withdrawal
+         await callback()
+
+      await self.connection.withdraw_liquid(
+         address=self.chainAddresses.getWithdrawAddresses()[0],
+         currency=self.ccy,
+         amount=amount,
+         callback=withdrawCallback
+      )
 
    #############################################################################
    #### events
@@ -394,9 +425,27 @@ class LeverexProvider(Factory):
       result = {}
       result['ask'] = balance / (leverageRatio * price)
       result['bid'] = balance / (leverageRatio * price)
-      result['free'] = balance
-      result['price'] = price
       return result
+
+   def getCashMetrics(self):
+      #TODO: need to add balance in margin to free balance to get total
+      if self.ccy not in self.balances:
+         return None
+      balance = self.balances[self.ccy]
+
+      pending = 0
+      if self.withdrawalHistory != None:
+         for wId in self.withdrawalHistory:
+            withdrawal = self.withdrawalHistory[wId]
+            if withdrawal.isPending():
+               pending += float(withdrawal.amount)
+
+      return {
+         'total' : balance,
+         'pending' : pending,
+         'ratio' : self.getCollateralRatio(),
+         'price' : self.currentSession.getOpenPrice()
+      }
 
    async def submitOffers(self, offers):
       def callback(reply):

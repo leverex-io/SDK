@@ -411,6 +411,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
       assert hedger.rebalMan.canWithdraw() == False
+      assert hedger.canRebalance() == False
       assert hedger.rebalMan.target.makerTarget == 1000
       assert hedger.rebalMan.target.takerTarget == 1500
       assert hedger.rebalMan.target.amount == 0
@@ -608,6 +609,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.isBroken() == False
       assert taker.isReady() == True
       assert hedger.isReady() == True
+      assert hedger.canRebalance() == True
       assert dealer.isReady() == True
 
       #check rebalance target is same as balance
@@ -617,6 +619,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
       assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
       assert hedger.rebalMan.target.makerTarget == 1000
       assert hedger.rebalMan.target.takerTarget == 1500
       assert hedger.rebalMan.target.amount == 0
@@ -628,6 +631,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
       assert hedger.rebalMan.target.makerTarget == 880
       assert hedger.rebalMan.target.takerTarget == 1320
       assert hedger.rebalMan.target.amount == 120
@@ -639,6 +645,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
       assert hedger.rebalMan.target.makerTarget == 880
       assert hedger.rebalMan.target.takerTarget == 1320
       assert hedger.rebalMan.target.amount == 0
@@ -651,6 +660,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1000
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
       assert hedger.rebalMan.target.makerTarget == 800
       assert hedger.rebalMan.target.takerTarget == 1200
       assert hedger.rebalMan.target.amount == 80
@@ -664,6 +676,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1000
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
       assert hedger.rebalMan.target.makerTarget == 800
       assert hedger.rebalMan.target.takerTarget == 1200
       assert hedger.rebalMan.target.amount == 80
@@ -676,9 +691,29 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1000
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
       assert hedger.rebalMan.target.makerTarget == 848
       assert hedger.rebalMan.target.takerTarget == 1272
       assert hedger.rebalMan.target.amount == 72
       assert len(maker.withdrawalHist) == 2
       assert maker.withdrawalHist[0] == 120
       assert maker.withdrawalHist[1] == 80
+
+      #ACK maker withdrawal request
+      await maker.pushWithdrawal()
+      assert maker.balance == 848
+      assert taker.balance == 1000
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      assert hedger.rebalMan.target.makerTarget == 848
+      assert hedger.rebalMan.target.takerTarget == 1272
+      assert hedger.rebalMan.target.amount == 0
+      assert len(maker.withdrawalHist) == 3
+      assert maker.withdrawalHist[0] == 120
+      assert maker.withdrawalHist[1] == 80
+      assert maker.withdrawalHist[2] == 72

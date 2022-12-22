@@ -265,6 +265,14 @@ class WithdrawInfo():
    def transacion_id(self):
       return self._tx_id
 
+   def isPending(self):
+      return self._status in [
+         self.WITHDRAW_ACCEPTED,
+         self.WITHDRAW_PENDING,
+         self.WITHDRAW_BROADCASTED,
+         self.WITHDRAW_BATCHED
+      ]
+
 
 class DepositInfo():
    def __init__(self, data):

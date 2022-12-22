@@ -103,7 +103,7 @@ class Factory(object):
       #maker position events
       pass
 
-   def withdraw(self, withdrawInfo):
+   async def withdraw(self, amount, callback):
       logging.debug("[withdraw]")
 
    async def submitOffers(self, offers):

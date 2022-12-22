@@ -69,6 +69,11 @@ class RebalanceManager(object):
    def canWithdraw(self):
       return self.loadedWithdrawals and self.loadedAddresses
 
+   def needsRebalance(self):
+      if self.target == None:
+         return False
+      return self.target.needsRebalance()
+
    async def setup(self):
       #get providers' deposit address
       async def addrCallback():
@@ -158,6 +163,7 @@ class RebalanceManager(object):
       self.target.begin()
       async def callback():
          self.target.end()
+         await self.assessRebalanceTarget()
 
       if self.target.amount > 0:
          await self.maker.withdraw(self.target.amount, callback)
@@ -277,7 +283,7 @@ class SimpleHedger(HedgerFactory):
       await maker.submitOffers(self.offers)
 
    #############################################################################
-   ## exposure methods
+   ## exposure & rebalance methods
    #############################################################################
    async def checkExposureSync(self, maker, taker):
       #compare maker and taker exposure
@@ -340,6 +346,25 @@ class SimpleHedger(HedgerFactory):
       if self.rebalMan == None:
          self.rebalMan = RebalanceManager(maker, taker, self.max_offer_volume)
          await self.rebalMan.setup()
+
+   ####
+   def canRebalance(self):
+      if not self.isReady():
+         return False
+      elif self.rebalMan == None:
+         return False
+
+      return self.rebalMan.canWithdraw()
+
+   ####
+   def needsRebalance(self):
+      if not self.isReady():
+         return False
+      elif self.rebalMan == None:
+         return False
+
+      return self.rebalMan.needsRebalance()
+
 
    #############################################################################
    ## taker events

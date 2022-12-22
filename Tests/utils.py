@@ -103,8 +103,8 @@ class TestProvider(Factory):
          callback = val[1]
       self.withdrawalHist.append(totalWithdrawal)
       self.withdrawalsToPush = []
-      await callback()
       await self.updateBalance(self.balance - totalWithdrawal)
+      await callback()
 
 ########
 class TestMaker(TestProvider):
