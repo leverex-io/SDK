@@ -7,13 +7,14 @@ price = 10000
 
 ####### test providers
 class TestProvider(Factory):
-   def __init__(self, name, startBalance=0):
+   def __init__(self, name, startBalance=0, pendingWithdrawals=None):
       super().__init__(name)
 
       self.startBalance = startBalance
       self.balance = 0
       self.explicitState = True
-      self.withdrawalHist = None
+      self.withdrawalHist = pendingWithdrawals
+      self.withdrawalsToPush = []
 
    def getAsyncIOTask(self):
       return asyncio.create_task(self.bootstrap())
@@ -41,9 +42,12 @@ class TestProvider(Factory):
       return { 'ask' : ask, 'bid' : bid }
 
    def getCashMetrics(self):
+      pending = 0
+      for val in self.withdrawalHist:
+         pending += val
       return {
          'total' : self.balance,
-         'pending' : 0,
+         'pending' : pending,
          'ratio' : self.getCollateralRatio(),
          'price' : price
       }
@@ -78,16 +82,34 @@ class TestProvider(Factory):
       await callback()
 
    async def loadWithdrawals(self, callback):
-      self.withdrawalHist = []
+      if self.withdrawalHist == None:
+         self.withdrawalHist = []
       await callback()
 
    def getPendingWithdrawals(self):
       return self.withdrawalHist
 
+   async def withdraw(self, amount, callback):
+      self.withdrawalsToPush.append([amount, callback])
+
+   async def pushWithdrawal(self):
+      if self.withdrawalHist == None:
+         raise Exception("withdrawals arent ready")
+
+      totalWithdrawal = 0
+      callback = None
+      for val in self.withdrawalsToPush:
+         totalWithdrawal += val[0]
+         callback = val[1]
+      self.withdrawalHist.append(totalWithdrawal)
+      self.withdrawalsToPush = []
+      await callback()
+      await self.updateBalance(self.balance - totalWithdrawal)
+
 ########
 class TestMaker(TestProvider):
-   def __init__(self, startBalance=0, startPositions=[]):
-      super().__init__("TestMaker", startBalance)
+   def __init__(self, startBalance=0, startPositions=[], pendingWithdrawals=None):
+      super().__init__("TestMaker", startBalance, pendingWithdrawals)
 
       self.startPositions = startPositions
       self.offers = []
@@ -145,13 +167,14 @@ def getOrderBookSnapshot(volume):
 
 ########
 class TestTaker(TestProvider):
-   def __init__(self, startBalance=0, startExposure=0):
-      super().__init__("TestTaker", startBalance)
+   def __init__(self, startBalance=0, startExposure=0, pendingWithdrawals=None, addr=None):
+      super().__init__("TestTaker", startBalance, pendingWithdrawals)
 
       self.startExposure = startExposure
       self.order_book = AggregationOrderBook()
       self.exposure = 0
       self.collateral_pct = 15
+      self.addr = addr
 
    async def bootstrap(self):
       await super().bootstrap()
@@ -177,4 +200,6 @@ class TestTaker(TestProvider):
       await super().onPositionUpdate()
 
    async def loadAddresses(self, callback):
+      if self.addr != None:
+         self.chainAddresses.setDepositAddress(self.addr)
       await callback()

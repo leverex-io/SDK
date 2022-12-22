@@ -22,8 +22,20 @@ class RebalanceTarget(object):
       #flag when withdrawals are being queued for this target
       self._inTransit = False
 
+      #compute the amount to move across providers.
+      #positive: move from maker to taker
+      #negative: move from taker to maker
+      makerSide = self.makerTarget - self.makerCash - self.takerPendingCash
+      takerSide = self.takerTarget - self.takerCash - self.makerPendingCash
+      self.amount = 0
+
+      if makerSide > 0:
+         self.amount = -makerSide
+      elif takerSide > 0:
+         self.amount = takerSide
+
    def needsRebalance(self):
-      return False
+      return self.amount != 0
 
    @property
    def inTransit(self):
@@ -144,9 +156,13 @@ class RebalanceManager(object):
 
       #flag transit
       self.target.begin()
+      async def callback():
+         self.target.end()
 
-      #unflag transit
-      self.target.end()
+      if self.target.amount > 0:
+         await self.maker.withdraw(self.target.amount, callback)
+      elif self.target.amount < 0:
+         await self.taker.withdraw(abs(self.target.amount), callback)
 
 ################################################################################
 class SimpleHedger(HedgerFactory):
