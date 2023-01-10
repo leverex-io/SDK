@@ -154,8 +154,8 @@ class Factory(object):
    def name(self):
       return self._name
 
-   def getPendingWithdrawals(self):
-      return None
+   def withdrawalsLoaded(self):
+      return False
 
    def getCashMetrics(self):
       return None

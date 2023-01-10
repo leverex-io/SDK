@@ -16,7 +16,7 @@ from Providers.leverex_core.api_connection import LeverexOrder, \
    ORDER_TYPE_TRADE_POSITION, ORDER_TYPE_NORMAL_ROLLOVER_POSITION, \
    ORDER_ACTION_CREATED, ORDER_ACTION_UPDATED, WithdrawInfo
 
-#import pdb; pdb.set_trace()
+import pdb; pdb.set_trace()
 
 ################################################################################
 ##
@@ -35,6 +35,7 @@ class MockedLeverexConnectionClass(object):
       self.withdrawRequest = []
 
       self.orders = {}
+      self.indexPrice = None
 
    async def run(self, listener):
       self.listener = listener
@@ -129,7 +130,7 @@ class MockedLeverexConnectionClass(object):
       self.orders[levOrder.id] = levOrder
       await self.listener.on_order_event(levOrder, ORDER_ACTION_CREATED)
 
-      margin = self.getMarginedCash()
+      margin = abs(self.getMarginedCash())
       result = [{
          'currency' : 'USDT',
          'balance' : self.balance - margin
@@ -210,12 +211,24 @@ class MockedLeverexConnectionClass(object):
       for orderId in self.orders:
          order = self.orders[orderId]
          val = order.quantity * 0.1 * price
+         if self.indexPrice != None:
+            pnl = (self.indexPrice - order.price) * order.quantity
+            if order.is_sell():
+               pnl *= -1
+            if pnl < 0:
+               val += pnl
+
          if order.is_sell():
             margin -= val
          else:
             margin += val
       return margin
 
+   async def setIndexPrice(self, index_price):
+      self.indexPrice = index_price
+      await self.listener.on_market_data({
+         'live_cutoff': index_price
+      })
 
 ########
 class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
@@ -1228,22 +1241,22 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert hedger.needsRebalance() == False
 
       #reduce taker balance, should trigger a withdrawal request from maker
-      await taker.updateBalance(1200)
+      await taker.updateBalance(1000)
       cashMetrics = maker.getCashMetrics()
-      assert taker.balance == 1200
+      assert taker.balance == 1000
       assert cashMetrics['total'] == 1000
       assert cashMetrics['pending'] == 0
       assert hedger.canRebalance() == True
       assert hedger.needsRebalance() == True
       assert len(mockedConnection.withdrawRequest) == 1
-      assert mockedConnection.withdrawRequest[0]['amount'] == 120
+      assert mockedConnection.withdrawRequest[0]['amount'] == 200
 
       #ACK withdrawal request, should adjust maker balance, remove rebal target
       await mockedConnection.confirmWithdrawalRequest()
-      assert taker.balance == 1200
+      assert taker.balance == 1000
       cashMetrics = maker.getCashMetrics()
-      assert cashMetrics['total'] == 880
-      assert cashMetrics['pending'] == 120
+      assert cashMetrics['total'] == 800
+      assert cashMetrics['pending'] == 200
       assert hedger.canRebalance() == True
       assert hedger.needsRebalance() == False
       assert len(mockedConnection.withdrawRequest) == 0
@@ -1261,10 +1274,162 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          'fee' : 15
       })
 
-      assert taker.balance == 1200
+      assert taker.balance == 1000
       cashMetrics = maker.getCashMetrics()
-      assert cashMetrics['total'] == 880
-      assert cashMetrics['pending'] == 120
+      assert cashMetrics['total'] == 800
+      assert cashMetrics['pending'] == 200
       assert hedger.canRebalance() == True
       assert hedger.needsRebalance() == False
       assert len(mockedConnection.withdrawRequest) == 0
+
+   #cover open volume asymetry
+   @patch('Providers.Leverex.AsyncApiConnection')
+   async def test_open_volume(self, MockedLeverexConnObj):
+      #return mocked leverex connection object instead of an instance
+      #of leverex_core.api_connection.AsyncApiConnection
+      mockedConnection = MockedLeverexConnectionClass(1000)
+      MockedLeverexConnObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = LeverexProvider(self.config)
+      taker = TestTaker(startBalance=1500)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert maker.connection is mockedConnection
+      assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+      assert dealer.isReady() == False
+
+      #Leverex authorized event (login successful)
+      await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+      assert len(mockedConnection.offers) == 0
+
+      #reply to load balances request
+      assert mockedConnection.balance_callback != None
+      assert len(maker.balances) == 0
+      await mockedConnection.replyLoadBalances()
+      assert mockedConnection.balance_callback == None
+      assert maker.balances['USDT'] == 1000
+
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
+      #check providers and hedger are ready
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert dealer.isReady() == True
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+
+      #check hedger can rebalance
+      assert hedger.canRebalance() == False
+      assert hedger.needsRebalance() == False
+
+      #set maker index price
+      await mockedConnection.setIndexPrice(10000)
+
+      #check open volume
+      vol = maker.getOpenVolume()
+      assert vol['ask'] == 1
+      assert vol['bid'] == 1
+
+      ## push an order ##
+      await mockedConnection.push_new_order({
+         'id' : 1,
+         'timestamp' : 1,
+         'quantity' : 0.3,
+         'price' : 10000,
+         'status' : ORDER_STATUS_PENDING,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 4.5
+      })
+
+      #check exposure
+      assert maker.getExposure() == 0.3
+      assert taker.getExposure() == -0.3
+
+      #check open volume, should reflect effect of exposure
+      vol = maker.getOpenVolume()
+      assert vol['ask'] == 1.3
+      assert vol['bid'] == 0.7
+
+      ## push order on opposite side ##
+      await mockedConnection.push_new_order({
+         'id' : 2,
+         'timestamp' : 1,
+         'quantity' : -0.5,
+         'price' : 10000,
+         'status' : ORDER_STATUS_PENDING,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 7.5
+      })
+
+      #check exposure
+      assert maker.getExposure() == -0.2
+      assert taker.getExposure() == 0.2
+
+      #check open volume, should reflect effect of exposure
+      vol = maker.getOpenVolume()
+      assert vol['ask'] == 0.8
+      assert vol['bid'] == 1.2
+
+      ## go flat at a higher price ##
+      await mockedConnection.push_new_order({
+         'id' : 3,
+         'timestamp' : 1,
+         'quantity' : 0.2,
+         'price' : 10100,
+         'status' : ORDER_STATUS_PENDING,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 3
+      })
+
+      #check exposure
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+
+      '''
+      Even though we have 0 exposure, some margin should still be
+      stuck in the loss of the last position (at the time it was made):
+       - pos1: 0 pnl
+       - pos2: 0 pnl
+       - pos3: -20 pnl
+      '''
+      vol = maker.getOpenVolume()
+      assert vol['ask'] == 0.98
+      assert vol['bid'] == 0.98
+
+      #move the index price
+      await mockedConnection.setIndexPrice(10100)
+
+      '''
+      total pnl: -20
+       - pos1: 30 pnl
+       - pos2: -50 pnl
+       - pos3: 0 pnl
+      '''
+      vol = maker.getOpenVolume()
+      assert vol['ask'] == 0.98
+      assert vol['bid'] == 0.98

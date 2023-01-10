@@ -105,9 +105,31 @@ class FakeBfxWsInterface(object):
 class FakeBfxRestInterface(object):
    def __init__(self, listener):
       self.listener = listener
+      self.withdrawals = []
 
    async def set_derivative_collateral(self, symbol, collateral):
       await self.listener.ws.update_offer(symbol, 0, collateral)
+
+   async def get_wallet_deposit_address(self, wallet, method):
+      #
+      class AddrObj():
+         def __init__(self, addr):
+            self.address = addr
+
+      #
+      class AddrNotif():
+         def __init__(self, addr):
+            self.notify_info = AddrObj(addr)
+
+      return AddrNotif("efgh")
+
+   async def submit_wallet_withdraw(self, wallet, method, amount, address):
+      self.withdrawals.append({
+         'wallet': wallet,
+         'method': method,
+         'amount': amount,
+         'address': address
+      })
 
 ########
 class MockedBfxClientClass(object):
@@ -124,6 +146,12 @@ class MockedBfxClientClass(object):
          Wallet(BFX_DERIVATIVES_WALLET,
             self.symbol, balance, 0, balance
          )])
+
+   async def push_wallet_update(self, balance):
+      await self.ws.callbacks['wallet_update'](
+         Wallet(BFX_DERIVATIVES_WALLET,
+            self.symbol, balance, 0, balance
+      ))
 
    async def push_position_snapshot(self, amount, leverage):
       await self.ws.push_position_snapshot(self.symbol, amount, leverage)
@@ -539,3 +567,89 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #set maker's open price way below the position's base price
       await maker.setOpenPrice(8000)
       assert mockedConnection.getPositionLiquidationPrice() == 10250
+
+   @patch('Providers.Bitfinex.Client')
+   async def test_rebalance_withdrawals(self, MockedBfxClientObj):
+      #return mocked finex connection object instead of an instance
+      #of bfxapi.Client
+      mockedConnection = MockedBfxClientClass()
+      MockedBfxClientObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = TestMaker(1000)
+      taker = BitfinexProvider(self.config)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert taker.connection is mockedConnection
+
+      #sanity check on ready states
+      assert maker.isReady() == True
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert hedger.isReady() == False
+      assert taker._connected == False
+      assert taker._balanceInitialized == False
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit authorize notification
+      await mockedConnection.push_authorize()
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._connected == True
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+      await mockedConnection.update_order_book(-20, 10400)
+
+      #emit position notification
+      await mockedConnection.push_position_snapshot(0, taker.leverage)
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._positionInitialized == True
+      assert mockedConnection.ws.tracked_exposure == 0
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit wallet snapshot notification
+      await mockedConnection.push_wallet_snapshot(1500)
+      assert taker.isReady() == True
+      assert taker._balanceInitialized == True
+      assert round(taker.getExposure(), 8) == 0
+      assert hedger.isReady() == True
+      assert dealer.isReady() == True
+      assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 1500
+      assert maker.balance == 1000
+
+      #check hedger can rebalance
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False
+      assert len(mockedConnection.rest.withdrawals) == 0
+
+      #set taker balance to trigger rebalance
+      await mockedConnection.push_wallet_update(4000)
+      assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 4000
+      assert maker.balance == 1000
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == True
+
+      cashMetrics = taker.getCashMetrics()
+      assert cashMetrics['total'] == 4000
+      assert cashMetrics['pending'] == 0
+      assert cashMetrics['price'] == 10400
+
+      assert len(mockedConnection.rest.withdrawals) == 1
+      wtdr = mockedConnection.rest.withdrawals[0]
+      assert wtdr['amount'] == 1000
+
+      #apply effect of withdrawal on taker's balance
+      await mockedConnection.push_wallet_update(3000)
+      assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 3000
+      assert maker.balance == 1000
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False

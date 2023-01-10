@@ -299,10 +299,13 @@ class BitfinexProvider(Factory):
       try:
          deposit_address = await self.connection.rest.get_wallet_deposit_address(
             wallet=BFX_DERIVATIVES_WALLET, method=BFX_DEPOSIT_METHOD)
-         self.chainAddresses.set_deposit_address(deposit_address.notify_info.address)
+         self.chainAddresses.setDepositAddress(deposit_address.notify_info.address)
          await callback()
       except Exception as e:
          logging.error(f'Failed to load Bitfinex deposit address: {str(e)}')
+
+   def setWithdrawAddresses(self, addresses):
+      self.chainAddresses.setWithdrawAddresses(addresses)
 
    async def loadWithdrawals(self, callback):
       await callback()
@@ -457,16 +460,43 @@ class BitfinexProvider(Factory):
       if priceBid == None or priceAsk == None:
          return None
 
+      balanceKey = BALANCE_FREE
+      if BALANCE_FREE not in balance:
+         balanceKey = BALANCE_TOTAL
+
       collateralPct = self.getCollateralRatio()
-      if balance[BALANCE_FREE] == None or priceAsk.price == None:
-         logging.error(f"invalid data: bal: {balance[BALANCE_FREE]}, "\
+      if balance[balanceKey] == None or priceAsk.price == None:
+         logging.error(f"invalid data: bal: {balance[balanceKey]}, "\
             f" col_rt: {collateralPct}, price: {priceAsk.price}")
          return None
 
+      if balance[balanceKey] < 0:
+         #finex balance can be left negative after a forced liquidation
+         return None
+
       result = {}
-      result["ask"] = balance[BALANCE_FREE] / (collateralPct * priceAsk.price)
-      result["bid"] = balance[BALANCE_FREE] / (collateralPct * priceBid.price)
+      result["ask"] = balance[balanceKey] / (collateralPct * priceAsk.price)
+      result["bid"] = balance[balanceKey] / (collateralPct * priceBid.price)
       return result
+
+   ## cash metrics
+   def getCashMetrics(self):
+      if BFX_DERIVATIVES_WALLET not in self.balances or \
+         self.derivatives_currency not in self.balances[BFX_DERIVATIVES_WALLET]:
+         return None
+      balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
+      if not BALANCE_FREE in balance:
+         return None
+      priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume*3)
+      if priceAsk == None:
+         return None
+
+      return {
+         'total' : balance[BALANCE_FREE],
+         'pending' : 0,
+         'ratio' : self.getCollateralRatio(),
+         'price' : priceAsk.price
+      }
 
    ## exposure ##
    def getExposure(self):
@@ -502,6 +532,19 @@ class BitfinexProvider(Factory):
 
       id = next(iter(self.positions[self.product]))
       return self.positions[self.product][id].base_price
+
+   ## withdrawals ##
+   async def withdraw(self, amount, callback):
+      await self.connection.rest.submit_wallet_withdraw(
+         wallet=BFX_DERIVATIVES_WALLET,
+         method=BFX_DEPOSIT_METHOD,
+         amount=amount,
+         address=self.chainAddresses.getWithdrawAddresses()[0]
+      )
+      await callback()
+
+   def withdrawalsLoaded(self):
+      return True
 
    ## collateral ##
    async def checkCollateral(self, openPrice):

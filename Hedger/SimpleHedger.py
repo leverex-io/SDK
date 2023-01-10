@@ -35,7 +35,11 @@ class RebalanceTarget(object):
          self.amount = takerSide
 
    def needsRebalance(self):
-      return self.amount != 0
+      if self.amount == 0:
+         return False
+      ratio = abs(self.amount) / (self.makerCash + self.makerPendingCash + \
+         self.takerCash + self.takerPendingCash)
+      return ratio >= 0.1
 
    @property
    def inTransit(self):
@@ -77,6 +81,11 @@ class RebalanceManager(object):
    async def setup(self):
       #get providers' deposit address
       async def addrCallback():
+         #set taker withdraw addr to maker's deposit addr
+         if self.maker.chainAddresses.hasDepositAddr():
+            self.taker.chainAddresses.setWithdrawAddresses(
+               [self.maker.chainAddresses.getDepositAddress()])
+
          if self.maker.chainAddresses.hasDepositAddr() and \
             self.taker.chainAddresses.hasDepositAddr():
             self.loadedAddresses = True
@@ -87,8 +96,8 @@ class RebalanceManager(object):
 
       #get pending withdrawals
       async def wtdrCallback():
-         if self.maker.getPendingWithdrawals() != None and \
-            self.taker.getPendingWithdrawals() != None:
+         if self.maker.withdrawalsLoaded() and \
+            self.taker.withdrawalsLoaded():
             self.loadedWithdrawals = True
             await self.assessRebalanceTarget()
 

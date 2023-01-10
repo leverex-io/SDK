@@ -626,37 +626,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(maker.withdrawalHist) == 0
 
       #reduce taker cash, maker rebalance target should go up
-      await taker.updateBalance(1200)
-      assert maker.balance == 1000
-      assert taker.balance == 1200
-      assert maker.getExposure() == 0
-      assert taker.getExposure() == 0
-      assert hedger.rebalMan.canAssess() == False
-      assert hedger.rebalMan.canWithdraw() == True
-      assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 880
-      assert hedger.rebalMan.target.takerTarget == 1320
-      assert hedger.rebalMan.target.amount == 120
-      assert len(maker.withdrawalHist) == 0
-
-      #ACK maker withdrawal request
-      await maker.pushWithdrawal()
-      assert maker.balance == 880
-      assert taker.balance == 1200
-      assert maker.getExposure() == 0
-      assert taker.getExposure() == 0
-      assert hedger.rebalMan.canAssess() == True
-      assert hedger.rebalMan.canWithdraw() == True
-      assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 880
-      assert hedger.rebalMan.target.takerTarget == 1320
-      assert hedger.rebalMan.target.amount == 0
-      assert len(maker.withdrawalHist) == 1
-      assert maker.withdrawalHist[0] == 120
-
-      #reduce taker balance again, maker rebalance target will go up
       await taker.updateBalance(1000)
-      assert maker.balance == 880
+      assert maker.balance == 1000
       assert taker.balance == 1000
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
@@ -665,55 +636,84 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.canRebalance() == True
       assert hedger.rebalMan.target.makerTarget == 800
       assert hedger.rebalMan.target.takerTarget == 1200
+      assert hedger.rebalMan.target.amount == 200
+      assert len(maker.withdrawalHist) == 0
+
+      #ACK maker withdrawal request
+      await maker.pushWithdrawal()
+      assert maker.balance == 800
+      assert taker.balance == 1000
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      assert hedger.rebalMan.target.makerTarget == 720
+      assert hedger.rebalMan.target.takerTarget == 1080
       assert hedger.rebalMan.target.amount == 80
       assert len(maker.withdrawalHist) == 1
-      assert maker.withdrawalHist[0] == 120
+      assert maker.withdrawalHist[0]['amount'] == 200
+
+      #reduce taker balance again, maker rebalance target will go up
+      await taker.updateBalance(800)
+      assert maker.balance == 800
+      assert taker.balance == 800
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      assert hedger.rebalMan.target.makerTarget == 640
+      assert hedger.rebalMan.target.takerTarget == 960
+      assert hedger.rebalMan.target.amount == 160
+      assert len(maker.withdrawalHist) == 1
+      assert maker.withdrawalHist[0]['amount'] == 200
 
       #give maker more cash
       #rebal target shouldn't change as transit is underway
       await maker.updateBalance(1000)
       assert maker.balance == 1000
-      assert taker.balance == 1000
+      assert taker.balance == 800
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == False
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 800
-      assert hedger.rebalMan.target.takerTarget == 1200
-      assert hedger.rebalMan.target.amount == 80
+      assert hedger.rebalMan.target.makerTarget == 640
+      assert hedger.rebalMan.target.takerTarget == 960
+      assert hedger.rebalMan.target.amount == 160
       assert len(maker.withdrawalHist) == 1
-      assert maker.withdrawalHist[0] == 120
+      assert maker.withdrawalHist[0]['amount'] == 200
 
       #ACK maker withdrawal request
       await maker.pushWithdrawal()
-      assert maker.balance == 920
-      assert taker.balance == 1000
+      assert maker.balance == 840
+      assert taker.balance == 800
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == False
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 848
-      assert hedger.rebalMan.target.takerTarget == 1272
-      assert hedger.rebalMan.target.amount == 72
+      assert hedger.rebalMan.target.makerTarget == 656
+      assert hedger.rebalMan.target.takerTarget == 984
+      assert hedger.rebalMan.target.amount == 184
       assert len(maker.withdrawalHist) == 2
-      assert maker.withdrawalHist[0] == 120
-      assert maker.withdrawalHist[1] == 80
+      assert maker.withdrawalHist[0]['amount'] == 200
+      assert maker.withdrawalHist[1]['amount'] == 160
 
       #ACK maker withdrawal request
       await maker.pushWithdrawal()
-      assert maker.balance == 848
-      assert taker.balance == 1000
+      assert maker.balance == 656
+      assert taker.balance == 800
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 848
-      assert hedger.rebalMan.target.takerTarget == 1272
-      assert hedger.rebalMan.target.amount == 0
+      assert hedger.rebalMan.target.makerTarget == 582.4
+      assert hedger.rebalMan.target.takerTarget == 873.6
+      assert round(hedger.rebalMan.target.amount, 2) == 73.6
       assert len(maker.withdrawalHist) == 3
-      assert maker.withdrawalHist[0] == 120
-      assert maker.withdrawalHist[1] == 80
-      assert maker.withdrawalHist[2] == 72
+      assert maker.withdrawalHist[0]['amount'] == 200
+      assert maker.withdrawalHist[1]['amount'] == 160
+      assert maker.withdrawalHist[2]['amount'] == 184

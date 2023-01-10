@@ -1,7 +1,7 @@
 import asyncio
 
 from Factories.Provider.Factory import Factory
-from Factories.Definitions import AggregationOrderBook
+from Factories.Definitions import AggregationOrderBook, WithdrawInfo
 
 price = 10000
 
@@ -13,8 +13,18 @@ class TestProvider(Factory):
       self.startBalance = startBalance
       self.balance = 0
       self.explicitState = True
-      self.withdrawalHist = pendingWithdrawals
       self.withdrawalsToPush = []
+      self.withdrawalHist = None
+
+      if pendingWithdrawals == None:
+         return
+
+      for amount in pendingWithdrawals:
+         self.withdrawalHist = []
+         self.withdrawalHist.append({
+            'amount': amount,
+            'status': WithdrawInfo.WITHDRAW_PENDING
+         })
 
    def getAsyncIOTask(self):
       return asyncio.create_task(self.bootstrap())
@@ -43,8 +53,10 @@ class TestProvider(Factory):
 
    def getCashMetrics(self):
       pending = 0
-      for val in self.withdrawalHist:
-         pending += val
+      for wtdr in self.withdrawalHist:
+         if wtdr['status'] == WithdrawInfo.WITHDRAW_PENDING:
+            pending += wtdr['amount']
+
       return {
          'total' : self.balance,
          'pending' : pending,
@@ -86,8 +98,8 @@ class TestProvider(Factory):
          self.withdrawalHist = []
       await callback()
 
-   def getPendingWithdrawals(self):
-      return self.withdrawalHist
+   def withdrawalsLoaded(self):
+      return self.withdrawalHist is not None
 
    async def withdraw(self, amount, callback):
       self.withdrawalsToPush.append([amount, callback])
@@ -101,7 +113,11 @@ class TestProvider(Factory):
       for val in self.withdrawalsToPush:
          totalWithdrawal += val[0]
          callback = val[1]
-      self.withdrawalHist.append(totalWithdrawal)
+      self.withdrawalHist.append({
+            'amount': totalWithdrawal,
+            'status': WithdrawInfo.WITHDRAW_COMPLETED
+         })
+
       self.withdrawalsToPush = []
       await self.updateBalance(self.balance - totalWithdrawal)
       await callback()

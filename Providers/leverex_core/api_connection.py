@@ -11,7 +11,7 @@ from typing import Callable
 
 from .login_connection import LoginServiceClientWS
 from Factories.Definitions import PriceOffer, \
-   SessionCloseInfo, SessionOpenInfo, Order
+   SessionCloseInfo, SessionOpenInfo, Order, WithdrawInfo
 
 LOGIN_ENDPOINT = "wss://login-live.leverex.io/ws/v1/websocket"
 API_ENDPOINT = "wss://api-live.leverex.io"
@@ -72,7 +72,7 @@ class LeverexOrder(Order):
       #self._cut_off_price = float(data['cut_off_price'])
       #self._trade_im = data['trade_im']
       self._trade_pnl = None
-      self._reference_exposure = data['reference_exposure']
+      self._reference_exposure = float(data['reference_exposure'])
       self._session_id = int(data['session_id'])
       self._rollover_type = data['rollover_type']
       self._fee = data['fee']
@@ -184,94 +184,11 @@ class LeverexOrder(Order):
       #set pnl
       self._trade_pnl = self.quantity * priceDelta
 
+   def getMargin(self):
+      if self.sessionIM == None:
+         return None
 
-class WithdrawInfo():
-   WITHDRAW_FAILED      = 0
-   WITHDRAW_ACCEPTED    = 1
-   WITHDRAW_PENDING     = 2
-   WITHDRAW_BROADCASTED = 3
-   WITHDRAW_COMPLETED   = 4
-   WITHDRAW_CANCELLED   = 5
-   WITHDRAW_BATCHED     = 6
-
-   status_text = {
-      WITHDRAW_FAILED : 'failed',
-      WITHDRAW_ACCEPTED : 'accepted',
-      WITHDRAW_PENDING : 'pending',
-      WITHDRAW_BROADCASTED : 'broadcasted',
-      WITHDRAW_COMPLETED : 'completed',
-      WITHDRAW_CANCELLED : 'cancelled',
-      WITHDRAW_BATCHED : 'batched'
-   }
-
-   def __init__(self, data):
-      self._id = str(data['id'])
-      self._status = int(data['status'])
-      if 'success' in data:
-         if data['success']:
-            self._error_message = None
-         else:
-            self._error_message = data['error_msg']
-            return
-
-      self._tx_id = str(data.get('tx_id', ''))
-      self._recv_address = str(data['recv_address'])
-      self._currency = str(data['currency'])
-      self._amount = str(data['amount'])
-      self._timestamp = datetime.fromtimestamp(data['timestamp'])
-      self._unblinded_link = str(data.get('unblinded_link', ''))
-      self._error_message = None
-
-   def __str__(self):
-      return f'id {self._id} : {self.status}. tx id: {self._tx_id}. Link {self._unblinded_link}'
-
-   @property
-   def id(self):
-      return self._id
-
-   @property
-   def status_code(self):
-      return self._status
-
-   @property
-   def status(self):
-      return self.status_text.get(self._status, "Undefined")
-
-   @property
-   def error_message(self):
-      return self._error_message
-
-   @property
-   def recv_address(self):
-      return self._recv_address
-
-   @property
-   def currency(self):
-      return self._currency
-
-   @property
-   def amount(self):
-      return self._amount
-
-   @property
-   def timestamp(self):
-      return self._timestamp
-
-   @property
-   def unblinded_link(self):
-      return self._unblinded_link
-
-   @property
-   def transacion_id(self):
-      return self._tx_id
-
-   def isPending(self):
-      return self._status in [
-         self.WITHDRAW_ACCEPTED,
-         self.WITHDRAW_PENDING,
-         self.WITHDRAW_BROADCASTED,
-         self.WITHDRAW_BATCHED
-      ]
+      return self.sessionIM * self.quantity
 
 
 class DepositInfo():

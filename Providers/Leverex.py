@@ -62,6 +62,36 @@ class SessionOrders(object):
 
       return self.id == obj.id and self.orders.keys() == obj.orders.keys()
 
+   def getUnencumberedMargin(self):
+      freeMargin = 0
+      for orderId in self.orders:
+         order = self.orders[orderId]
+         if order.is_filled():
+            #filled orders do not affect exposure
+            continue
+
+         margin = order.getMargin()
+         if margin == None:
+            continue
+
+         #apply margin to relevant side
+         if order.is_sell():
+            freeMargin -= margin
+         else:
+            freeMargin += margin
+
+      freeAskMargin = 0
+      freeBidMargin = 0
+      if freeMargin < 0:
+         freeAskMargin = abs(freeMargin)
+      else:
+         freeBidMargin = freeMargin
+
+      return {
+         'ask': freeAskMargin,
+         'bid': freeBidMargin
+      }
+
 ################################################################################
 class LeverexPositionsReport(PositionsReport):
    def __init__(self, provider):
@@ -257,7 +287,10 @@ class LeverexProvider(Factory):
          await callback()
 
       async def withdrawAddressCallback(addresses):
-         self.chainAddresses.setWithdrawAddresses(addresses)
+         addressList = []
+         for addr in addresses:
+            addressList.append(addr)
+         self.chainAddresses.setWithdrawAddresses(addressList)
 
       await self.connection.load_deposit_address(depositAddressCallback)
       await self.connection.load_whitelisted_addresses(withdrawAddressCallback)
@@ -275,17 +308,8 @@ class LeverexProvider(Factory):
       await self.connection.load_withdrawals_history(whdrCallback)
 
    ##
-   def getPendingWithdrawals(self):
-      if self.withdrawalHistory == None:
-         return None
-
-      withdrawalList = []
-      for wId in self.withdrawalHistory:
-         withdrawal = self.withdrawalHistory[wId]
-         if withdrawal.isPending():
-            withdrawalList.append(withdrawal)
-
-      return withdrawalList
+   def withdrawalsLoaded(self):
+      return self.withdrawalHistory is not None
 
    ##
    async def withdraw(self, amount, callback):
@@ -421,11 +445,23 @@ class LeverexProvider(Factory):
          return None
       balance = self.balances[self.ccy]
 
-      #TODO: account for exposure that can be freed from current orders
+      #calculate the volume that can be freed per order
+      margins = {
+         'ask': 0,
+         'bid': 0
+      }
 
+      if self.currentSession != None:
+         sessionOrders = self.orderData[self.currentSession.getSessionId()]
+         sessionOrders.setIndexPrice(self.indexPrice)
+         margins = sessionOrders.getUnencumberedMargin()
+
+      #add free ask margin to bid and vice versa
+      #margin that has been freed from one side can then be used on the other
+      #this explains the 2x
       result = {}
-      result['ask'] = balance / (leverageRatio * price)
-      result['bid'] = balance / (leverageRatio * price)
+      result['ask'] = (balance + margins['bid']*2) / (leverageRatio * price)
+      result['bid'] = (balance + margins['ask']*2) / (leverageRatio * price)
       return result
 
    def getCashMetrics(self):

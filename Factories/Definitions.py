@@ -332,6 +332,8 @@ class DepositWithdrawAddresses():
       self._withdraw_address = addresses
 
    def getWithdrawAddresses(self):
+      if not self.hasWithdrawAddr():
+         raise Exception("missing withdraw address")
       return self._withdraw_address
 
    def setDepositAddress(self, address):
@@ -341,7 +343,102 @@ class DepositWithdrawAddresses():
       return self._deposit_address
 
    def hasDepositAddr(self):
-      return self._deposit_address != None
+      if self._deposit_address == None or \
+         len(self._deposit_address) == 0:
+         return False
+      return True
 
    def hasWithdrawAddr(self):
-      return self._withdraw_address != None
+      if self._withdraw_address == None or \
+         len(self._withdraw_address) == 0:
+         return False
+      return True
+
+################################################################################
+class WithdrawInfo():
+   WITHDRAW_FAILED      = 0
+   WITHDRAW_ACCEPTED    = 1
+   WITHDRAW_PENDING     = 2
+   WITHDRAW_BROADCASTED = 3
+   WITHDRAW_COMPLETED   = 4
+   WITHDRAW_CANCELLED   = 5
+   WITHDRAW_BATCHED     = 6
+
+   status_text = {
+      WITHDRAW_FAILED : 'failed',
+      WITHDRAW_ACCEPTED : 'accepted',
+      WITHDRAW_PENDING : 'pending',
+      WITHDRAW_BROADCASTED : 'broadcasted',
+      WITHDRAW_COMPLETED : 'completed',
+      WITHDRAW_CANCELLED : 'cancelled',
+      WITHDRAW_BATCHED : 'batched'
+   }
+
+   def __init__(self, data):
+      self._id = str(data['id'])
+      self._status = int(data['status'])
+      if 'success' in data:
+         if data['success']:
+            self._error_message = None
+         else:
+            self._error_message = data['error_msg']
+            return
+
+      self._tx_id = str(data.get('tx_id', ''))
+      self._recv_address = str(data['recv_address'])
+      self._currency = str(data['currency'])
+      self._amount = str(data['amount'])
+      self._timestamp = datetime.fromtimestamp(data['timestamp'])
+      self._unblinded_link = str(data.get('unblinded_link', ''))
+      self._error_message = None
+
+   def __str__(self):
+      return f'id {self._id} : {self.status}. tx id: {self._tx_id}. Link {self._unblinded_link}'
+
+   @property
+   def id(self):
+      return self._id
+
+   @property
+   def status_code(self):
+      return self._status
+
+   @property
+   def status(self):
+      return self.status_text.get(self._status, "Undefined")
+
+   @property
+   def error_message(self):
+      return self._error_message
+
+   @property
+   def recv_address(self):
+      return self._recv_address
+
+   @property
+   def currency(self):
+      return self._currency
+
+   @property
+   def amount(self):
+      return self._amount
+
+   @property
+   def timestamp(self):
+      return self._timestamp
+
+   @property
+   def unblinded_link(self):
+      return self._unblinded_link
+
+   @property
+   def transacion_id(self):
+      return self._tx_id
+
+   def isPending(self):
+      return self._status in [
+         self.WITHDRAW_ACCEPTED,
+         self.WITHDRAW_PENDING,
+         self.WITHDRAW_BROADCASTED,
+         self.WITHDRAW_BATCHED
+      ]
