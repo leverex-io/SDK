@@ -291,11 +291,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers0 = maker.offers[0]
       assert len(offers0) == 2
 
-      assert round(offers0[0].volume, 4) == 0.993
+      assert offers0[0].volume == 1
       assert offers0[0].bid == None
       assert offers0[0].ask == round(10020.83 * 1.01, 2)
 
-      assert offers0[1].volume == 1
+      assert round(offers0[1].volume, 4) == 0.993
       assert offers0[1].bid == round(9979.17  * 0.99, 2)
       assert offers0[1].ask == None
 
@@ -376,11 +376,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers0 = maker.offers[0]
       assert len(offers0) == 2
 
-      assert round(offers0[0].volume, 4) == 0.993
+      assert offers0[0].volume == 1
       assert offers0[0].bid == None
       assert offers0[0].ask == round(10020.83 * 1.01, 2)
 
-      assert offers0[1].volume == 1
+      assert round(offers0[1].volume, 4) == 0.993
       assert offers0[1].bid == round(9979.17  * 0.99, 2)
       assert offers0[1].ask == None
 
@@ -670,6 +670,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 3000
       assert maker.balance == 1000
       assert hedger.canRebalance() == True
+      #NOTE: this is meant to fail, need to revisit compounded withdrawals later
       assert hedger.needsRebalance() == False
 
    #cover open volume asymetry

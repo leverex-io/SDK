@@ -241,6 +241,12 @@ class SimpleHedger(HedgerFactory):
          await self.clearOffers(maker)
          return
 
+      '''
+      The price at which the maker buys is the price at which
+      it sells to the taker, and vice versa.
+      Maker ask should be matched with taker bid and so on when
+      calculating price streams volume.
+      '''
       ask_volume = min(maker_volume['ask'], taker_volume['bid'])
       bid_volume = min(maker_volume['bid'], taker_volume['ask'])
 
