@@ -241,8 +241,8 @@ class SimpleHedger(HedgerFactory):
          await self.clearOffers(maker)
          return
 
-      ask_volume = min(maker_volume['ask'], taker_volume['ask'])
-      bid_volume = min(maker_volume['bid'], taker_volume['bid'])
+      ask_volume = min(maker_volume['ask'], taker_volume['bid'])
+      bid_volume = min(maker_volume['bid'], taker_volume['ask'])
 
       #cap by max offer volume where applicable
       ask_volume = min(ask_volume, self.max_offer_volume)

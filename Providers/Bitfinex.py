@@ -452,17 +452,24 @@ class BitfinexProvider(Factory):
          self.derivatives_currency not in self.balances[BFX_DERIVATIVES_WALLET]:
          return None
       balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
-      #TODO: account for exposure that can be freed from current orders
-
       priceBid = self.order_book.get_aggregated_bid_price(self.max_offer_volume)
       priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume)
 
       if priceBid == None or priceAsk == None:
          return None
 
+      freeMargin = 0
       balanceKey = BALANCE_FREE
       if BALANCE_FREE not in balance:
          balanceKey = BALANCE_TOTAL
+      else:
+         #calculate freeable margin
+         if self.product in self.positions:
+            for id in self.positions[self.product]:
+               if self.positions[self.product][id].collateral == None:
+                  freeMargin = 0
+                  break
+               freeMargin += self.positions[self.product][id].collateral
 
       collateralPct = self.getCollateralRatio()
       if balance[balanceKey] == None or priceAsk.price == None:
@@ -474,9 +481,16 @@ class BitfinexProvider(Factory):
          #finex balance can be left negative after a forced liquidation
          return None
 
+      askBal = balance[balanceKey]
+      bidBal = balance[balanceKey]
+      if self.getExposure() > 0:
+         askBal += freeMargin*2
+      else:
+         bidBal += freeMargin*2
+
       result = {}
-      result["ask"] = balance[balanceKey] / (collateralPct * priceAsk.price)
-      result["bid"] = balance[balanceKey] / (collateralPct * priceBid.price)
+      result["ask"] = askBal / (collateralPct * priceAsk.price)
+      result["bid"] = bidBal / (collateralPct * priceBid.price)
       return result
 
    ## cash metrics

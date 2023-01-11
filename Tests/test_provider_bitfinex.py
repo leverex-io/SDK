@@ -1,4 +1,4 @@
-#import pdb; pdb.set_trace()
+import pdb; pdb.set_trace()
 import unittest
 from unittest.mock import patch
 
@@ -28,6 +28,7 @@ class FakeBfxWsInterface(object):
       self.order_books = {}
       self.tracked_exposure = 0
       self.positions = {}
+      self.balance = 0
 
    def on(self, name, callback):
       self.callbacks[name] = callback
@@ -98,8 +99,31 @@ class FakeBfxWsInterface(object):
       await self.callbacks['position_update']([
          None, None, self.positions[symbol]])
 
+      #push wallet balance notification to update free cash
+      await self.push_wallet_update(symbol, self.balance)
+
    async def subscribe_derivative_status(self, symbol):
       pass
+
+   def getFreeBalance(self, symbol):
+      val = 0
+      if symbol in self.positions:
+         val = self.positions[symbol][COLLATERAL]
+      return self.balance - val
+
+   async def push_wallet_snapshot(self, symbol, balance):
+      self.balance = balance
+      await self.callbacks['wallet_snapshot']([
+         Wallet(BFX_DERIVATIVES_WALLET,
+            symbol, balance, 0, self.getFreeBalance(symbol)
+         )])
+
+   async def push_wallet_update(self, symbol, balance):
+      self.balance = balance
+      await self.callbacks['wallet_update'](
+         Wallet(BFX_DERIVATIVES_WALLET,
+            symbol, balance, 0, self.getFreeBalance(symbol)
+      ))
 
 ################################################################################
 class FakeBfxRestInterface(object):
@@ -142,16 +166,10 @@ class MockedBfxClientClass(object):
       await self.ws.callbacks['authenticated']("")
 
    async def push_wallet_snapshot(self, balance):
-      await self.ws.callbacks['wallet_snapshot']([
-         Wallet(BFX_DERIVATIVES_WALLET,
-            self.symbol, balance, 0, balance
-         )])
+      await self.ws.push_wallet_snapshot(self.symbol, balance)
 
    async def push_wallet_update(self, balance):
-      await self.ws.callbacks['wallet_update'](
-         Wallet(BFX_DERIVATIVES_WALLET,
-            self.symbol, balance, 0, balance
-      ))
+      await self.ws.push_wallet_update(self.symbol, balance)
 
    async def push_position_snapshot(self, amount, leverage):
       await self.ws.push_position_snapshot(self.symbol, amount, leverage)
@@ -653,3 +671,103 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.balance == 1000
       assert hedger.canRebalance() == True
       assert hedger.needsRebalance() == False
+
+   #cover open volume asymetry
+   @patch('Providers.Bitfinex.Client')
+   async def test_open_volume(self, MockedBfxClientObj):
+      #return mocked finex connection object instead of an instance
+      #of bfxapi.Client
+      mockedConnection = MockedBfxClientClass()
+      MockedBfxClientObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = TestMaker(1000)
+      taker = BitfinexProvider(self.config)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert taker.connection is mockedConnection
+
+      #sanity check on ready states
+      assert maker.isReady() == True
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert hedger.isReady() == False
+      assert taker._connected == False
+      assert taker._balanceInitialized == False
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit authorize notification
+      await mockedConnection.push_authorize()
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._connected == True
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+      await mockedConnection.update_order_book(-20, 10400)
+      await mockedConnection.update_order_book(20, 9600)
+
+      #emit position notification
+      await mockedConnection.push_position_snapshot(0, taker.leverage)
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._positionInitialized == True
+      assert mockedConnection.ws.tracked_exposure == 0
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit wallet snapshot notification
+      await mockedConnection.push_wallet_snapshot(1500)
+      assert taker.isReady() == True
+      assert taker._balanceInitialized == True
+      assert round(taker.getExposure(), 8) == 0
+      assert hedger.isReady() == True
+      assert dealer.isReady() == True
+      assert taker.balances[BFX_DERIVATIVES_WALLET]['usdt']['total'] == 1500
+      assert maker.balance == 1000
+
+      #check open volume
+      vol = taker.getOpenVolume()
+      assert vol['ask'] == 1500 / (0.15 * 10400)
+      assert vol['bid'] == 1500 / (0.15 * 9600)
+
+      ## push an order ##
+      await maker.newOrder(Order(1, 1, 0.3, 10000, SIDE_BUY))
+
+      #check exposure
+      assert maker.getExposure() == 0.3
+      assert taker.getExposure() == -0.3
+
+      #check open volume, should reflect effect of exposure
+      vol = taker.getOpenVolume()
+      assert vol['ask'] == 1050 / (0.15 * 10400)
+      assert vol['bid'] == 1950 / (0.15 * 9600)
+
+      ## push order on opposite side ##
+      await maker.newOrder(Order(2, 1, -0.5, 10000, SIDE_SELL))
+
+      #check exposure
+      assert maker.getExposure() == -0.2
+      assert taker.getExposure() == 0.2
+
+      #check open volume, should reflect effect of exposure
+      vol = taker.getOpenVolume()
+      assert vol['ask'] == 1800 / (0.15 * 10400)
+      assert vol['bid'] == 1200 / (0.15 * 9600)
+
+      ## go flat at a higher price ##
+      await maker.newOrder(Order(3, 1, 0.2, 10100, SIDE_BUY))
+
+      #check exposure
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+
+      vol = taker.getOpenVolume()
+      assert vol['ask'] == 1500 / (0.15 * 10400)
+      assert vol['bid'] == 1500 / (0.15 * 9600)

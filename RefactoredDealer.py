@@ -21,10 +21,16 @@ if __name__ == '__main__':
    with open("refactored_config.json") as json_config_file:
       config = json.load(json_config_file)
 
-   maker = LeverexProvider(config)
-   taker = BitfinexProvider(config)
-   hedger = SimpleHedger(config)
-   statusReporter = LocalReporter()
-   dealer = DealerFactory(maker, taker, hedger, [statusReporter])
+   while True:
+      try:
+         maker = LeverexProvider(config)
+         taker = BitfinexProvider(config)
+         hedger = SimpleHedger(config)
+         statusReporter = LocalReporter()
+         dealer = DealerFactory(maker, taker, hedger, [statusReporter])
 
-   asyncio.run(dealer.run())
+         asyncio.run(dealer.run())
+      except Exception as e:
+         logging.error(f"!! Main loop broke with error: {str(e)} !!")
+         logging.warn("!! Restarting in 5 !!")
+         asyncio.sleep(5)
