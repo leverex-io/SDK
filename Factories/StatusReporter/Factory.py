@@ -27,12 +27,8 @@ class ReadyStatus(object):
 
 class Factory(object):
    def __init__(self, config):
-      self.readyState = {
-         DEALER : False,
-         HEDGER : False,
-         MAKER  : False,
-         TAKER  : False
-      }
+      
+      self.state = []
 
       self.balances = {
          MAKER : None,
@@ -52,7 +48,7 @@ class Factory(object):
       pass
 
    async def onReadyEvent(self, dealer):
-      self.state = []
+      self.state.clear()
       self.state.append(ReadyStatus(dealer))
       self.state.append(ReadyStatus(dealer.hedger))
       self.state.append(ReadyStatus(dealer.maker))

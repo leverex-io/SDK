@@ -66,7 +66,7 @@ class WebReporter(Factory):
 
    def createDataProxy(self):
        obj = DataProxyObject()
-       obj.ready_state = self.readyState
+       obj.ready_state = self.state
        
        balance = {} 
        pos = {}
