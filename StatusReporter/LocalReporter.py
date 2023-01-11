@@ -2,7 +2,8 @@ import time
 from datetime import datetime
 
 from Factories.StatusReporter.Factory import Factory, MAKER, TAKER
-from Factories.Definitions import Position, Balance, Ready, PriceEvent
+from Factories.Definitions import Position, Balance, Ready, \
+   PriceEvent, Rebalance
 
 class LocalReporter(Factory):
    #### setup ####
@@ -20,7 +21,7 @@ class LocalReporter(Factory):
       print ("")
 
    def printBalances(self):
-      print (f"-- BALANCE: {datetime.fromtimestamp(time.time())} --")
+      print (f"-- WALLETS: {datetime.fromtimestamp(time.time())} --")
 
       print (str(self.balances[MAKER]))
       print (str(self.balances[TAKER]))
@@ -38,6 +39,12 @@ class LocalReporter(Factory):
       print (self.positions[TAKER].getPnlReport())
       print ("")
 
+   def printRebalance(self):
+      print (f"-- REBALANCE: {datetime.fromtimestamp(time.time())} --")
+
+      print (str(self.rebalance))
+      print ("")
+
    #### report override ####
    async def report(self, notification):
       if notification == Ready:
@@ -51,3 +58,6 @@ class LocalReporter(Factory):
 
       elif notification == PriceEvent:
          self.printPnl()
+
+      elif notification == Rebalance:
+         self.printRebalance()

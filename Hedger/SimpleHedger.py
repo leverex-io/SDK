@@ -2,12 +2,15 @@ import asyncio
 import logging
 
 from Factories.Hedger.Factory import HedgerFactory
-from Factories.Definitions import PriceOffer, OfferException
+from Factories.Definitions import PriceOffer, OfferException, \
+   Rebalance, RebalanceReport
 
 ################################################################################
 class HedgerException(Exception):
    pass
 
+################################################################################
+## Rebalance
 ################################################################################
 class RebalanceTarget(object):
    def __init__(self, makerCash, makerTarget, takerCash, takerTarget):
@@ -55,11 +58,12 @@ class RebalanceTarget(object):
 class RebalanceManager(object):
 
    ## setup ##
-   def __init__(self, maker, taker, maxVol):
+   def __init__(self, maker, taker, maxVol, onEventFunc):
       self.maker = maker
       self.taker = taker
       self.maxVol = maxVol
       self.target = None
+      self.onEventFunc = onEventFunc
 
       self.loadedWithdrawals = False
       self.loadedAddresses = False
@@ -159,6 +163,7 @@ class RebalanceManager(object):
 
    ## rebalance process ##
    async def performRebalance(self):
+      await self.onEventFunc(None, Rebalance)
       if not self.canWithdraw():
          return
 
@@ -179,6 +184,61 @@ class RebalanceManager(object):
       elif self.target.amount < 0:
          await self.taker.withdraw(abs(self.target.amount), callback)
 
+################################################################################
+class RebalanceStatusReport(RebalanceReport):
+   def __init__(self, hedger):
+      super().__init__(hedger)
+      self.rebalMan = hedger.rebalMan
+
+   def __str__(self):
+      hasTarget = self.rebalMan.target != None
+      inTransit = False
+      if hasTarget:
+         inTransit = self.rebalMan.target.inTransit
+
+      #status
+      result = " |- STATUS:\n"\
+         " |  canRebalance: {}, canAssess: {}," \
+         " haveTarget: {}, inTransit: {}\n".format(
+            self.rebalMan.canWithdraw(),
+            self.rebalMan.canAssess(),
+            hasTarget, inTransit
+         )
+
+      #addresses
+      def setAddresses(provider):
+         wtdrAddr = "N/A"
+         if provider.chainAddresses.hasWithdrawAddr():
+            wtdrAddr = provider.chainAddresses.getWithdrawAddresses()[0]
+         depAddr = "N/A"
+         if provider.chainAddresses.hasDepositAddr():
+            depAddr = provider.chainAddresses.getDepositAddress()
+         return " |  * {} *\n" \
+            " |    withdraw: {}\n" \
+            " |    deposits: {}\n".format(
+               provider.name, wtdrAddr, depAddr)
+      result += " |\n"
+      result += " |- ADDRESSES:\n"
+      result += setAddresses(self.rebalMan.maker)
+      result += setAddresses(self.rebalMan.taker)
+
+      #target
+      result += " |\n"
+      result += " |- TARGET:\n"
+      if not hasTarget:
+         result += " |    N/A"
+      else:
+         def setBalances(provider, balance, target):
+            return " |  * {}: balance: {}, target: {}\n".format(
+               provider.name, balance, target)
+         result += setBalances(self.rebalMan.maker,
+            self.rebalMan.target.makerCash,
+            self.rebalMan.target.makerTarget)
+
+      return result
+
+################################################################################
+## Hedger
 ################################################################################
 class SimpleHedger(HedgerFactory):
    required_settings = {
@@ -359,7 +419,8 @@ class SimpleHedger(HedgerFactory):
       #set the hedger ready flag. Further calls will have no effect
       self.setReady()
       if self.rebalMan == None:
-         self.rebalMan = RebalanceManager(maker, taker, self.max_offer_volume)
+         self.rebalMan = RebalanceManager(
+            maker, taker, self.max_offer_volume, self.onEventFunc)
          await self.rebalMan.setup()
 
    ####
@@ -430,3 +491,11 @@ class SimpleHedger(HedgerFactory):
       # update offers
       await self.checkExposureSync(maker, taker)
       await self.submitOffers(maker, taker)
+
+   #############################################################################
+   ## rebalance status
+   #############################################################################
+   def getRebalanceStatus(self):
+      if self.rebalMan == None:
+         return None
+      return RebalanceStatusReport(self)

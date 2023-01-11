@@ -125,7 +125,7 @@ class LeverexPositionsReport(PositionsReport):
       if session is not None and session.isOpen():
          result += " -- session: {}, open price: {}".format(
             session.getSessionId(), session.getOpenPrice())
-      result += "*\n"
+      result += " *\n"
 
       if self.getOrderCount() == 0:
          result += "    N/A\n"

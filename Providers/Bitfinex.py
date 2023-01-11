@@ -167,7 +167,7 @@ class BfxBalanceReport(BalanceReport):
          mainFree = mainCcy[BALANCE_FREE]
 
       #main {account:ccy}
-      result += "    * Derivatives Account ({})*\n".format(BFX_DERIVATIVES_WALLET)
+      result += "    * Derivatives Account ({}) *\n".format(BFX_DERIVATIVES_WALLET)
       result += "      <[{}] total: {}, free: {}>\n".format(
          self.ccy, mainTotal, mainFree)
 

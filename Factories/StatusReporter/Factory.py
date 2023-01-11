@@ -27,7 +27,7 @@ class ReadyStatus(object):
 
 class Factory(object):
    def __init__(self, config):
-      
+      self.lastPriceEvent = 0
       self.state = []
 
       self.balances = {
@@ -103,3 +103,7 @@ class Factory(object):
       self.balances[MAKER] = dealer.maker.getBalance()
       self.balances[TAKER] = dealer.taker.getBalance()
       await self.report(Definitions.PriceEvent)
+
+   async def onRebalanceEvent(self, dealer):
+      self.rebalance = dealer.hedger.getRebalanceStatus()
+      await self.report(Definitions.Rebalance)

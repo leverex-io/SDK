@@ -1,13 +1,16 @@
 from datetime import datetime
 import time
 
-####
+## dealer events ##
 Position = 'position'
 Balance = 'balance'
 OrderBook = 'orderbook'
 Ready = 'ready'
 Collateral = 'collateral'
 PriceEvent = 'index_price'
+Rebalance = 'rebalance'
+##
+
 
 SIDE_BUY = 1
 SIDE_SELL = 2
@@ -285,6 +288,13 @@ class PositionsReport(object):
       self.openPrice = provider.getOpenPrice()
       self.indexPrice = provider.indexPrice
 
+      if isinstance(self.netExposure, float):
+         self.netExposure = round(self.netExposure, 8)
+      if isinstance(self.openPrice, float):
+         self.openPrice = round(self.openPrice, 2)
+      if isinstance(self.indexPrice, float):
+         self.indexPrice = round(self.indexPrice, 2)
+
    @property
    def timestamp(self):
       return self._timestamp
@@ -321,6 +331,26 @@ class BalanceReport(object):
 
       #5min sec intervals
       return abs(obj._timestamp - self._timestamp) <= 300000
+
+################################################################################
+class RebalanceReport(object):
+   def __init__(self, provider):
+      self.name = provider.name
+      self._timestamp = time.time_ns() / 1000000
+
+   @property
+   def timestamp(self):
+      return self._timestamp
+
+   def __eq__(self, obj):
+      if not isinstance(obj, RebalanceReport):
+         return False
+
+      #1min sec intervals
+      return abs(obj._timestamp - self._timestamp) <= 60000
+
+   def __str__(self):
+      return "N/A"
 
 ################################################################################
 class DepositWithdrawAddresses():

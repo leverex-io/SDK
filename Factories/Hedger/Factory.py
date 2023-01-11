@@ -5,6 +5,11 @@ class HedgerFactory(object):
    def __init__(self, name):
       self._name = name
       self._ready = False
+      self.onEventFunc = None
+
+   ## setup ##
+   def setup(self, onEventFunc):
+      self.onEventFunc = onEventFunc
 
    ## ready ##
    async def onReadyEvent(self, maker, taker):
@@ -18,6 +23,8 @@ class HedgerFactory(object):
       return self._ready
 
    def setReady(self):
+      if self.onEventFunc == None:
+         raise Exception(f"Hedger {self._name} is missing event func")
       if not self.isReady():
          self._ready = True
 
@@ -43,7 +50,11 @@ class HedgerFactory(object):
    async def onTakerOrderBookEvent(self, maker, taker):
       logging.debug("[HedgerFactory::onTakerOrderBookEvent]")
 
+   ## status ##
    def getStatusStr(self):
       if not self.isReady():
          return "waiting on exposure sync..."
       return "N/A"
+
+   def getRebalanceStatus(self):
+      logging.debug("[HedgerFactory::getRebalanceStatus]")

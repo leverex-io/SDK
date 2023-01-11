@@ -29,6 +29,9 @@ class DealerFactory(object):
       self.taker.setup(self.onEvent)
       tasks.append(self.taker.getAsyncIOTask())
 
+      ## hedger setup ##
+      self.hedger.setup(self.onEvent)
+
       ## status reporters setup ##
       for reporter in self.statusReporters:
          reporterTask = reporter.getAsyncIOTask()
@@ -61,6 +64,9 @@ class DealerFactory(object):
          return
       elif eventType == Definitions.PriceEvent:
          await self.onPriceEvent()
+         return
+      elif eventType == Definitions.Rebalance:
+         await self.onRebalanceEvent()
          return
 
       if provider == self.maker:
@@ -137,3 +143,8 @@ class DealerFactory(object):
    async def onPriceEvent(self):
       for reporter in self.statusReporters:
          await reporter.onPriceEvent(self)
+
+   ## rebalance ##
+   async def onRebalanceEvent(self):
+      for reporter in self.statusReporters:
+         await reporter.onRebalanceEvent(self)
