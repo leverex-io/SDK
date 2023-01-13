@@ -163,6 +163,9 @@ class RebalanceManager(object):
 
    ## rebalance process ##
    async def performRebalance(self):
+      #disable rebalancing for now
+      return
+
       await self.onEventFunc(None, Rebalance)
       if not self.canWithdraw():
          return
