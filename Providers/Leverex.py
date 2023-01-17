@@ -196,7 +196,7 @@ class LeverexBalanceReport(BalanceReport):
 
       #breakdown
       for ccy in self.balances:
-         result += "    <{}: {}".format(ccy, self.balances[ccy])
+         result += "    <{}: {}".format(ccy, round(self.balances[ccy], 2))
          if ccy == self.ccy:
             result += " (total)"
          result += ">\n"
@@ -338,7 +338,7 @@ class LeverexProvider(Factory):
 
          async def callback(withdraw_info):
             #TODO: handle failures to cancel
-            self.withdrawalHistory[wId] = withdraw_info
+            self.withdrawalHistory[withdraw_info.id] = withdraw_info
             #cancelled withdrawal replies come along balance notifications
             #there is no need to fire a position notification here
          await self.connection.cancel_withdraw(id=wId, callback=callback)

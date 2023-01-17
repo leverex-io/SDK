@@ -56,6 +56,9 @@ class ProviderTarget(object):
             #provider has pending withdrawals, cancel them
             self.cancelPending = CANCEL_PENDING_TODO
 
+      #8 decimals max
+      self.toWithdraw['amount'] = round(self.toWithdraw['amount'], 8)
+
    def getCashMetrics(self):
       return self.provider.getCashMetrics()
 
@@ -355,9 +358,9 @@ class RebalanceStatusReport(RebalanceReport):
       if self.rebalMan.target.state == RebalanceTarget.STATE_CANCELLING_WTDR:
          return "Cancelling past withdrawals"
       elif self.rebalMan.target.state == RebalanceTarget.STATE_WITHDRAWING:
-         provider = rebalMan.target.maker
+         provider = self.rebalMan.target.maker
          if provider.toWithdraw['amount'] == 0:
-            provider = rebalMan.target.taker
+            provider = self.rebalMan.target.taker
          result = "Withdrawing from {}: {} usdt".format(
             provider.provider.name, provider.toWithdraw['amount'])
          return result
@@ -410,10 +413,11 @@ class RebalanceStatusReport(RebalanceReport):
          result += " |    N/A"
       else:
          def setBalances(target):
+            cashMetrics = target.provider.getCashMetrics()
             return " |  * {}: balance: {}, pending: {}, target: {}\n".format(
                target.provider.name,
-               round(target.cash['total'], 2),
-               round(target.cash['pending'], 2),
+               round(cashMetrics['total'], 2),
+               round(cashMetrics['pending'], 2),
                round(target.target, 2))
 
          result += setBalances(self.rebalMan.target.maker)

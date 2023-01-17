@@ -159,11 +159,11 @@ class BfxBalanceReport(BalanceReport):
 
       mainTotal = "N/A"
       if BALANCE_TOTAL in mainCcy:
-         mainTotal = mainCcy[BALANCE_TOTAL]
+         mainTotal = round(mainCcy[BALANCE_TOTAL], 2)
 
       mainFree = "N/A"
       if BALANCE_FREE in mainCcy:
-         mainFree = mainCcy[BALANCE_FREE]
+         mainFree = round(mainCcy[BALANCE_FREE], 2)
 
       #main {account:ccy}
       result += "    * Derivatives Account ({}) *\n".format(BFX_DERIVATIVES_WALLET)
