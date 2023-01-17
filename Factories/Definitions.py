@@ -347,7 +347,7 @@ class RebalanceReport(object):
          return False
 
       #1min sec intervals
-      return abs(obj._timestamp - self._timestamp) <= 60000
+      return abs(obj._timestamp - self._timestamp) <= 30000
 
    def __str__(self):
       return "N/A"
@@ -423,7 +423,10 @@ class WithdrawInfo():
       self._error_message = None
 
    def __str__(self):
-      return f'id {self._id} : {self.status}. tx id: {self._tx_id}. Link {self._unblinded_link}'
+      result = f'<id: {self._id}> amount: {self.amount}, ccy: {self.currency}, status: {self.status}'
+      if len(self._tx_id) > 0:
+         result += f'tx id: {self._tx_id}. link: {self._unblinded_link}'
+      return result
 
    @property
    def id(self):
@@ -470,5 +473,12 @@ class WithdrawInfo():
          self.WITHDRAW_ACCEPTED,
          self.WITHDRAW_PENDING,
          self.WITHDRAW_BROADCASTED,
+         self.WITHDRAW_BATCHED
+      ]
+
+   def canBeCancelled(self):
+      return self._status in [
+         self.WITHDRAW_ACCEPTED,
+         self.WITHDRAW_PENDING,
          self.WITHDRAW_BATCHED
       ]

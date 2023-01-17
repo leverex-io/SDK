@@ -33,9 +33,11 @@ class MockedLeverexConnectionClass(object):
       self.balance_callback = None
       self.positions_callback = None
       self.withdrawRequest = []
+      self.cancelWithdraw = []
 
       self.orders = {}
       self.indexPrice = None
+      self.pendingWtdr = {}
 
    async def run(self, listener):
       self.listener = listener
@@ -176,6 +178,12 @@ class MockedLeverexConnectionClass(object):
          'callback' : callback
       })
 
+   async def cancel_withdraw(self, *, id, callback: Callable = None):
+      self.cancelWithdraw.append({
+         'id': id,
+         'callback': callback
+      })
+
    async def confirmWithdrawalRequest(self):
       for withdrawal in self.withdrawRequest:
 
@@ -203,6 +211,41 @@ class MockedLeverexConnectionClass(object):
          await withdrawal['callback'](wtd)
 
       self.withdrawRequest = []
+      self.pendingWtdr[wtd.id] = wtd
+
+   async def sendWithdrawalInfo(self, wInfo):
+      self.pendingWtdr[wInfo.id] = wInfo
+      await self.listener.on_withdraw_update(wInfo)
+
+   async def completeWithdrawalRequest(self):
+      for wId in self.pendingWtdr:
+         wtd = self.pendingWtdr[wId]
+         wtd._status = 4
+         await self.sendWithdrawalInfo(wtd)
+      self.pendingWtdr.clear()
+
+   async def completeCancelRequest(self):
+      for cancellation in self.cancelWithdraw:
+         if cancellation['id'] not in self.pendingWtdr:
+            continue
+
+         wtdr = self.pendingWtdr[cancellation['id']]
+         wtdr._status = 5
+         del self.pendingWtdr[cancellation['id']]
+         await cancellation['callback'](wtdr)
+
+         self.balance += float(wtdr.amount)
+         margin = self.getMarginedCash()
+         balanceJson = [{
+            'currency' : wtdr.currency,
+            'balance' : self.balance - margin
+         }]
+         if margin != 0:
+            balanceJson.append({
+            'currency' : 'USDP',
+            'balance' : margin
+         })
+         await self.listener.onLoadBalance(balanceJson)
 
    def getMarginedCash(self):
       #this is a simplified version of leverex margin calculation,
@@ -240,10 +283,15 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       'email' : 'user_email',
       'product' : 'xbtusd_rf'
    }
-   config['hedging_settings'] = {
+   config['hedger'] = {
       'price_ratio' : 0.01,
       'max_offer_volume' : 5,
       'offer_refresh_delay_ms' : 0
+   }
+   config['rebalance'] = {
+      'enable' : True,
+      'threshold_pct' : 0.1,
+      'min_amount' : 10
    }
 
    '''
@@ -1181,107 +1229,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert taker.targetCollateral == 765
 
-   #cover withdrawal code, triggered by hedger rebalancing
-   @patch('Providers.Leverex.AsyncApiConnection')
-   async def test_rebalance_withdrawals(self, MockedLeverexConnObj):
-      #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
-      mockedConnection = MockedLeverexConnectionClass(1000)
-      MockedLeverexConnObj.return_value = mockedConnection
-
-      #setup dealer
-      maker = LeverexProvider(self.config)
-      taker = TestTaker(startBalance=1500, addr="efgh")
-      hedger = SimpleHedger(self.config)
-      dealer = DealerFactory(maker, taker, hedger)
-      await dealer.run()
-
-      #sanity check on mocked connection
-      assert maker.connection is mockedConnection
-      assert maker.connection.listener is maker
-      assert maker.isReady() == False
-      assert taker.isReady() == True
-      assert dealer.isReady() == False
-
-      #Leverex authorized event (login successful)
-      await maker.on_authorized()
-      assert maker.isReady() == False
-      assert maker._connected == True
-
-      #reply to load positions
-      assert mockedConnection.positions_callback != None
-      await mockedConnection.replyLoadPositions([])
-      assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
-
-      #reply to load balances request
-      assert mockedConnection.balance_callback != None
-      assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
-      assert maker.balances['USDT'] == 1000
-
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
-
-      #check providers and hedger are ready
-      assert maker.isReady() == True
-      assert maker.isBroken() == False
-      assert dealer.isReady() == True
-      assert maker.getExposure() == 0
-      assert taker.getExposure() == 0
-
-      #check hedger can rebalance
-      assert hedger.canRebalance() == True
-      assert hedger.needsRebalance() == False
-
-      #reduce taker balance, should trigger a withdrawal request from maker
-      await taker.updateBalance(1000)
-      cashMetrics = maker.getCashMetrics()
-      assert taker.balance == 1000
-      assert cashMetrics['total'] == 1000
-      assert cashMetrics['pending'] == 0
-      assert hedger.canRebalance() == True
-      assert hedger.needsRebalance() == True
-      assert len(mockedConnection.withdrawRequest) == 1
-      assert mockedConnection.withdrawRequest[0]['amount'] == 200
-
-      #ACK withdrawal request, should adjust maker balance, remove rebal target
-      await mockedConnection.confirmWithdrawalRequest()
-      assert taker.balance == 1000
-      cashMetrics = maker.getCashMetrics()
-      assert cashMetrics['total'] == 800
-      assert cashMetrics['pending'] == 200
-      assert hedger.canRebalance() == True
-      assert hedger.needsRebalance() == False
-      assert len(mockedConnection.withdrawRequest) == 0
-
-      #push an order through, it shouldnt affect the rebalance target
-      await mockedConnection.push_new_order({
-         'id' : 1,
-         'timestamp' : 1,
-         'quantity' : 1,
-         'price' : 10100,
-         'status' : ORDER_STATUS_FILLED,
-         'reference_exposure' : 0,
-         'session_id' : 5,
-         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
-         'fee' : 15
-      })
-
-      assert taker.balance == 1000
-      cashMetrics = maker.getCashMetrics()
-      assert cashMetrics['total'] == 800
-      assert cashMetrics['pending'] == 200
-      assert hedger.canRebalance() == True
-      assert hedger.needsRebalance() == False
-      assert len(mockedConnection.withdrawRequest) == 0
-
    #cover open volume asymetry
    @patch('Providers.Leverex.AsyncApiConnection')
    async def test_open_volume(self, MockedLeverexConnObj):
@@ -1433,3 +1380,242 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       vol = maker.getOpenVolume()
       assert vol['ask'] == 0.98
       assert vol['bid'] == 0.98
+
+   #cover withdrawal code, triggered by hedger rebalancing
+   @patch('Providers.Leverex.AsyncApiConnection')
+   async def test_rebalance_withdrawals(self, MockedLeverexConnObj):
+      #return mocked leverex connection object instead of an instance
+      #of leverex_core.api_connection.AsyncApiConnection
+      mockedConnection = MockedLeverexConnectionClass(1000)
+      MockedLeverexConnObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = LeverexProvider(self.config)
+      taker = TestTaker(startBalance=1500, addr="efgh")
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert maker.connection is mockedConnection
+      assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+      assert dealer.isReady() == False
+
+      #Leverex authorized event (login successful)
+      await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+      assert len(mockedConnection.offers) == 0
+
+      #reply to load balances request
+      assert mockedConnection.balance_callback != None
+      assert len(maker.balances) == 0
+      await mockedConnection.replyLoadBalances()
+      assert mockedConnection.balance_callback == None
+      assert maker.balances['USDT'] == 1000
+
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
+      #check providers and hedger are ready
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert dealer.isReady() == True
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+
+      #check hedger can rebalance
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False
+
+      #reduce taker balance, should trigger a withdrawal request from maker
+      await taker.updateBalance(1000)
+      cashMetrics = maker.getCashMetrics()
+      assert taker.balance == 1000
+      assert cashMetrics['total'] == 1000
+      assert cashMetrics['pending'] == 0
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == True
+      assert len(mockedConnection.withdrawRequest) == 1
+      assert mockedConnection.withdrawRequest[0]['amount'] == 200
+
+      #ACK withdrawal request, should adjust maker balance, remove rebal target
+      await mockedConnection.confirmWithdrawalRequest()
+      assert taker.balance == 1000
+      cashMetrics = maker.getCashMetrics()
+      assert cashMetrics['total'] == 800
+      assert cashMetrics['pending'] == 200
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == True
+      assert len(mockedConnection.withdrawRequest) == 0
+
+      #push an order through, it shouldnt affect the rebalance target
+      await mockedConnection.push_new_order({
+         'id' : 1,
+         'timestamp' : 1,
+         'quantity' : 1,
+         'price' : 10100,
+         'status' : ORDER_STATUS_FILLED,
+         'reference_exposure' : 0,
+         'session_id' : 5,
+         'rollover_type' : ORDER_TYPE_TRADE_POSITION,
+         'fee' : 15
+      })
+
+      assert taker.balance == 1000
+      cashMetrics = maker.getCashMetrics()
+      assert cashMetrics['total'] == 800
+      assert cashMetrics['pending'] == 200
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == True
+      assert len(mockedConnection.withdrawRequest) == 0
+      assert '0' in mockedConnection.pendingWtdr
+      assert mockedConnection.pendingWtdr['0'].amount == '200.0'
+
+      #complete withdrawal
+      await mockedConnection.completeWithdrawalRequest()
+      await taker.updateBalance(1200)
+      cashMetrics = maker.getCashMetrics()
+      assert taker.balance == 1200
+      assert cashMetrics['total'] == 800
+      assert cashMetrics['pending'] == 0
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False
+      assert len(mockedConnection.pendingWtdr) == 0
+
+   #cover withdrawal code, triggered by hedger rebalancing
+   @patch('Providers.Leverex.AsyncApiConnection')
+   async def test_rebalance_withdrawals_with_cancel(self, MockedLeverexConnObj):
+      #return mocked leverex connection object instead of an instance
+      #of leverex_core.api_connection.AsyncApiConnection
+      mockedConnection = MockedLeverexConnectionClass(1000)
+      MockedLeverexConnObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = LeverexProvider(self.config)
+      taker = TestTaker(startBalance=1500, addr="efgh")
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert maker.connection is mockedConnection
+      assert maker.connection.listener is maker
+      assert maker.isReady() == False
+      assert taker.isReady() == True
+      assert dealer.isReady() == False
+
+      #Leverex authorized event (login successful)
+      await maker.on_authorized()
+      assert maker.isReady() == False
+      assert maker._connected == True
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+      assert len(mockedConnection.offers) == 0
+
+      #reply to load balances request
+      assert mockedConnection.balance_callback != None
+      assert len(maker.balances) == 0
+      await mockedConnection.replyLoadBalances()
+      assert mockedConnection.balance_callback == None
+      assert maker.balances['USDT'] == 1000
+
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
+      #check providers and hedger are ready
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert dealer.isReady() == True
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+
+      #check hedger can rebalance
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False
+
+      #send maker a pending withdrawal, will trigger a
+      #rebalance with withdrawal cancellation
+      wtd = WithdrawInfo({
+         'id' : 20,
+         'recv_address' : 'abcd',
+         'currency' : 'USDT',
+         'amount' : 500,
+         'timestamp' : time.time(),
+         'status' : 1
+      })
+      await mockedConnection.sendWithdrawalInfo(wtd)
+      assert taker.balance == 1500
+      cashMetrics = maker.getCashMetrics()
+      assert cashMetrics['total'] == 1000
+      assert cashMetrics['pending'] == 500
+
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.maker.cancelPending == 2
+      assert target.maker.toWithdraw['amount'] == 300
+      assert target.maker.toWithdraw['status'] == 4
+      assert '20' in mockedConnection.pendingWtdr
+
+      #complete the cancellation request
+      await mockedConnection.completeCancelRequest()
+      assert taker.balance == 1500
+      cashMetrics = maker.getCashMetrics()
+      assert cashMetrics['total'] == 1500
+      assert cashMetrics['pending'] == 0
+
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.maker.cancelPending == 3
+      assert target.maker.toWithdraw['amount'] == 300
+      assert target.maker.toWithdraw['status'] == 5
+      assert len(mockedConnection.pendingWtdr) == 0
+
+      #ACK withdrawal request
+      await mockedConnection.confirmWithdrawalRequest()
+      assert taker.balance == 1500
+      cashMetrics = maker.getCashMetrics()
+      assert cashMetrics['total'] == 1200
+      assert cashMetrics['pending'] == 300
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == True
+      assert len(mockedConnection.withdrawRequest) == 0
+      assert '0' in mockedConnection.pendingWtdr
+      assert mockedConnection.pendingWtdr['0'].amount == '300.0'
+
+      #complete withdrawal
+      await mockedConnection.completeWithdrawalRequest()
+      await taker.updateBalance(1800)
+      cashMetrics = maker.getCashMetrics()
+      assert taker.balance == 1800
+      assert cashMetrics['total'] == 1200
+      assert cashMetrics['pending'] == 0
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False
+      assert len(mockedConnection.pendingWtdr) == 0

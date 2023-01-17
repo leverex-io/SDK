@@ -106,6 +106,9 @@ class Factory(object):
    async def withdraw(self, amount, callback):
       logging.debug("[withdraw]")
 
+   def getPendingWithdrawals(self):
+      pass
+
    async def submitOffers(self, offers):
       #push price offers to service
       #typically a maker feature, called from hedger

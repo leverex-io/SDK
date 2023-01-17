@@ -5,6 +5,16 @@ from Factories.Hedger.Factory import HedgerFactory
 from Factories.Definitions import PriceOffer, OfferException, \
    Rebalance, RebalanceReport
 
+CANCEL_PENDING          = 'cancel_pending'
+CANCEL_PENDING_TODO     = 1
+CANCEL_PENDING_ONGOING  = 2
+CANCEL_PENDING_DONE     = 3
+
+WITHDRAW             = 'withdraw'
+WITHDRAW_TODO        = 4
+WITHDRAW_ONGOING     = 5
+WITHDRAW_DONE        = 6
+
 ################################################################################
 class HedgerException(Exception):
    pass
@@ -12,70 +22,195 @@ class HedgerException(Exception):
 ################################################################################
 ## Rebalance
 ################################################################################
+class ProviderTarget(object):
+   def __init__(self, provider, target):
+      self.provider = provider
+      self.cash = provider.getCashMetrics()
+      self.target = target
+
+      '''
+      Compute the amount to move across providers. If there
+      are pending withdrawals, check whether we should cancel
+      them first
+      '''
+
+      self.cancelPending = CANCEL_PENDING_DONE
+      self.toWithdraw = {
+            'status' : WITHDRAW_DONE,
+            'amount' : 0
+         }
+
+      if self.cash['total'] + self.cash['pending'] > self.target:
+         #provider has more cash than it needs
+         self.toWithdraw['status'] = WITHDRAW_TODO
+         self.toWithdraw['amount'] = self.cash['total'] - self.target
+
+         if self.cash['pending'] > 0:
+            #avoid multiple withdrawals when possible
+            self.cancelPending = CANCEL_PENDING_TODO
+            self.toWithdraw['amount'] += self.cash['pending']
+
+      elif self.cash['total'] < self.target:
+         #provider has less cash than desired
+         if self.cash['pending'] != 0:
+            #provider has pending withdrawals, cancel them
+            self.cancelPending = CANCEL_PENDING_TODO
+
+   def getCashMetrics(self):
+      return self.provider.getCashMetrics()
+
+####
 class RebalanceTarget(object):
-   def __init__(self, makerCash, makerTarget, takerCash, takerTarget):
-      self.makerCash = makerCash['total']
-      self.makerPendingCash = makerCash['pending']
-      self.makerTarget = makerTarget
+   STATE_INIT              = 1
+   STATE_NO_REBALANCE      = 2
+   STATE_CANCELLING_WTDR   = 3
+   STATE_WITHDRAWING       = 4
+   STATE_COMPLETED         = 5
 
-      self.takerCash = takerCash['total']
-      self.takerPendingCash = takerCash['pending']
-      self.takerTarget = takerTarget
+   def __init__(self, config, maker, makerTarget, taker, takerTarget):
+      self.state = self.STATE_INIT
+      self.min_amount = float(config['rebalance']['min_amount'])
+      self.threshold = float(config['rebalance']['threshold_pct'])
 
-      #flag when withdrawals are being queued for this target
-      self._inTransit = False
-
-      #compute the amount to move across providers.
-      #positive: move from maker to taker
-      #negative: move from taker to maker
-      makerSide = self.makerTarget - self.makerCash - self.takerPendingCash
-      takerSide = self.takerTarget - self.takerCash - self.makerPendingCash
-      self.amount = 0
-
-      if makerSide > 0:
-         self.amount = -makerSide
-      elif takerSide > 0:
-         self.amount = takerSide
+      self.maker = ProviderTarget(maker, makerTarget)
+      self.taker = ProviderTarget(taker, takerTarget)
 
    def needsRebalance(self):
-      if self.amount == 0:
+      if self.maker.cancelPending != CANCEL_PENDING_DONE or \
+         self.taker.cancelPending != CANCEL_PENDING_DONE:
+         return True
+
+      amount = max(\
+         self.maker.toWithdraw['amount'], \
+         self.taker.toWithdraw['amount'])
+      if amount < self.min_amount:
          return False
-      ratio = abs(self.amount) / (self.makerCash + self.makerPendingCash + \
-         self.takerCash + self.takerPendingCash)
-      return ratio >= 0.1
 
-   @property
+      allCash = self.maker.cash['total'] + self.maker.cash['pending'] + \
+         self.taker.cash['total'] + self.taker.cash['pending']
+      return (amount / allCash) >= self.threshold
+
    def inTransit(self):
-      return self._inTransit
+      return self.state != self.STATE_NO_REBALANCE and \
+         self.state != self.STATE_COMPLETED
 
-   def begin(self):
-      self._inTransit = True
+   ##
+   def evaluateCancellations(self):
+      result = {}
 
-   def end(self):
-      self._inTransit = False
+      ## maker ##
+      def evaluate(provider):
+         resultInner = None
+         if provider.cancelPending == CANCEL_PENDING_TODO:
+            #mark maker withdrawals for cancellation
+            resultInner = {CANCEL_PENDING : True}
+            provider.cancelPending = CANCEL_PENDING_ONGOING
+
+         elif provider.cancelPending == CANCEL_PENDING_ONGOING:
+            #check if maker pending withdrawals were cancelled
+            cashMetrics = provider.getCashMetrics()
+            if cashMetrics['pending'] == 0:
+               #mark maker withdrawals as cancelled
+               provider.cancelPending = CANCEL_PENDING_DONE
+
+         return resultInner
+
+      result['maker'] = evaluate(self.maker)
+      result['taker'] = evaluate(self.taker)
+
+      ## end condition ##
+      if self.maker.cancelPending == CANCEL_PENDING_DONE and \
+         self.taker.cancelPending == CANCEL_PENDING_DONE:
+         return None, True
+
+      return result, False
+
+   ##
+   def evaluateWithdrawals(self):
+      result = {}
+
+      def evaluate(provider):
+         resultInner = None
+         if provider.toWithdraw['status'] == WITHDRAW_TODO:
+            #mark maker for withdrawal
+            resultInner = { WITHDRAW : provider.toWithdraw['amount'] }
+            provider.toWithdraw['status'] = WITHDRAW_ONGOING
+
+         elif provider.toWithdraw['status'] == WITHDRAW_ONGOING:
+            cashMetrics = provider.getCashMetrics()
+            if cashMetrics['total'] >= provider.target:
+               #maker balance has met target
+               provider.toWithdraw['status'] = WITHDRAW_DONE
+
+         return resultInner
+
+      result['maker'] = evaluate(self.maker)
+      result['taker'] = evaluate(self.taker)
+
+      if self.maker.getCashMetrics()['total'] >= self.maker.target and \
+         self.taker.getCashMetrics()['total'] >= self.taker.target:
+         return None, True
+
+      return result, False
+
+   ##
+   def progress(self):
+      if self.state == self.STATE_INIT:
+         #is there a rebalance to perform?
+         if not self.needsRebalance():
+            self.state = self.STATE_NO_REBALANCE
+            return None
+         self.state = self.STATE_CANCELLING_WTDR
+         return self.progress()
+
+      elif self.state == self.STATE_CANCELLING_WTDR:
+         #deal with withdrawal cancellations
+         result, done = self.evaluateCancellations()
+
+         if result != None:
+            return result
+         elif done == True:
+            self.state = self.STATE_WITHDRAWING
+            return self.progress()
+         else:
+            return None
+
+      elif self.state == self.STATE_WITHDRAWING:
+         #create new withdrawals
+         result, done = self.evaluateWithdrawals()
+
+         if result != None:
+            return result
+         elif done == True:
+            self.state = self.STATE_COMPLETED
+         return None
+
+      return None
 
 ################################################################################
 class RebalanceManager(object):
 
    ## setup ##
-   def __init__(self, maker, taker, maxVol, onEventFunc):
+   def __init__(self, config, maker, taker, onEventFunc):
       self.maker = maker
       self.taker = taker
-      self.maxVol = maxVol
       self.target = None
       self.onEventFunc = onEventFunc
+
+      self.config = config
+      self.enabled = config['rebalance']['enable']
 
       self.loadedWithdrawals = False
       self.loadedAddresses = False
 
    def canAssess(self):
       #do not assess rebalance if we are requesting withdrawals
-      if self.target != None and self.target.inTransit:
+      if self.target != None and self.target.inTransit():
          return False
       return self.loadedWithdrawals
 
    def canWithdraw(self):
-      return self.loadedWithdrawals and self.loadedAddresses
+      return self.loadedWithdrawals and self.loadedAddresses and self.enabled
 
    def needsRebalance(self):
       if self.target == None:
@@ -93,7 +228,7 @@ class RebalanceManager(object):
          if self.maker.chainAddresses.hasDepositAddr() and \
             self.taker.chainAddresses.hasDepositAddr():
             self.loadedAddresses = True
-            await self.performRebalance()
+            await self.processRebalance()
 
       await self.maker.loadAddresses(addrCallback)
       await self.taker.loadAddresses(addrCallback)
@@ -103,7 +238,7 @@ class RebalanceManager(object):
          if self.maker.withdrawalsLoaded() and \
             self.taker.withdrawalsLoaded():
             self.loadedWithdrawals = True
-            await self.assessRebalanceTarget()
+            await self.processRebalance()
 
       await self.maker.loadWithdrawals(wtdrCallback)
       await self.taker.loadWithdrawals(wtdrCallback)
@@ -123,19 +258,20 @@ class RebalanceManager(object):
       if makerCash is None or takerCash is None:
          return
 
-      if self.target != None:
-         if makerCash['total'] == self.target.makerCash and \
-            takerCash['total'] == self.target.takerCash:
-            #total cash has not changed, nothing to do
-            return
-
-      #1.b: get total cash providers
+      #1.b: get total cash per provider
       makerTotal = makerCash['total'] + makerCash['pending']
       takerTotal = takerCash['total'] + takerCash['pending']
 
+      #1.c: check values have changed vs existing target
+      if self.target != None and not self.target.inTransit():
+         if makerTotal == self.target.maker.cash['total'] + self.target.maker.cash['pending'] and \
+            takerTotal == self.target.taker.cash['total'] + self.target.taker.cash['pending']:
+            #total cash has not changed, nothing to do
+            return
+
       ## 2. find point of equilibrium between providers ##
 
-      #2.a: total cash
+      #2.a: get total cash across providers
       totalCash = makerTotal + takerTotal
 
       #2.b: distribute along collateral ratios
@@ -144,48 +280,54 @@ class RebalanceManager(object):
       makerTarget = totalCash * makerRatio
       takerTarget = totalCash - makerTarget
 
-      #2.c: apply 3x open volume ceiling
-      makerTarget = min(makerTarget,
-         self.maxVol * 3 * makerCash['ratio'] * makerCash['price'])
-      takerTarget = min(takerTarget,
-         self.maxVol * 3 * takerCash['ratio'] * takerCash['price'])
-
       ## 3. assess the need for withdrawals ##
 
       #3.a: apply results
-      self.target = RebalanceTarget(
-         makerCash, makerTarget,
-         takerCash, takerTarget
+      self.target = RebalanceTarget(self.config,
+         self.maker, makerTarget,
+         self.taker, takerTarget
       )
 
-      #3.b: perform rebalance if necessary
-      await self.performRebalance()
+      #3.b: progress rebalance target
+      await self.processRebalance()
 
    ## rebalance process ##
-   async def performRebalance(self):
-      #disable rebalancing for now
-      return
-
-      await self.onEventFunc(None, Rebalance)
-      if not self.canWithdraw():
-         return
-
-      if self.target == None or not self.target.needsRebalance():
-         return
-
-      if self.target.inTransit:
-         return
-
-      #flag transit
-      self.target.begin()
-      async def callback():
-         self.target.end()
+   async def processRebalance(self):
+      #get a target if we dont have one
+      if self.target == None or not self.target.inTransit():
          await self.assessRebalanceTarget()
+         return
 
-      if self.target.amount > 0:
-         await self.maker.withdraw(self.target.amount, callback)
-      elif self.target.amount < 0:
-         await self.taker.withdraw(abs(self.target.amount), callback)
+      #progress the rebalance target state
+      step = self.target.progress()
+      await self.onEventFunc(None, Rebalance)
+
+      #ignore if we cant withdraw
+      if not self.canWithdraw():
+         self.target.state = RebalanceTarget.STATE_NO_REBALANCE
+         return
+
+      if step == None:
+         if self.target.state == RebalanceTarget.STATE_COMPLETED:
+            self.target = None
+         return
+
+      #process rebalance step
+      if step['maker'] != None:
+         if CANCEL_PENDING in step['maker']:
+            #cancel maker's pending withdrawals
+            await self.maker.cancelWithdrawals()
+
+         if WITHDRAW in step['maker']:
+            await self.maker.withdraw(step['maker'][WITHDRAW], None)
+
+      if step['taker'] != None:
+         if CANCEL_PENDING in step['taker']:
+            #cancel maker's pending withdrawals
+            await self.taker.cancelWithdrawals()
+
+         if WITHDRAW in step['taker']:
+            await self.taker.withdraw(step['taker'][WITHDRAW], None)
 
 ################################################################################
 class RebalanceStatusReport(RebalanceReport):
@@ -193,20 +335,41 @@ class RebalanceStatusReport(RebalanceReport):
       super().__init__(hedger)
       self.rebalMan = hedger.rebalMan
 
-   def __str__(self):
-      hasTarget = self.rebalMan.target != None
-      inTransit = False
-      if hasTarget:
-         inTransit = self.rebalMan.target.inTransit
+   def getReadyString(self):
+      if self.rebalMan.canWithdraw():
+         return "True"
 
+      result = "False"
+      if not self.rebalMan.enabled:
+         result += " (disabled in config)"
+      elif not self.loadedAddresses:
+         result += " (waiting on addresses)"
+      elif not self.loadedWithdrawals:
+         result += " (waiting on withdrawal history)"
+      return result
+
+   def getProgressString(self):
+      if self.rebalMan.target == None or not self.rebalMan.canWithdraw():
+         return "N/A"
+
+      if self.rebalMan.target.state == RebalanceTarget.STATE_CANCELLING_WTDR:
+         return "Cancelling past withdrawals"
+      elif self.rebalMan.target.state == RebalanceTarget.STATE_WITHDRAWING:
+         provider = rebalMan.target.maker
+         if provider.toWithdraw['amount'] == 0:
+            provider = rebalMan.target.taker
+         result = "Withdrawing from {}: {} usdt".format(
+            provider.provider.name, provider.toWithdraw['amount'])
+         return result
+
+      return "Idle"
+
+   def __str__(self):
       #status
       result = " |- STATUS:\n"\
-         " |  canRebalance: {}, canAssess: {}," \
-         " haveTarget: {}, inTransit: {}\n".format(
-            self.rebalMan.canWithdraw(),
-            self.rebalMan.canAssess(),
-            hasTarget, inTransit
-         )
+         " |  * ready: {}, needs rebalance: {} *\n".format(
+            self.getReadyString(),
+            self.rebalMan.needsRebalance())
 
       #addresses
       def setAddresses(provider):
@@ -225,19 +388,36 @@ class RebalanceStatusReport(RebalanceReport):
       result += setAddresses(self.rebalMan.maker)
       result += setAddresses(self.rebalMan.taker)
 
+      #withdrawals
+      result += " |\n"
+      result += " |- WITHDRAWALS:\n"
+      def setWithdrawals(provider):
+         wtdList = provider.getPendingWithdrawals()
+         resultStr = " |  * {} *\n".format(provider.name)
+         if wtdList == None or len(wtdList) == 0:
+            resultStr += " |      N/A\n"
+         else:
+            for wtd in wtdList:
+               resultStr += " |      {}\n".format(wtd)
+         return resultStr
+      result += setWithdrawals(self.rebalMan.maker)
+      result += setWithdrawals(self.rebalMan.taker)
+
       #target
       result += " |\n"
-      result += " |- TARGET:\n"
-      if not hasTarget:
+      result += " |- TARGET: - progress: {} -\n".format(self.getProgressString())
+      if self.rebalMan.target == None:
          result += " |    N/A"
       else:
-         def setBalances(provider, balance, target):
-            return " |  * {}: balance: {}, target: {}\n".format(
-               provider.name, balance, target)
-         result += setBalances(self.rebalMan.maker,
-            self.rebalMan.target.makerCash,
-            self.rebalMan.target.makerTarget)
+         def setBalances(target):
+            return " |  * {}: balance: {}, pending: {}, target: {}\n".format(
+               target.provider.name,
+               round(target.cash['total'], 2),
+               round(target.cash['pending'], 2),
+               round(target.target, 2))
 
+         result += setBalances(self.rebalMan.target.maker)
+         result += setBalances(self.rebalMan.target.taker)
       return result
 
 ################################################################################
@@ -245,7 +425,8 @@ class RebalanceStatusReport(RebalanceReport):
 ################################################################################
 class SimpleHedger(HedgerFactory):
    required_settings = {
-      'hedging_settings' : ['price_ratio', 'max_offer_volume']
+      'hedger' : ['price_ratio', 'max_offer_volume'],
+      'rebalance' : ['enable', 'threshold_pct', 'min_amount']
    }
 
    def __init__(self, config):
@@ -260,12 +441,13 @@ class SimpleHedger(HedgerFactory):
             if kk not in config[k]:
                raise HedgerException(f'Missing \"{kk}\" in config group \"{k}\"')
 
-      self.price_ratio = config['hedging_settings']['price_ratio']
-      self.max_offer_volume = config['hedging_settings']['max_offer_volume']
+      self.config = config
+      self.price_ratio = config['hedger']['price_ratio']
+      self.max_offer_volume = config['hedger']['max_offer_volume']
 
       self.offer_refresh_delay = 200 #in milliseconds
-      if 'offer_refresh_delay_ms' in config['hedging_settings']:
-         self.offer_refresh_delay = config['hedging_settings']['offer_refresh_delay_ms']
+      if 'offer_refresh_delay_ms' in config['hedger']:
+         self.offer_refresh_delay = config['hedger']['offer_refresh_delay_ms']
 
       self.offers = []
       self.rebalMan = None
@@ -422,8 +604,8 @@ class SimpleHedger(HedgerFactory):
       #set the hedger ready flag. Further calls will have no effect
       self.setReady()
       if self.rebalMan == None:
-         self.rebalMan = RebalanceManager(
-            maker, taker, self.max_offer_volume, self.onEventFunc)
+         self.rebalMan = RebalanceManager(self.config,
+            maker, taker, self.onEventFunc)
          await self.rebalMan.setup()
 
    ####
@@ -485,7 +667,7 @@ class SimpleHedger(HedgerFactory):
    ####
    async def checkBalanceDistribution(self, maker, taker):
       if self.rebalMan != None:
-         await self.rebalMan.assessRebalanceTarget()
+         await self.rebalMan.processRebalance()
 
    #############################################################################
    ## ready events

@@ -2,7 +2,8 @@
 import unittest
 
 from .utils import TestTaker, TestMaker, price
-from Factories.Definitions import Order, SIDE_BUY, SIDE_SELL
+from Factories.Definitions import Order, SIDE_BUY, SIDE_SELL, \
+   Balance, WithdrawInfo
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 
@@ -13,9 +14,15 @@ from Factories.Dealer.Factory import DealerFactory
 ################################################################################
 class TestHedger(unittest.IsolatedAsyncioTestCase):
    config = {}
-   config['hedging_settings'] = {}
-   config['hedging_settings']['price_ratio'] = 0.01
-   config['hedging_settings']['max_offer_volume'] = 5
+   config['hedger'] = {
+      'price_ratio' : 0.01,
+      'max_offer_volume' : 5
+   }
+   config['rebalance'] = {
+      'enable' : True,
+      'threshold_pct' : 0.1,
+      'min_amount' : 10
+   }
 
    async def test_offers_signals(self):
       #test hedger making/pulling offers
@@ -412,9 +419,10 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == True
       assert hedger.rebalMan.canWithdraw() == False
       assert hedger.canRebalance() == False
-      assert hedger.rebalMan.target.makerTarget == 1000
-      assert hedger.rebalMan.target.takerTarget == 1500
-      assert hedger.rebalMan.target.amount == 0
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1000
+      assert target.taker.target == 1500
+      assert target.maker.toWithdraw['amount'] == 0
 
       #reduce taker cash, maker rebalance target should go up
       await taker.updateBalance(1200)
@@ -422,9 +430,11 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
-      assert hedger.rebalMan.target.makerTarget == 880
-      assert hedger.rebalMan.target.takerTarget == 1320
-      assert hedger.rebalMan.target.amount == 120
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 880
+      assert target.taker.target == 1320
+      assert target.maker.toWithdraw['amount'] == 120
 
       #post an order, rebalance target shouldn't change
       await maker.newOrder(Order(
@@ -433,9 +443,11 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 880
-      assert hedger.rebalMan.target.takerTarget == 1320
-      assert hedger.rebalMan.target.amount == 120
+      assert hedger.rebalMan.canAssess() == True
+      assert target == hedger.rebalMan.target
+      assert target.maker.target == 880
+      assert target.taker.target == 1320
+      assert target.maker.toWithdraw['amount'] == 120
 
       #increase maker balance to 50 coins worth of volume
       await maker.updateBalance(50000)
@@ -443,9 +455,12 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 15000
-      assert hedger.rebalMan.target.takerTarget == 22500
-      assert hedger.rebalMan.target.amount == 21300
+      assert hedger.rebalMan.canAssess() == True
+      assert target != hedger.rebalMan.target
+      target = hedger.rebalMan.target
+      assert target.maker.target == 20480
+      assert target.taker.target == 30720
+      assert target.maker.toWithdraw['amount'] == 29520
 
       #reduce balances near 1.5x max volume
       await taker.updateBalance(20000)
@@ -453,38 +468,35 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 20000
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 15000
-      assert hedger.rebalMan.target.takerTarget == 22500
-      assert hedger.rebalMan.target.amount == 2500
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 28000
+      assert target.taker.target == 42000
+      assert target.maker.toWithdraw['amount'] == 22000
 
       await maker.updateBalance(15000)
       assert maker.balance == 15000
       assert taker.balance == 20000
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 14000
-      assert hedger.rebalMan.target.takerTarget == 21000
-      assert hedger.rebalMan.target.amount == 1000
-
-      #balance out providers
-      await taker.updateBalance(25000)
-      assert maker.balance == 15000
-      assert taker.balance == 25000
-      assert maker.getExposure() == 0.5
-      assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 15000
-      assert hedger.rebalMan.target.takerTarget == 22500
-      assert hedger.rebalMan.target.amount == 0
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 14000
+      assert target.taker.target == 21000
+      assert target.maker.toWithdraw['amount'] == 1000
 
       #set taker above maker
       await maker.updateBalance(10000)
       assert maker.balance == 10000
-      assert taker.balance == 25000
+      assert taker.balance == 20000
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 14000
-      assert hedger.rebalMan.target.takerTarget == 21000
-      assert hedger.rebalMan.target.amount == -4000
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 12000
+      assert target.taker.target == 18000
+      assert target.maker.toWithdraw['amount'] == 0
+      assert target.taker.toWithdraw['amount'] == 2000
 
    async def test_rebalance_target_with_pending(self):
       #setup taker and maker
@@ -514,10 +526,11 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
-      assert hedger.rebalMan.canWithdraw() == False
-      assert hedger.rebalMan.target.makerTarget == 1080
-      assert hedger.rebalMan.target.takerTarget == 1620
-      assert hedger.rebalMan.target.amount == -80
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1080
+      assert target.taker.target == 1620
+      assert target.maker.cancelPending == 2
+      assert target.maker.toWithdraw['amount'] == 120
 
       #reduce taker cash, maker rebalance target should go up
       await taker.updateBalance(1200)
@@ -525,9 +538,12 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
-      assert hedger.rebalMan.target.makerTarget == 960
-      assert hedger.rebalMan.target.takerTarget == 1440
-      assert hedger.rebalMan.target.amount == 40
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 960
+      assert target.taker.target == 1440
+      assert target.maker.cancelPending == 2
+      assert target.maker.toWithdraw['amount'] == 240
 
       #post an order, rebalance target shouldn't change
       await maker.newOrder(Order(
@@ -536,9 +552,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 960
-      assert hedger.rebalMan.target.takerTarget == 1440
-      assert hedger.rebalMan.target.amount == 40
+      assert hedger.rebalMan.canAssess() == True
+      assert target == hedger.rebalMan.target
 
       #increase maker balance to 50 coins worth of volume
       await maker.updateBalance(50000)
@@ -546,9 +561,12 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1200
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 15000
-      assert hedger.rebalMan.target.takerTarget == 22500
-      assert hedger.rebalMan.target.amount == 21100
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 20560
+      assert target.taker.target == 30840
+      assert target.maker.cancelPending == 2
+      assert target.maker.toWithdraw['amount'] == 29640
 
       #reduce balances near 1.5x max volume
       await taker.updateBalance(20000)
@@ -556,38 +574,37 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 20000
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 15000
-      assert hedger.rebalMan.target.takerTarget == 22500
-      assert hedger.rebalMan.target.amount == 2300
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 28080
+      assert target.taker.target == 42120
+      assert target.maker.cancelPending == 2
+      assert target.maker.toWithdraw['amount'] == 22120
 
       await maker.updateBalance(15000)
       assert maker.balance == 15000
       assert taker.balance == 20000
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 14080
-      assert hedger.rebalMan.target.takerTarget == 21120
-      assert hedger.rebalMan.target.amount == 920
-
-      #balance out providers
-      await taker.updateBalance(25000)
-      assert maker.balance == 15000
-      assert taker.balance == 25000
-      assert maker.getExposure() == 0.5
-      assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 15000
-      assert hedger.rebalMan.target.takerTarget == 22500
-      assert hedger.rebalMan.target.amount == 0
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 14080
+      assert target.taker.target == 21120
+      assert target.maker.cancelPending == 2
+      assert target.maker.toWithdraw['amount'] == 1120
 
       #set taker above maker
       await maker.updateBalance(10000)
       assert maker.balance == 10000
-      assert taker.balance == 25000
+      assert taker.balance == 20000
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
-      assert hedger.rebalMan.target.makerTarget == 14080
-      assert hedger.rebalMan.target.takerTarget == 21120
-      assert hedger.rebalMan.target.amount == -4080
+      target = hedger.rebalMan.target
+      assert target.maker.target == 12080
+      assert target.taker.target == 18120
+      assert target.maker.cancelPending == 2
+      assert target.maker.toWithdraw['amount'] == 0
+      assert target.taker.toWithdraw['amount'] == 1880
 
    async def test_rebalance_target_with_withdraw(self):
       #setup taker and maker
@@ -620,9 +637,10 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == True
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 1000
-      assert hedger.rebalMan.target.takerTarget == 1500
-      assert hedger.rebalMan.target.amount == 0
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1000
+      assert target.taker.target == 1500
+      assert target.maker.toWithdraw['amount'] == 0
       assert len(maker.withdrawalHist) == 0
 
       #reduce taker cash, maker rebalance target should go up
@@ -634,9 +652,10 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == False
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 800
-      assert hedger.rebalMan.target.takerTarget == 1200
-      assert hedger.rebalMan.target.amount == 200
+      target = hedger.rebalMan.target
+      assert target.maker.target == 800
+      assert target.taker.target == 1200
+      assert target.maker.toWithdraw['amount'] == 200
       assert len(maker.withdrawalHist) == 0
 
       #ACK maker withdrawal request
@@ -645,75 +664,327 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1000
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
-      assert hedger.rebalMan.canAssess() == True
-      assert hedger.rebalMan.canWithdraw() == True
-      assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 720
-      assert hedger.rebalMan.target.takerTarget == 1080
-      assert hedger.rebalMan.target.amount == 80
+      assert hedger.rebalMan.canAssess() == False
+      assert target == hedger.rebalMan.target
       assert len(maker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['amount'] == 200
 
-      #reduce taker balance again, maker rebalance target will go up
-      await taker.updateBalance(800)
+      #complete rebalance by funding taker the cash
+      await taker.updateBalance(1200)
       assert maker.balance == 800
-      assert taker.balance == 800
+      assert taker.balance == 1200
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
-      assert hedger.rebalMan.canAssess() == False
-      assert hedger.rebalMan.canWithdraw() == True
-      assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 640
-      assert hedger.rebalMan.target.takerTarget == 960
-      assert hedger.rebalMan.target.amount == 160
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.target == None
       assert len(maker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['amount'] == 200
 
       #give maker more cash
-      #rebal target shouldn't change as transit is underway
       await maker.updateBalance(1000)
       assert maker.balance == 1000
-      assert taker.balance == 800
+      assert taker.balance == 1200
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 880
+      assert target.taker.target == 1320
+      assert target.maker.toWithdraw['amount'] == 120
+      assert len(maker.withdrawalHist) == 1
+      assert maker.withdrawalHist[0]['amount'] == 200
+
+      #give maker more cash
+      await maker.updateBalance(1200)
+      assert maker.balance == 1200
+      assert taker.balance == 1200
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == False
-      assert hedger.rebalMan.canWithdraw() == True
-      assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 640
-      assert hedger.rebalMan.target.takerTarget == 960
-      assert hedger.rebalMan.target.amount == 160
+      target = hedger.rebalMan.target
+      assert target.maker.target == 960
+      assert target.taker.target == 1440
+      assert target.maker.toWithdraw['amount'] == 240
       assert len(maker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['amount'] == 200
 
       #ACK maker withdrawal request
       await maker.pushWithdrawal()
-      assert maker.balance == 840
-      assert taker.balance == 800
+      assert maker.balance == 960
+      assert taker.balance == 1200
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == False
-      assert hedger.rebalMan.canWithdraw() == True
-      assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 656
-      assert hedger.rebalMan.target.takerTarget == 984
-      assert hedger.rebalMan.target.amount == 184
+      assert target == hedger.rebalMan.target
       assert len(maker.withdrawalHist) == 2
       assert maker.withdrawalHist[0]['amount'] == 200
-      assert maker.withdrawalHist[1]['amount'] == 160
+      assert maker.withdrawalHist[1]['amount'] == 240
 
-      #ACK maker withdrawal request
-      await maker.pushWithdrawal()
-      assert maker.balance == 656
-      assert taker.balance == 800
+   async def test_rebalance_trigger_again(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=1500, addr="efgh")
+      maker = TestMaker(startBalance=1000)
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert hedger.canRebalance() == True
+      assert dealer.isReady() == True
+
+      #check rebalance target is same as balance
+      assert maker.balance == 1000
+      assert taker.balance == 1500
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
-      assert hedger.rebalMan.target.makerTarget == 582.4
-      assert hedger.rebalMan.target.takerTarget == 873.6
-      assert round(hedger.rebalMan.target.amount, 2) == 73.6
-      assert len(maker.withdrawalHist) == 3
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1000
+      assert target.taker.target == 1500
+      assert target.maker.toWithdraw['amount'] == 0
+      assert len(maker.withdrawalHist) == 0
+
+      #reduce taker cash, maker rebalance target should go up
+      await taker.updateBalance(1000)
+      assert maker.balance == 1000
+      assert taker.balance == 1000
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 800
+      assert target.taker.target == 1200
+      assert target.maker.toWithdraw['amount'] == 200
+      assert len(maker.withdrawalHist) == 0
+      assert len(maker.withdrawalsToPush) == 1
+
+      #ACK maker withdrawal request, update taker cash
+      await maker.pushWithdrawal()
+      await taker.updateBalance(1200)
+      assert maker.balance == 800
+      assert taker.balance == 1200
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      assert hedger.rebalMan.target == None
+      assert len(maker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['amount'] == 200
-      assert maker.withdrawalHist[1]['amount'] == 160
-      assert maker.withdrawalHist[2]['amount'] == 184
+      assert len(maker.withdrawalsToPush) == 0
+
+      #trigger a balance event, the target amount should now be 0
+      await dealer.onEvent(None, Balance)
+      assert maker.balance == 800
+      assert taker.balance == 1200
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 800
+      assert target.taker.target == 1200
+      assert target.maker.toWithdraw['amount'] == 0
+      assert len(maker.withdrawalHist) == 1
+      assert maker.withdrawalHist[0]['amount'] == 200
+      assert len(maker.withdrawalsToPush) == 0
+
+   async def test_rebalance_target_with_maker_cancellation(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=2000, addr="efgh")
+      maker = TestMaker(startBalance=800, pendingWithdrawals=[200])
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert hedger.canRebalance() == True
+      assert dealer.isReady() == True
+
+      #rebalance target should request to cancel maker withdrawal
+      assert maker.balance == 800
+      assert taker.balance == 2000
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.maker.toWithdraw['amount'] == 0
+      assert target.taker.toWithdraw['amount'] == 200
+      assert len(maker.withdrawalHist) == 1
+      assert len(taker.withdrawalsToPush) == 0
+      assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_PENDING
+      assert maker.cancelWithdrawalsRequested == True
+
+      #complete maker withdrawal cancellation
+      await maker.completeWithdrawCancellation()
+      assert maker.balance == 1000
+      assert taker.balance == 2000
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.maker.toWithdraw['amount'] == 0
+      assert target.taker.toWithdraw['amount'] == 200
+      assert len(maker.withdrawalHist) == 1
+      assert len(taker.withdrawalsToPush) == 1
+      assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
+      assert maker.cancelWithdrawalsRequested == False
+
+      #complete taker withdrawal
+      await taker.pushWithdrawal()
+      assert maker.balance == 1000
+      assert taker.balance == 1800
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.maker.toWithdraw['amount'] == 0
+      assert target.taker.toWithdraw['amount'] == 200
+      assert len(maker.withdrawalHist) == 1
+      assert len(taker.withdrawalHist) == 1
+      assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
+      assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_COMPLETED
+      assert taker.withdrawalHist[0]['amount'] == 200
+
+      #finally, send cash to maker
+      await maker.updateBalance(1200)
+      assert maker.balance == 1200
+      assert taker.balance == 1800
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      assert hedger.rebalMan.target == None
+      assert target.maker.toWithdraw['amount'] == 0
+      assert target.taker.toWithdraw['amount'] == 200
+
+   async def test_rebalance_target_with_taker_cancellation(self):
+      #setup taker and maker
+      taker = TestTaker(startBalance=1200, addr="efgh", pendingWithdrawals=[400])
+      maker = TestMaker(startBalance=1400)
+
+      #check they have no balance nor exposure pre dealer start
+      assert maker.getExposure() == None
+      assert taker.getExposure() == None
+      assert maker.balance == 0
+      assert taker.balance == 0
+
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+      await dealer.waitOnReady()
+
+      assert maker.isReady() == True
+      assert maker.isBroken() == False
+      assert taker.isReady() == True
+      assert hedger.isReady() == True
+      assert hedger.canRebalance() == True
+      assert dealer.isReady() == True
+
+      #rebalance target should request to cancel maker withdrawal
+      assert maker.balance == 1400
+      assert taker.balance == 1200
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.maker.toWithdraw['amount'] == 200
+      assert target.taker.toWithdraw['amount'] == 0
+      assert len(taker.withdrawalHist) == 1
+      assert len(maker.withdrawalsToPush) == 0
+      assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_PENDING
+      assert taker.cancelWithdrawalsRequested == True
+
+      #complete maker withdrawal cancellation
+      await taker.completeWithdrawCancellation()
+      assert maker.balance == 1400
+      assert taker.balance == 1600
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.taker.toWithdraw['amount'] == 0
+      assert target.maker.toWithdraw['amount'] == 200
+      assert len(taker.withdrawalHist) == 1
+      assert len(maker.withdrawalsToPush) == 1
+      assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
+      assert taker.cancelWithdrawalsRequested == False
+
+      #complete taker withdrawal
+      await maker.pushWithdrawal()
+      assert maker.balance == 1200
+      assert taker.balance == 1600
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == False
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      target = hedger.rebalMan.target
+      assert target.maker.target == 1200
+      assert target.taker.target == 1800
+      assert target.taker.toWithdraw['amount'] == 0
+      assert target.maker.toWithdraw['amount'] == 200
+      assert len(maker.withdrawalHist) == 1
+      assert len(taker.withdrawalHist) == 1
+      assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
+      assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_COMPLETED
+      assert maker.withdrawalHist[0]['amount'] == 200
+
+      #finally, send cash to maker
+      await taker.updateBalance(1800)
+      assert maker.balance == 1200
+      assert taker.balance == 1800
+      assert maker.getExposure() == 0
+      assert taker.getExposure() == 0
+      assert hedger.rebalMan.canAssess() == True
+      assert hedger.rebalMan.canWithdraw() == True
+      assert hedger.canRebalance() == True
+      assert hedger.rebalMan.target == None

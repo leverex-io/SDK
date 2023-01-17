@@ -13,7 +13,6 @@ import Providers.bfxapi.bfxapi.models as bfx_models
 BFX_USD_NET = 'USD Net'
 BFX_USD_TOTAL = 'USD total'
 BFX_DERIVATIVES_WALLET = 'margin'
-BFX_DEPOSIT_METHOD = 'TETHERUSL'
 
 BALANCE_TOTAL = 'total'
 BALANCE_FREE = 'free'
@@ -218,13 +217,12 @@ class BitfinexProvider(Factory):
    required_settings = {
       'bitfinex': [
          'api_key', 'api_secret',
-         'orderbook_product',
          'derivatives_currency',
-         'futures_hedging_product',
+         'product',
          'collateral_pct',
          'max_collateral_deviation'
       ],
-      'hedging_settings': [
+      'hedger': [
          'max_offer_volume'
       ]
    }
@@ -251,12 +249,12 @@ class BitfinexProvider(Factory):
                raise BitfinexException(f'Missing \"{kk}\" in config group \"{k}\"')
 
       self.config = config['bitfinex']
-      self.orderbook_product = self.config['orderbook_product']
       self.derivatives_currency = self.config['derivatives_currency']
-      self.product = self.config['futures_hedging_product']
+      self.product = self.config['product']
       self.collateral_pct = self.config['collateral_pct']
       self.max_collateral_deviation = self.config['max_collateral_deviation']
-      self.max_offer_volume = config['hedging_settings']['max_offer_volume']
+      self.max_offer_volume = config['hedger']['max_offer_volume']
+      self.deposit_method = self.config['deposit_method']
 
       self.order_book_len = 100
       if 'order_book_len' in self.config:
@@ -298,7 +296,7 @@ class BitfinexProvider(Factory):
    async def loadAddresses(self, callback):
       try:
          deposit_address = await self.connection.rest.get_wallet_deposit_address(
-            wallet=BFX_DERIVATIVES_WALLET, method=BFX_DEPOSIT_METHOD)
+            wallet=BFX_DERIVATIVES_WALLET, method=self.deposit_method)
          self.chainAddresses.setDepositAddress(deposit_address.notify_info.address)
          await callback()
       except Exception as e:
@@ -319,7 +317,7 @@ class BitfinexProvider(Factory):
       await super().setConnected(True)
 
       # subscribe to order book
-      await self.connection.ws.subscribe('book', self.orderbook_product,
+      await self.connection.ws.subscribe('book', self.product,
          len=self.order_book_len, prec=self.order_book_aggregation)
 
       # subscribe to status report
@@ -499,14 +497,14 @@ class BitfinexProvider(Factory):
          self.derivatives_currency not in self.balances[BFX_DERIVATIVES_WALLET]:
          return None
       balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
-      if not BALANCE_FREE in balance:
+      if not BALANCE_TOTAL in balance:
          return None
       priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume*3)
       if priceAsk == None:
          return None
 
       return {
-         'total' : balance[BALANCE_FREE],
+         'total' : balance[BALANCE_TOTAL],
          'pending' : 0,
          'ratio' : self.getCollateralRatio(),
          'price' : priceAsk.price
@@ -551,11 +549,12 @@ class BitfinexProvider(Factory):
    async def withdraw(self, amount, callback):
       await self.connection.rest.submit_wallet_withdraw(
          wallet=BFX_DERIVATIVES_WALLET,
-         method=BFX_DEPOSIT_METHOD,
+         method=self.deposit_method,
          amount=amount,
          address=self.chainAddresses.getWithdrawAddresses()[0]
       )
-      await callback()
+      if callback != None:
+         await callback()
 
    def withdrawalsLoaded(self):
       return True

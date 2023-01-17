@@ -299,23 +299,29 @@ class LeverexProvider(Factory):
    #### withdrawals
    #############################################################################
    async def loadWithdrawals(self, callback):
-      async def whdrCallback(withdrawals):
+      async def wtdrCallback(withdrawals):
          self.withdrawalHistory = {}
          for wtd in withdrawals:
             self.withdrawalHistory[wtd.id] = wtd
          await callback()
-
-      await self.connection.load_withdrawals_history(whdrCallback)
+      await self.connection.load_withdrawals_history(wtdrCallback)
 
    ##
    def withdrawalsLoaded(self):
       return self.withdrawalHistory is not None
 
    ##
+   async def on_withdraw_update(self, withdrawal):
+      self.withdrawalHistory[withdrawal.id] = withdrawal
+      await super().onBalanceUpdate()
+
+   ##
    async def withdraw(self, amount, callback):
       async def withdrawCallback(withdrawal):
          self.withdrawalHistory[withdrawal.id] = withdrawal
-         await callback()
+         #await super(LeverexProvider, self).onBalanceUpdate()
+         if callback != None:
+            await callback()
 
       await self.connection.withdraw_liquid(
          address=self.chainAddresses.getWithdrawAddresses()[0],
@@ -323,6 +329,27 @@ class LeverexProvider(Factory):
          amount=amount,
          callback=withdrawCallback
       )
+
+   ##
+   async def cancelWithdrawals(self):
+      for wId in self.withdrawalHistory:
+         if not self.withdrawalHistory[wId].canBeCancelled():
+            continue
+
+         async def callback(withdraw_info):
+            #TODO: handle failures to cancel
+            self.withdrawalHistory[wId] = withdraw_info
+            #cancelled withdrawal replies come along balance notifications
+            #there is no need to fire a position notification here
+         await self.connection.cancel_withdraw(id=wId, callback=callback)
+
+   ##
+   def getPendingWithdrawals(self):
+      wtdList = []
+      for wId in self.withdrawalHistory:
+         if self.withdrawalHistory[wId].isPending():
+            wtdList.append(self.withdrawalHistory[wId])
+      return wtdList
 
    #############################################################################
    #### events
@@ -472,7 +499,7 @@ class LeverexProvider(Factory):
          balance += self.balances[self.margin_ccy]
 
       pending = 0
-      if self.withdrawalHistory != None:
+      if self.withdrawalsLoaded():
          for wId in self.withdrawalHistory:
             withdrawal = self.withdrawalHistory[wId]
             if withdrawal.isPending():

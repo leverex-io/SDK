@@ -378,6 +378,19 @@ class AsyncApiConnection(object):
 
       await self.websocket.send(json.dumps(withdraw_request))
 
+   async def cancel_withdraw(self, *, id, callback: Callable = None):
+      reference = self._generate_reference_id()
+
+      cancel_withdraw = {
+         'cancel_withdraw': {
+            'id': id,
+            'reference': reference
+         }
+      }
+      if callback is not None:
+         self._requests_cb[reference] = callback
+      await self.websocket.send(json.dumps(cancel_withdraw))
+
    async def load_whitelisted_addresses(self, callback: Callable = None):
       reference = self._generate_reference_id()
 
@@ -537,6 +550,15 @@ class AsyncApiConnection(object):
             else:
                logging.error(f'withdraw_liquid response with unregistered request reference:{reference}')
 
+         elif 'cancel_withdraw' in update:
+            reference = update['cancel_withdraw']['reference']
+            withdraw_info = WithdrawInfo(update['cancel_withdraw'])
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               await self._call_listener_cb(cb, withdraw_info)
+            else:
+               logging.error(f'cancel_withdraw response with unregistered request reference:{reference}')
+
          elif 'load_addresses' in update:
             reference = update['load_addresses']['reference']
 
@@ -578,9 +600,7 @@ class AsyncApiConnection(object):
             reference = update['load_withdrawals']['reference']
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-
                withdrawals = [WithdrawInfo(entry) for entry in update['load_withdrawals']['withdrawals']]
-
                await self._call_listener_cb(cb, withdrawals)
             else:
                logging.error(f'load_withdrawals response with unregistered request reference:{reference}')
@@ -632,7 +652,7 @@ class AsyncApiConnection(object):
          elif 'logout' in update:
             raise Exception('ERROR: we got a logout message. Closing connection')
          else:
-            logging.warning('Ignore update\n{}'.format(update))
+            logging.warning('!!! Ignore update\n{} !!!'.format(update))
 
    async def writeLoop(self):
       while True:

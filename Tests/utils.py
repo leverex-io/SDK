@@ -15,6 +15,7 @@ class TestProvider(Factory):
       self.explicitState = True
       self.withdrawalsToPush = []
       self.withdrawalHist = None
+      self.cancelWithdrawalsRequested = False
 
       if pendingWithdrawals == None:
          return
@@ -120,7 +121,24 @@ class TestProvider(Factory):
 
       self.withdrawalsToPush = []
       await self.updateBalance(self.balance - totalWithdrawal)
-      await callback()
+      if callback != None:
+         await callback()
+
+   async def cancelWithdrawals(self):
+      self.cancelWithdrawalsRequested = True
+
+   async def completeWithdrawCancellation(self):
+      if not self.cancelWithdrawalsRequested:
+         raise Exception("cancel withdrawals was not requested")
+
+      self.cancelWithdrawalsRequested = False
+      amount = 0
+      for wtdr in self.withdrawalHist:
+         if wtdr['status'] == WithdrawInfo.WITHDRAW_PENDING:
+            wtdr['status'] = WithdrawInfo.WITHDRAW_CANCELLED
+            amount += wtdr['amount']
+
+      await self.updateBalance(self.balance + amount)
 
 ########
 class TestMaker(TestProvider):

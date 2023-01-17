@@ -2,6 +2,7 @@ import logging
 import asyncio
 import json
 import argparse
+import time
 
 from Providers.Leverex import LeverexProvider
 from Providers.Bitfinex import BitfinexProvider
@@ -41,5 +42,5 @@ if __name__ == '__main__':
          asyncio.run(dealer.run())
       except Exception as e:
          logging.error(f"!! Main loop broke with error: {str(e)} !!")
-         logging.warn("!! Restarting in 5 !!")
-         asyncio.sleep(5)
+         logging.warning("!! Restarting in 5 !!")
+         time.sleep(5)

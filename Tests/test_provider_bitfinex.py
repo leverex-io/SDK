@@ -1,4 +1,4 @@
-import pdb; pdb.set_trace()
+#import pdb; pdb.set_trace()
 import unittest
 from unittest.mock import patch
 
@@ -201,16 +201,21 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
    config['bitfinex'] = {
       'api_key' : 'the_key',
       'api_secret' : 'the_secret',
-      'futures_hedging_product' : 'usdt',
-      'orderbook_product' : 'usdt',
+      'product' : 'usdt',
       'derivatives_currency' : 'usdt',
       'collateral_pct' : 15,
-      'max_collateral_deviation' : 2
+      'max_collateral_deviation' : 2,
+      'deposit_method' : 'TETHERUSL'
    }
-   config['hedging_settings'] = {
+   config['hedger'] = {
       'max_offer_volume' : 5,
       'price_ratio' : 0.01,
       'offer_refresh_delay_ms' : 0
+   }
+   config['rebalance'] = {
+      'enable' : True,
+      'threshold_pct' : 0.1,
+      'min_amount' : 10
    }
 
    @patch('Providers.Bitfinex.Client')
@@ -672,6 +677,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert hedger.canRebalance() == True
       #NOTE: this is meant to fail, need to revisit compounded withdrawals later
       assert hedger.needsRebalance() == False
+
+      #TODO: add exposure, shouldnt affect cash metrics
 
    #cover open volume asymetry
    @patch('Providers.Bitfinex.Client')
