@@ -21,7 +21,7 @@
        "derivatives_currency" : "TESTUSDTF0",
        "collateral_pct" : 15,
        "max_collateral_deviation" : 2,
-       "deposit_method" : "TETHERUSL",
+       "deposit_method" : "TETHERUSL"
     },
     "hedger" :
     {
