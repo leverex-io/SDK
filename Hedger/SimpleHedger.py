@@ -400,6 +400,7 @@ class RebalanceStatusReport(RebalanceReport):
 
       #addresses
       def setAddresses(provider):
+         depAddr = "N/A"
          if provider.chainAddresses.hasDepositAddr():
             depAddr = provider.chainAddresses.getDepositAddr()
 
