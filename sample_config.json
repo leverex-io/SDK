@@ -32,8 +32,8 @@
     "rebalance" :
     {
        "enable" : true,
-       "rebalance_threshold" : 0.1,
-       "transfer_funds_threshold" : 10
+       "threshold_pct" : 0.1,
+       "min_amount" : 10
     },
     "log_level" : "LOG"
 }
