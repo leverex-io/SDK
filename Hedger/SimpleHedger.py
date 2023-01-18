@@ -36,9 +36,9 @@ class ProviderTarget(object):
 
       self.cancelPending = CANCEL_PENDING_DONE
       self.toWithdraw = {
-            'status' : WITHDRAW_DONE,
-            'amount' : 0
-         }
+         'status' : WITHDRAW_DONE,
+         'amount' : 0
+      }
 
       if self.cash['total'] + self.cash['pending'] > self.target:
          #provider has more cash than it needs
@@ -192,6 +192,9 @@ class RebalanceTarget(object):
 
 ################################################################################
 class RebalanceManager(object):
+   LOAD_ADDRESS_PENDING    = 1
+   LOAD_ADDRESS_MISMATCH   = 2
+   LOAD_ADDRESS_DONE       = 3
 
    ## setup ##
    def __init__(self, config, maker, taker, onEventFunc):
@@ -204,7 +207,7 @@ class RebalanceManager(object):
       self.enabled = config['rebalance']['enable']
 
       self.loadedWithdrawals = False
-      self.loadedAddresses = False
+      self.loadedAddresses = self.LOAD_ADDRESS_PENDING
 
    def canAssess(self):
       #do not assess rebalance if we are requesting withdrawals
@@ -213,28 +216,47 @@ class RebalanceManager(object):
       return self.loadedWithdrawals
 
    def canWithdraw(self):
-      return self.loadedWithdrawals and self.loadedAddresses and self.enabled
+      return self.loadedWithdrawals and self.enabled and \
+         self.loadedAddresses == self.LOAD_ADDRESS_DONE
 
    def needsRebalance(self):
       if self.target == None:
          return False
       return self.target.needsRebalance()
 
+   ##
+   async def completeSetup(self):
+      if self.maker.chainAddresses.hasDepositAddr():
+         #NOTE: set taker withdraw addr to maker's
+         #deposit addr this is a quirk of finex api
+         self.taker.chainAddresses.setWithdrawAddresses(
+            [self.maker.chainAddresses.getDepositAddr()])
+
+      if self.maker.chainAddresses.hasAddresses() and \
+         self.taker.chainAddresses.hasAddresses():
+         def setDefaultWithdrawAddr(p1, p2):
+            depositAddr = p1.chainAddresses.getDepositAddr()
+            wtdrAddrs = p2.chainAddresses.getWithdrawAddresses()
+            if depositAddr in wtdrAddrs:
+               p2.chainAddresses.setDefaultWithdrawAddr(depositAddr)
+
+         setDefaultWithdrawAddr(self.maker, self.taker)
+         setDefaultWithdrawAddr(self.taker, self.maker)
+      else:
+         return
+
+      if self.maker.chainAddresses.hasDefaultWtdrAddr() and \
+         self.taker.chainAddresses.hasDefaultWtdrAddr():
+         self.loadedAddresses = self.LOAD_ADDRESS_DONE
+      else:
+         self.loadedAddresses = self.LOAD_ADDRESS_MISMATCH
+      await self.processRebalance()
+
+   ##
    async def setup(self):
-      #get providers' deposit address
-      async def addrCallback():
-         #set taker withdraw addr to maker's deposit addr
-         if self.maker.chainAddresses.hasDepositAddr():
-            self.taker.chainAddresses.setWithdrawAddresses(
-               [self.maker.chainAddresses.getDepositAddress()])
-
-         if self.maker.chainAddresses.hasDepositAddr() and \
-            self.taker.chainAddresses.hasDepositAddr():
-            self.loadedAddresses = True
-            await self.processRebalance()
-
-      await self.maker.loadAddresses(addrCallback)
-      await self.taker.loadAddresses(addrCallback)
+      #load providers' addresses
+      await self.maker.loadAddresses(self.completeSetup)
+      await self.taker.loadAddresses(self.completeSetup)
 
       #get pending withdrawals
       async def wtdrCallback():
@@ -345,9 +367,11 @@ class RebalanceStatusReport(RebalanceReport):
       result = "False"
       if not self.rebalMan.enabled:
          result += " (disabled in config)"
-      elif not self.loadedAddresses:
+      elif self.rebalMan.loadedAddresses == RebalanceManager.LOAD_ADDRESS_PENDING:
          result += " (waiting on addresses)"
-      elif not self.loadedWithdrawals:
+      elif self.rebalMan.loadedAddresses == RebalanceManager.LOAD_ADDRESS_MISMATCH:
+         result += " (address mismtach)"
+      elif not self.rebalMan.loadedWithdrawals:
          result += " (waiting on withdrawal history)"
       return result
 
@@ -376,16 +400,24 @@ class RebalanceStatusReport(RebalanceReport):
 
       #addresses
       def setAddresses(provider):
-         wtdrAddr = "N/A"
-         if provider.chainAddresses.hasWithdrawAddr():
-            wtdrAddr = provider.chainAddresses.getWithdrawAddresses()[0]
-         depAddr = "N/A"
          if provider.chainAddresses.hasDepositAddr():
-            depAddr = provider.chainAddresses.getDepositAddress()
-         return " |  * {} *\n" \
-            " |    withdraw: {}\n" \
-            " |    deposits: {}\n".format(
-               provider.name, wtdrAddr, depAddr)
+            depAddr = provider.chainAddresses.getDepositAddr()
+
+         resultStr = " |  * {} *\n".format(provider.name)
+         resultStr += " |    withdraw:"
+
+         if not provider.chainAddresses.hasWithdrawAddr():
+            resultStr += " N/A\n"
+         else:
+            addrs = provider.chainAddresses.getWithdrawAddresses()
+            for i in range(0, len(addrs)):
+               resultStr += " {}\n".format(addrs[i])
+               if i < len(addrs) - 1:
+                  resultStr += " |             "
+
+         resultStr += " |    deposits: {}\n".format(depAddr)
+         return resultStr
+
       result += " |\n"
       result += " |- ADDRESSES:\n"
       result += setAddresses(self.rebalMan.maker)

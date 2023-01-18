@@ -165,7 +165,7 @@ class MockedLeverexConnectionClass(object):
       await callback("leverex_address")
 
    async def load_whitelisted_addresses(self, callback):
-      await callback(["whitelisted_address"])
+      await callback(["efgh", "ijkl"])
 
    async def load_withdrawals_history(self, callback):
       await callback([])

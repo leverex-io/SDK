@@ -40,6 +40,7 @@ class Factory(object):
          TAKER : None
       }
       self.config = config
+      self.rebalance = None
 
    def getAsyncIOTask(self):
       return None
@@ -74,8 +75,8 @@ class Factory(object):
       #only notify on __eq__ changes
       #the __eq__ operators are tailored to ignore certain
       #changes, such as pnl
-      if changes:
-         await self.report(Definitions.Balance)
+      #if changes:
+      await self.report(Definitions.Balance)
 
    async def onPositionEvent(self, dealer):
       changes = False

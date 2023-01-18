@@ -283,7 +283,7 @@ class LeverexProvider(Factory):
    ##
    async def loadAddresses(self, callback):
       async def depositAddressCallback(address):
-         self.chainAddresses.setDepositAddress(address)
+         self.chainAddresses.setDepositAddr(address)
          await callback()
 
       async def withdrawAddressCallback(addresses):
@@ -291,6 +291,7 @@ class LeverexProvider(Factory):
          for addr in addresses:
             addressList.append(addr)
          self.chainAddresses.setWithdrawAddresses(addressList)
+         await callback()
 
       await self.connection.load_deposit_address(depositAddressCallback)
       await self.connection.load_whitelisted_addresses(withdrawAddressCallback)
@@ -324,7 +325,7 @@ class LeverexProvider(Factory):
             await callback()
 
       await self.connection.withdraw_liquid(
-         address=self.chainAddresses.getWithdrawAddresses()[0],
+         address=self.chainAddresses.getDefaultWithdrawAddr(),
          currency=self.ccy,
          amount=amount,
          callback=withdrawCallback

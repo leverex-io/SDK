@@ -91,7 +91,8 @@ class TestProvider(Factory):
       self.targetCollateral = exposure * self.getCollateralRatio() * openPrice
 
    async def loadAddresses(self, callback):
-      self.chainAddresses.setDepositAddress("abcd")
+      self.chainAddresses.setDepositAddr("abcd")
+      self.chainAddresses.setWithdrawAddresses(["efgh", "ijkl"])
       await callback()
 
    async def loadWithdrawals(self, callback):
@@ -235,5 +236,5 @@ class TestTaker(TestProvider):
 
    async def loadAddresses(self, callback):
       if self.addr != None:
-         self.chainAddresses.setDepositAddress(self.addr)
+         self.chainAddresses.setDepositAddr(self.addr)
       await callback()

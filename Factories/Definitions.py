@@ -357,21 +357,34 @@ class DepositWithdrawAddresses():
    def __init__(self):
       self._deposit_address = None
       self._withdraw_address = None
+      self._default_withdraw_addr = None
 
-   def setWithdrawAddresses(self, addresses):
-      self._withdraw_address = addresses
+   ## get
+   def getDepositAddr(self):
+      return self._deposit_address
 
    def getWithdrawAddresses(self):
       if not self.hasWithdrawAddr():
          raise Exception("missing withdraw address")
       return self._withdraw_address
 
-   def setDepositAddress(self, address):
+   def getDefaultWithdrawAddr(self):
+      if self._default_withdraw_addr == None:
+         raise Exception("missing default withdraw address")
+      return self._default_withdraw_addr
+
+   ## set
+   def setDepositAddr(self, address):
       self._deposit_address = address
 
-   def getDepositAddress(self):
-      return self._deposit_address
+   def setWithdrawAddresses(self, addresses):
+      self._withdraw_address = addresses
 
+   def setDefaultWithdrawAddr(self, addr):
+      if addr in self._withdraw_address:
+         self._default_withdraw_addr = addr
+
+   ## has
    def hasDepositAddr(self):
       if self._deposit_address == None or \
          len(self._deposit_address) == 0:
@@ -383,6 +396,12 @@ class DepositWithdrawAddresses():
          len(self._withdraw_address) == 0:
          return False
       return True
+
+   def hasAddresses(self):
+      return self.hasDepositAddr() and self.hasWithdrawAddr()
+
+   def hasDefaultWtdrAddr(self):
+      return self._default_withdraw_addr != None
 
 ################################################################################
 class WithdrawInfo():
