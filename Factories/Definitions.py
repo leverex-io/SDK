@@ -404,7 +404,7 @@ class DepositWithdrawAddresses():
       return self._default_withdraw_addr != None
 
 ################################################################################
-class WithdrawInfo():
+class WithdrawInfo(object):
    WITHDRAW_FAILED      = 0
    WITHDRAW_ACCEPTED    = 1
    WITHDRAW_PENDING     = 2
@@ -501,3 +501,41 @@ class WithdrawInfo():
          self.WITHDRAW_PENDING,
          self.WITHDRAW_BATCHED
       ]
+
+################################################################################
+class CashOperation(object):
+   INIT     = 1
+   PROGRESS = 2
+   DONE     = 3
+
+   def __init__(self):
+      self.state = self.INIT
+      self._id = None
+
+   def id(self):
+      return self._id
+
+   def setId(self, val):
+      if self.id() != None:
+         raise ProviderException("op has id")
+      self._id = val
+
+   def done(self):
+      return self.state == self.DONE
+
+   async def doTheTask(self, provider):
+      #implement me
+      pass
+
+   def assessProgress(self, provider):
+      #implement me
+      return False
+
+   async def process(self, provider):
+      if self.state == self.INIT:
+         self.state = self.PROGRESS
+         await self.doTheTask(provider)
+
+      elif self.state == self.PROGRESS:
+         if self.assessProgress(provider):
+            self.state = self.DONE

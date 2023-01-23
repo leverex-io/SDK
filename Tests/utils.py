@@ -1,7 +1,8 @@
 import asyncio
 
 from Factories.Provider.Factory import Factory
-from Factories.Definitions import AggregationOrderBook, WithdrawInfo
+from Factories.Definitions import AggregationOrderBook, \
+   WithdrawInfo, CashOperation
 
 price = 10000
 
@@ -15,7 +16,7 @@ class TestProvider(Factory):
       self.explicitState = True
       self.withdrawalsToPush = []
       self.withdrawalHist = None
-      self.cancelWithdrawalsRequested = False
+      self.cancelWithdrawalsRequested = None
 
       if pendingWithdrawals == None:
          return
@@ -104,35 +105,52 @@ class TestProvider(Factory):
       return self.withdrawalHist is not None
 
    async def withdraw(self, amount, callback):
-      self.withdrawalsToPush.append([amount, callback])
+      self.withdrawalsToPush.append([amount, callback,
+         CashOperation()])
+      return self.withdrawalsToPush[-1][-1]
 
    async def pushWithdrawal(self):
       if self.withdrawalHist == None:
          raise Exception("withdrawals arent ready")
 
-      totalWithdrawal = 0
-      callback = None
-      for val in self.withdrawalsToPush:
-         totalWithdrawal += val[0]
-         callback = val[1]
-      self.withdrawalHist.append({
-            'amount': totalWithdrawal,
-            'status': WithdrawInfo.WITHDRAW_COMPLETED
-         })
+      for wtd in self.withdrawalsToPush:
+         #set in history
+         wtd[2].state = CashOperation.PROGRESS
+         self.withdrawalHist.append({
+               'amount': wtd[0],
+               'status': WithdrawInfo.WITHDRAW_BROADCASTED,
+               'task': wtd[2]
+            })
+         #callback
+         if wtd[1] != None:
+            await wtd[1]()
 
-      self.withdrawalsToPush = []
-      await self.updateBalance(self.balance - totalWithdrawal)
-      if callback != None:
-         await callback()
+         #update balances
+         await self.updateBalance(self.balance - wtd[0])
+
+      self.withdrawalsToPush.clear()
+
+   async def completeWithdrawal(self, counterparty):
+      for wtd in self.withdrawalHist:
+         if wtd['status'] != WithdrawInfo.WITHDRAW_BROADCASTED:
+            continue
+
+         wtd['status'] = WithdrawInfo.WITHDRAW_COMPLETED
+         wtd['task'].state = CashOperation.DONE
+         await counterparty.updateBalance(counterparty.balance + wtd['amount'])
+
 
    async def cancelWithdrawals(self):
-      self.cancelWithdrawalsRequested = True
+      if self.cancelWithdrawalsRequested != None:
+         raise Exception("cancellation already underway")
+      self.cancelWithdrawalsRequested = CashOperation()
+      return self.cancelWithdrawalsRequested
 
    async def completeWithdrawCancellation(self):
-      if not self.cancelWithdrawalsRequested:
+      if self.cancelWithdrawalsRequested == None:
          raise Exception("cancel withdrawals was not requested")
 
-      self.cancelWithdrawalsRequested = False
+      self.cancelWithdrawalsRequested.state = CashOperation.DONE
       amount = 0
       for wtdr in self.withdrawalHist:
          if wtdr['status'] == WithdrawInfo.WITHDRAW_PENDING:
@@ -140,6 +158,7 @@ class TestProvider(Factory):
             amount += wtdr['amount']
 
       await self.updateBalance(self.balance + amount)
+      self.cancelWithdrawalsRequested = None
 
 ########
 class TestMaker(TestProvider):

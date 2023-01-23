@@ -2,6 +2,50 @@ import logging
 import asyncio
 import Factories.Definitions as Definitions
 
+
+################################################################################
+class CashOpsManager(object):
+   def __init__(self, provider):
+      #provider is of Factory type
+      self.provider = provider
+      self.queue = {}
+      self.counter = 0
+
+   def addTask(self, cashOp):
+      #set id and increment counter
+      cashOp.setId(self.counter)
+      self.counter += 1
+      self.queue[cashOp.id()] = cashOp
+      return cashOp
+
+   def isDone(self, id):
+      if id in self.queue:
+         return self.queue[id].done()
+
+      #missing id that is less than the counter means
+      #the task was completed and cleaned up
+      return id < self.counter
+
+   async def process(self):
+      while True:
+         if len(self.queue) == 0:
+            return
+
+         #select first task in the queue
+         key = next(iter(self.queue))
+
+         #progress it
+         await self.queue[key].process(self.provider)
+
+         #if it's not completed, return
+         if not self.queue[key].done():
+            return
+
+         #delete the task, iterate over next one
+         del self.queue[key]
+
+
+################################################################################
 class Factory(object):
    ## setup ##
    def __init__(self, name):
@@ -15,6 +59,7 @@ class Factory(object):
       self.collateral_pct = None #in pct
       self.openPrice = None
       self.chainAddresses = Definitions.DepositWithdrawAddresses()
+      self.cashOps = CashOpsManager(self)
 
    def setup(self, callback):
       if callback == None:
@@ -91,6 +136,10 @@ class Factory(object):
       await self.dealerCallback(self, Definitions.Position)
 
    async def onBalanceUpdate(self):
+      #progress current cash operations
+      await self.cashOps.process()
+
+      #then propagate the notification to rest of dealer
       await self.dealerCallback(self, Definitions.Balance)
 
    async def onOrderBookUpdate(self):

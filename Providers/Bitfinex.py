@@ -4,23 +4,27 @@ import asyncio
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook, PositionsReport, BalanceReport, \
-   PriceEvent
+   PriceEvent, CashOperation
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
 import Providers.bfxapi.bfxapi.models as bfx_models
 
-BFX_USD_NET = 'USD Net'
-BFX_USD_TOTAL = 'USD total'
-BFX_DERIVATIVES_WALLET = 'margin'
-
-BALANCE_TOTAL = 'total'
-BALANCE_FREE = 'free'
-BALANCE_RESERVED = 'reserved'
 
 ################################################################################
 class BitfinexException(Exception):
    pass
+
+################################################################################
+class BfxAccounts():
+   DERIVATIVES = 'margin'
+   EXCHANGE    = 'exchange'
+
+########
+class BfxBalances():
+   TOTAL    = 'total'
+   FREE     = 'free'
+   RESERVED = 'reserved'
 
 ################################################################################
 class BfxPosition(object):
@@ -62,7 +66,7 @@ class BfxPosition(object):
 
       return True
 
-################################################################################
+########
 class BfxPositionsReport(PositionsReport):
    def __init__(self, provider):
       super().__init__(provider)
@@ -142,14 +146,14 @@ class BfxPositionsReport(PositionsReport):
 class BfxBalanceReport(BalanceReport):
    def __init__(self, provider):
       super().__init__(provider)
-      self.ccy = provider.derivatives_currency
+      self.ccy = provider.ccy
       self.balances = provider.balances
 
    def __str__(self):
       mainAcc = {}
       mainCcy = {}
-      if BFX_DERIVATIVES_WALLET in self.balances:
-         mainAcc = self.balances[BFX_DERIVATIVES_WALLET]
+      if BfxAccounts.DERIVATIVES in self.balances:
+         mainAcc = self.balances[BfxAccounts.DERIVATIVES]
 
       if self.ccy in mainAcc:
          mainCcy = mainAcc[self.ccy]
@@ -158,15 +162,15 @@ class BfxBalanceReport(BalanceReport):
       result = "  + {} +\n".format(self.name)
 
       mainTotal = "N/A"
-      if BALANCE_TOTAL in mainCcy:
-         mainTotal = round(mainCcy[BALANCE_TOTAL], 2)
+      if BfxAccounts.TOTAL in mainCcy:
+         mainTotal = round(mainCcy[BfxAccounts.TOTAL], 2)
 
       mainFree = "N/A"
-      if BALANCE_FREE in mainCcy:
-         mainFree = round(mainCcy[BALANCE_FREE], 2)
+      if BfxAccounts.FREE in mainCcy:
+         mainFree = round(mainCcy[BfxAccounts.FREE], 2)
 
       #main {account:ccy}
-      result += "    * Derivatives Account ({}) *\n".format(BFX_DERIVATIVES_WALLET)
+      result += "    * Derivatives Account ({}) *\n".format(BfxAccounts.DERIVATIVES)
       result += "      <[{}] total: {}, free: {}>\n".format(
          self.ccy, mainTotal, mainFree)
 
@@ -184,12 +188,12 @@ class BfxBalanceReport(BalanceReport):
          for ccyKey in miscCcy:
             ccy = mainAcc[ccyKey]
             mainTotal = "N/A"
-            if BALANCE_TOTAL in ccy:
-               mainTotal = ccy[BALANCE_TOTAL]
+            if BfxAccounts.TOTAL in ccy:
+               mainTotal = ccy[BfxAccounts.TOTAL]
 
             mainFree = "N/A"
-            if BALANCE_FREE in ccy:
-               mainFree = ccy[BALANCE_FREE]
+            if BfxAccounts.FREE in ccy:
+               mainFree = ccy[BfxAccounts.FREE]
 
             result += "        <[{}] total: {}, free: {}>\n".format(
                ccyKey, mainTotal, mainFree)
@@ -200,17 +204,102 @@ class BfxBalanceReport(BalanceReport):
       if not super().__eq__(obj):
          return False
 
-      if not BFX_DERIVATIVES_WALLET in obj.balances or \
-         not BFX_DERIVATIVES_WALLET in self.balances:
+      if not BfxAccounts.DERIVATIVES in obj.balances or \
+         not BfxAccounts.DERIVATIVES in self.balances:
          return False
 
-      wltSelf = self.balances[BFX_DERIVATIVES_WALLET]
-      wltObj = obj.balances[BFX_DERIVATIVES_WALLET]
+      wltSelf = self.balances[BfxAccounts.DERIVATIVES]
+      wltObj = obj.balances[BfxAccounts.DERIVATIVES]
 
       if wltSelf.keys() != wltObj.keys():
          return False
 
       return wltSelf == wltObj
+
+################################################################################
+class BfxBalanceSwap(CashOperation):
+   def __init__(self, accFrom, accTo, amount = None):
+      super().__init__()
+      self.accFrom = accFrom
+      self.accTo = accTo
+      self.amount = amount
+      self.baseAmount = 0
+
+   async def doTheTask(self, bfx):
+      if self.amount == None:
+         #no amount was mentionned, move it all
+         if self.accFrom not in bfx.balances:
+            self.state = CashOperation.DONE
+            return
+
+         bal = bfx.balances[self.accFrom][bfx.ccy]
+         self.amount = bal[BfxBalances.TOTAL]
+
+      if self.amount == 0:
+         self.state = CashOperation.DONE
+         return
+
+      #get base amount
+      if self.accTo in bfx.balances and \
+         bfx.ccy in bfx.balances[self.accTo]:
+         self.baseAmount = bfx.balances[self.accTo][bfx.ccy][BfxBalances.TOTAL]
+
+      await bfx.connection.rest.submit_wallet_transfer(
+         self.accFrom, self.accTo,
+         bfx.ccy, bfx.ccy,
+         self.amount
+      )
+
+   def assessProgress(self, bfx):
+      if self.accTo not in bfx.balances:
+         return False
+
+      bal = bfx.balances[self.accTo][bfx.ccy]
+      return bal[BfxBalances.TOTAL] >= self.baseAmount + self.amount
+
+
+#######
+class BfxWithdrawal(CashOperation):
+   def __init__(self, amount, callback):
+      super().__init__()
+      self.amount = amount
+      self.positionId = None
+      self.callback = callback
+
+   async def doTheTask(self, bfx):
+      await bfx.connection.rest.submit_wallet_withdraw(
+         wallet=BfxAccounts.EXCHANGE,
+         method=bfx.deposit_method,
+         amount=self.amount,
+         address=bfx.chainAddresses.getDefaultWithdrawAddr()
+      )
+      if self.callback != None:
+         await self.callback()
+
+   def assessProgress(self, bfx):
+      #should prompt bfx by positionId instead
+      if BfxAccounts.EXCHANGE not in bfx.balances:
+         return False
+
+      bal = bfx.balances[BfxAccounts.EXCHANGE][bfx.ccy]
+      return bal[BfxBalances.TOTAL] == 0
+
+########
+class BfxCancelWithdrawals(CashOperation):
+   def __init__(self):
+      super().__init__()
+      self.state = CashOperation.DONE
+
+   ##
+   async def doTheTask(self, bfx):
+      #TODO: cancel ongoing "movements"
+      return
+
+   ##
+   def assessProgress(self, bfx):
+      #TODO: assess state of cancelled "movements"
+      return True
+
 
 ################################################################################
 class BitfinexProvider(Factory):
@@ -249,7 +338,7 @@ class BitfinexProvider(Factory):
                raise BitfinexException(f'Missing \"{kk}\" in config group \"{k}\"')
 
       self.config = config['bitfinex']
-      self.derivatives_currency = self.config['derivatives_currency']
+      self.ccy = self.config['derivatives_currency']
       self.product = self.config['product']
       self.collateral_pct = self.config['collateral_pct']
       self.max_collateral_deviation = self.config['max_collateral_deviation']
@@ -296,7 +385,7 @@ class BitfinexProvider(Factory):
    async def loadAddresses(self, callback):
       try:
          deposit_address = await self.connection.rest.get_wallet_deposit_address(
-            wallet=BFX_DERIVATIVES_WALLET, method=self.deposit_method)
+            wallet=BfxAccounts.DERIVATIVES, method=self.deposit_method)
          self.chainAddresses.setDepositAddr(deposit_address.notify_info.address)
          await callback()
       except Exception as e:
@@ -335,12 +424,12 @@ class BitfinexProvider(Factory):
    def _explicitly_reset_derivatives_wallet(self):
       balances = {}
 
-      balances[BALANCE_TOTAL] = 0
-      balances[BALANCE_FREE] = 0
-      balances[BALANCE_RESERVED] = 0
+      balances[BfxBalances.TOTAL] = 0
+      balances[BfxBalances.FREE] = 0
+      balances[BfxBalances.RESERVED] = 0
 
-      self.balances[BFX_DERIVATIVES_WALLET] = {}
-      self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency] = balances
+      self.balances[BfxAccounts.DERIVATIVES] = {}
+      self.balances[BfxAccounts.DERIVATIVES][self.ccy] = balances
 
    async def on_wallet_snapshot(self, wallets_snapshot):
       self._explicitly_reset_derivatives_wallet()
@@ -364,14 +453,14 @@ class BitfinexProvider(Factory):
 
       balances = {}
 
-      balances[BALANCE_TOTAL] = total_balance
+      balances[BfxBalances.TOTAL] = total_balance
       if free_balance != None:
-         balances[BALANCE_FREE] = free_balance
-         balances[BALANCE_RESERVED] = reserved_balance
+         balances[BfxBalances.FREE] = free_balance
+         balances[BfxBalances.RESERVED] = reserved_balance
 
       self.balances[wallet.type][wallet.currency] = balances
-      if wallet.type == BFX_DERIVATIVES_WALLET:
-         await super().onBalanceUpdate()
+      if wallet.type in [BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE]:
+         await self.onBalanceUpdate()
 
    ## order book events ##
    async def on_order_book_update(self, data):
@@ -446,10 +535,10 @@ class BitfinexProvider(Factory):
       if not self.isReady():
          return None
 
-      if BFX_DERIVATIVES_WALLET not in self.balances or \
-         self.derivatives_currency not in self.balances[BFX_DERIVATIVES_WALLET]:
+      if BfxAccounts.DERIVATIVES not in self.balances or \
+         self.ccy not in self.balances[BfxAccounts.DERIVATIVES]:
          return None
-      balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
+      balance = self.balances[BfxAccounts.DERIVATIVES][self.ccy]
       priceBid = self.order_book.get_aggregated_bid_price(self.max_offer_volume)
       priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume)
 
@@ -457,9 +546,9 @@ class BitfinexProvider(Factory):
          return None
 
       freeMargin = 0
-      balanceKey = BALANCE_FREE
-      if BALANCE_FREE not in balance:
-         balanceKey = BALANCE_TOTAL
+      balanceKey = BfxBalances.FREE
+      if BfxBalances.FREE not in balance:
+         balanceKey = BfxBalances.TOTAL
       else:
          #calculate freeable margin
          if self.product in self.positions:
@@ -493,19 +582,24 @@ class BitfinexProvider(Factory):
 
    ## cash metrics
    def getCashMetrics(self):
-      if BFX_DERIVATIVES_WALLET not in self.balances or \
-         self.derivatives_currency not in self.balances[BFX_DERIVATIVES_WALLET]:
+      if BfxAccounts.DERIVATIVES not in self.balances or \
+         self.ccy not in self.balances[BfxAccounts.DERIVATIVES]:
          return None
-      balance = self.balances[BFX_DERIVATIVES_WALLET][self.derivatives_currency]
-      if not BALANCE_TOTAL in balance:
+      balance = self.balances[BfxAccounts.DERIVATIVES][self.ccy]
+      if not BfxBalances.TOTAL in balance:
          return None
       priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume*3)
       if priceAsk == None:
          return None
 
+      pending = 0
+      if BfxAccounts.EXCHANGE in self.balances and \
+         self.ccy in self.balances[BfxAccounts.EXCHANGE]:
+         pending = self.balances[BfxAccounts.EXCHANGE][self.ccy][BfxBalances.TOTAL]
+
       return {
-         'total' : balance[BALANCE_TOTAL],
-         'pending' : 0,
+         'total' : balance[BfxBalances.TOTAL],
+         'pending' : pending,
          'ratio' : self.getCollateralRatio(),
          'price' : priceAsk.price
       }
@@ -547,14 +641,18 @@ class BitfinexProvider(Factory):
 
    ## withdrawals ##
    async def withdraw(self, amount, callback):
-      await self.connection.rest.submit_wallet_withdraw(
-         wallet=BFX_DERIVATIVES_WALLET,
-         method=self.deposit_method,
-         amount=amount,
-         address=self.chainAddresses.getDefaultWithdrawAddr()
-      )
-      if callback != None:
-         await callback()
+      self.cashOps.addTask(BfxBalanceSwap(
+         BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE, amount))
+      task = self.cashOps.addTask(BfxWithdrawal(amount, callback))
+      await self.cashOps.process()
+      return task
+
+   async def cancelWithdrawals(self):
+      self.cashOps.addTask(BfxCancelWithdrawals())
+      task = self.cashOps.addTask(BfxBalanceSwap(
+         BfxAccounts.EXCHANGE, BfxAccounts.DERIVATIVES))
+      await self.cashOps.process()
+      return task
 
    def withdrawalsLoaded(self):
       return True

@@ -5,7 +5,7 @@ import json
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
    PositionsReport, BalanceReport, SessionInfo, PriceEvent, \
-   DepositWithdrawAddresses
+   DepositWithdrawAddresses, CashOperation, WithdrawInfo
 from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
@@ -223,6 +223,70 @@ class LeverexBalanceReport(BalanceReport):
       return True
 
 ################################################################################
+class LeverexWithdrawal(CashOperation):
+   def __init__(self, amount, callback):
+      super().__init__()
+      self.amount = amount
+      self.withdrawalId = None
+      self.callback = callback
+
+   async def doTheTask(self, leverex):
+      async def withdrawCallback(withdrawal):
+         self.withdrawalId = withdrawal.id
+         leverex.withdrawalHistory[withdrawal.id] = withdrawal
+         if self.callback != None:
+            await self.callback()
+
+      await leverex.connection.withdraw_liquid(
+         address=leverex.chainAddresses.getDefaultWithdrawAddr(),
+         currency=leverex.ccy,
+         amount=self.amount,
+         callback=withdrawCallback
+      )
+
+   def assessProgress(self, leverex):
+      if self.withdrawalId not in leverex.withdrawalHistory:
+         return False
+
+      wtdState = leverex.withdrawalHistory[self.withdrawalId].status_code
+      return wtdState == WithdrawInfo.WITHDRAW_COMPLETED
+
+#######
+class LeverexCancelWithdrawal(CashOperation):
+   def __init__(self):
+      super().__init__()
+      self.ids = []
+
+   async def doTheTask(self, leverex):
+      #the list of ids is used to check for the completion condition
+      #so set the list first, then start cancelling withdrawals
+      for wId in leverex.withdrawalHistory:
+         if not leverex.withdrawalHistory[wId].canBeCancelled():
+            continue
+         self.ids.append(wId)
+
+      for wId in self.ids:
+         async def callback(withdraw_info):
+            #TODO: handle failures to cancel
+            leverex.withdrawalHistory[withdraw_info.id] = withdraw_info
+            #cancelled withdrawal replies come along balance notifications
+            #there is no need to fire a position notification here
+         await leverex.connection.cancel_withdraw(id=wId, callback=callback)
+
+   def assessProgress(self, leverex):
+      completed = True
+      for wId in self.ids:
+         if wId not in leverex.withdrawalHistory:
+            return False
+
+         wtdState = leverex.withdrawalHistory[wId].status_code
+         if wtdState != WithdrawInfo.WITHDRAW_CANCELLED:
+            completed = False
+            break
+
+      return completed
+
+################################################################################
 class LeverexProvider(Factory):
    required_settings = {
       'leverex': [
@@ -314,35 +378,19 @@ class LeverexProvider(Factory):
    ##
    async def on_withdraw_update(self, withdrawal):
       self.withdrawalHistory[withdrawal.id] = withdrawal
-      await super().onBalanceUpdate()
+      await self.onBalanceUpdate()
 
    ##
    async def withdraw(self, amount, callback):
-      async def withdrawCallback(withdrawal):
-         self.withdrawalHistory[withdrawal.id] = withdrawal
-         #await super(LeverexProvider, self).onBalanceUpdate()
-         if callback != None:
-            await callback()
-
-      await self.connection.withdraw_liquid(
-         address=self.chainAddresses.getDefaultWithdrawAddr(),
-         currency=self.ccy,
-         amount=amount,
-         callback=withdrawCallback
-      )
+      task = self.cashOps.addTask(LeverexWithdrawal(amount, callback))
+      await self.cashOps.process()
+      return task
 
    ##
    async def cancelWithdrawals(self):
-      for wId in self.withdrawalHistory:
-         if not self.withdrawalHistory[wId].canBeCancelled():
-            continue
-
-         async def callback(withdraw_info):
-            #TODO: handle failures to cancel
-            self.withdrawalHistory[withdraw_info.id] = withdraw_info
-            #cancelled withdrawal replies come along balance notifications
-            #there is no need to fire a position notification here
-         await self.connection.cancel_withdraw(id=wId, callback=callback)
+      task = self.cashOps.addTask(LeverexCancelWithdrawal())
+      await self.cashOps.process()
+      return task
 
    ##
    def getPendingWithdrawals(self):
@@ -379,7 +427,7 @@ class LeverexProvider(Factory):
       for balance_info in balances:
          self.balances[balance_info['currency']] = float(balance_info['balance'])
 
-      await super().onBalanceUpdate()
+      await self.onBalanceUpdate()
 
    ## position events ##
    async def on_positions_loaded(self, orders):

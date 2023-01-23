@@ -1575,7 +1575,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 1200
       assert target.taker.target == 1800
-      assert target.maker.cancelPending == 2
+      assert target.maker.cancelPending['status'] == 2
       assert target.maker.toWithdraw['amount'] == 300
       assert target.maker.toWithdraw['status'] == 4
       assert '20' in mockedConnection.pendingWtdr
@@ -1592,7 +1592,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 1200
       assert target.taker.target == 1800
-      assert target.maker.cancelPending == 3
+      assert target.maker.cancelPending['status'] == 3
       assert target.maker.toWithdraw['amount'] == 300
       assert target.maker.toWithdraw['status'] == 5
       assert len(mockedConnection.pendingWtdr) == 0

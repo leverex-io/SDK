@@ -525,11 +525,12 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.balance == 1500
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      assert hedger.canRebalance() == False
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
       assert target.maker.target == 1080
       assert target.taker.target == 1620
-      assert target.maker.cancelPending == 2
+      assert target.maker.cancelPending['status'] == 2
       assert target.maker.toWithdraw['amount'] == 120
 
       #reduce taker cash, maker rebalance target should go up
@@ -542,7 +543,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 960
       assert target.taker.target == 1440
-      assert target.maker.cancelPending == 2
+      assert target.maker.cancelPending['status'] == 2
       assert target.maker.toWithdraw['amount'] == 240
 
       #post an order, rebalance target shouldn't change
@@ -565,7 +566,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 20560
       assert target.taker.target == 30840
-      assert target.maker.cancelPending == 2
+      assert target.maker.cancelPending['status'] == 2
       assert target.maker.toWithdraw['amount'] == 29640
 
       #reduce balances near 1.5x max volume
@@ -578,7 +579,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 28080
       assert target.taker.target == 42120
-      assert target.maker.cancelPending == 2
+      assert target.maker.cancelPending['status'] == 2
       assert target.maker.toWithdraw['amount'] == 22120
 
       await maker.updateBalance(15000)
@@ -590,7 +591,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 14080
       assert target.taker.target == 21120
-      assert target.maker.cancelPending == 2
+      assert target.maker.cancelPending['status'] == 2
       assert target.maker.toWithdraw['amount'] == 1120
 
       #set taker above maker
@@ -602,7 +603,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 12080
       assert target.taker.target == 18120
-      assert target.maker.cancelPending == 2
+      assert target.maker.cancelPending['status'] == 2
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 1880
 
@@ -670,7 +671,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.withdrawalHist[0]['amount'] == 200
 
       #complete rebalance by funding taker the cash
-      await taker.updateBalance(1200)
+      await maker.completeWithdrawal(taker)
       assert maker.balance == 800
       assert taker.balance == 1200
       assert maker.getExposure() == 0
@@ -775,7 +776,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       #ACK maker withdrawal request, update taker cash
       await maker.pushWithdrawal()
-      await taker.updateBalance(1200)
+      await maker.completeWithdrawal(taker)
       assert maker.balance == 800
       assert taker.balance == 1200
       assert maker.getExposure() == 0
@@ -844,7 +845,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(maker.withdrawalHist) == 1
       assert len(taker.withdrawalsToPush) == 0
       assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_PENDING
-      assert maker.cancelWithdrawalsRequested == True
+      assert maker.cancelWithdrawalsRequested != None
 
       #complete maker withdrawal cancellation
       await maker.completeWithdrawCancellation()
@@ -863,7 +864,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(maker.withdrawalHist) == 1
       assert len(taker.withdrawalsToPush) == 1
       assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
-      assert maker.cancelWithdrawalsRequested == False
+      assert maker.cancelWithdrawalsRequested == None
 
       #complete taker withdrawal
       await taker.pushWithdrawal()
@@ -882,11 +883,11 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(maker.withdrawalHist) == 1
       assert len(taker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
-      assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_COMPLETED
+      assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_BROADCASTED
       assert taker.withdrawalHist[0]['amount'] == 200
 
       #finally, send cash to maker
-      await maker.updateBalance(1200)
+      await taker.completeWithdrawal(maker)
       assert maker.balance == 1200
       assert taker.balance == 1800
       assert maker.getExposure() == 0
@@ -897,6 +898,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.target == None
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 200
+      assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_COMPLETED
 
    async def test_rebalance_target_with_taker_cancellation(self):
       #setup taker and maker
@@ -937,7 +939,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(taker.withdrawalHist) == 1
       assert len(maker.withdrawalsToPush) == 0
       assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_PENDING
-      assert taker.cancelWithdrawalsRequested == True
+      assert taker.cancelWithdrawalsRequested != None
 
       #complete maker withdrawal cancellation
       await taker.completeWithdrawCancellation()
@@ -956,7 +958,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(taker.withdrawalHist) == 1
       assert len(maker.withdrawalsToPush) == 1
       assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
-      assert taker.cancelWithdrawalsRequested == False
+      assert taker.cancelWithdrawalsRequested == None
 
       #complete taker withdrawal
       await maker.pushWithdrawal()
@@ -975,11 +977,11 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(maker.withdrawalHist) == 1
       assert len(taker.withdrawalHist) == 1
       assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_CANCELLED
-      assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_COMPLETED
+      assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_BROADCASTED
       assert maker.withdrawalHist[0]['amount'] == 200
 
       #finally, send cash to maker
-      await taker.updateBalance(1800)
+      await maker.completeWithdrawal(taker)
       assert maker.balance == 1200
       assert taker.balance == 1800
       assert maker.getExposure() == 0
@@ -988,3 +990,4 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       assert hedger.rebalMan.target == None
+      assert maker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_COMPLETED
