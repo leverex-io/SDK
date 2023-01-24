@@ -218,21 +218,24 @@ class BfxBalanceReport(BalanceReport):
 
 ################################################################################
 class BfxBalanceSwap(CashOperation):
-   def __init__(self, accFrom, accTo, amount = None):
+   def __init__(self, accFrom, accTo, ccyFrom, ccyTo, amount = None):
       super().__init__()
       self.accFrom = accFrom
       self.accTo = accTo
+      self.ccyFrom = ccyFrom
+      self.ccyTo = ccyTo
       self.amount = amount
       self.baseAmount = 0
 
    async def doTheTask(self, bfx):
       if self.amount == None:
          #no amount was mentionned, move it all
-         if self.accFrom not in bfx.balances:
+         if self.accFrom not in bfx.balances or \
+            self.ccyFrom not in bfx.balances[self.accFrom]:
             self.state = CashOperation.DONE
             return
 
-         bal = bfx.balances[self.accFrom][bfx.ccy]
+         bal = bfx.balances[self.accFrom][self.ccyFrom]
          self.amount = bal[BfxBalances.TOTAL]
 
       if self.amount == 0:
@@ -240,13 +243,12 @@ class BfxBalanceSwap(CashOperation):
          return
 
       #get base amount
-      if self.accTo in bfx.balances and \
-         bfx.ccy in bfx.balances[self.accTo]:
-         self.baseAmount = bfx.balances[self.accTo][bfx.ccy][BfxBalances.TOTAL]
+      if self.accTo in bfx.balances and self.ccyTo in bfx.balances[self.accTo]:
+         self.baseAmount = bfx.balances[self.accTo][self.ccyTo][BfxBalances.TOTAL]
 
       await bfx.connection.rest.submit_wallet_transfer(
          self.accFrom, self.accTo,
-         bfx.ccy, bfx.ccy,
+         self.ccyFrom, self.ccyTo,
          self.amount
       )
 
@@ -254,7 +256,11 @@ class BfxBalanceSwap(CashOperation):
       if self.accTo not in bfx.balances:
          return False
 
-      bal = bfx.balances[self.accTo][bfx.ccy]
+      bal = None
+      if self.accTo in bfx.balances and self.ccyTo in bfx.balances[self.accTo]:
+         bal = bfx.balances[self.accTo][self.ccyTo]
+      if bal == None:
+         return False
       return bal[BfxBalances.TOTAL] >= self.baseAmount + self.amount
 
 
@@ -281,7 +287,7 @@ class BfxWithdrawal(CashOperation):
       if BfxAccounts.EXCHANGE not in bfx.balances:
          return False
 
-      bal = bfx.balances[BfxAccounts.EXCHANGE][bfx.ccy]
+      bal = bfx.balances[BfxAccounts.EXCHANGE][bfx.ccy_base]
       return bal[BfxBalances.TOTAL] == 0
 
 ########
@@ -306,6 +312,7 @@ class BitfinexProvider(Factory):
    required_settings = {
       'bitfinex': [
          'api_key', 'api_secret',
+         'base_currency',
          'derivatives_currency',
          'product',
          'collateral_pct',
@@ -338,6 +345,7 @@ class BitfinexProvider(Factory):
                raise BitfinexException(f'Missing \"{kk}\" in config group \"{k}\"')
 
       self.config = config['bitfinex']
+      self.ccy_base = self.config['base_currency']
       self.ccy = self.config['derivatives_currency']
       self.product = self.config['product']
       self.collateral_pct = self.config['collateral_pct']
@@ -460,6 +468,26 @@ class BitfinexProvider(Factory):
 
       self.balances[wallet.type][wallet.currency] = balances
       if wallet.type in [BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE]:
+         #check for pending balances
+         pendingBal = self.getPendingBalances()
+         for acc in pendingBal:
+            for ccy in pendingBal[acc]:
+               '''
+               There is cash in our tracked accounts, under our tracked
+               currencies. We want all this cash to be in our derivatives
+               account, under our derivative currency. Therefor, we create
+               a balance swap task for each of these <account, ccy> pairs
+               for the cash operation manager to handle.
+
+               These tasks will not conflict with rebalance cash operations,
+               as they are consumed in order of appearance by the cashOps
+               manager; i.e. if a rebalance withdrawal triggers this code
+               to queue a swap, likely the final swap will have no effect
+               as the rebalance withdrawal wiped the pending balance clean
+               '''
+               self.cashOps.addTask(BfxBalanceSwap(
+                  acc, BfxAccounts.DERIVATIVES, ccy, self.ccy))
+
          await self.onBalanceUpdate()
 
    ## order book events ##
@@ -588,21 +616,39 @@ class BitfinexProvider(Factory):
       balance = self.balances[BfxAccounts.DERIVATIVES][self.ccy]
       if not BfxBalances.TOTAL in balance:
          return None
-      priceAsk = self.order_book.get_aggregated_ask_price(self.max_offer_volume*3)
-      if priceAsk == None:
-         return None
 
       pending = 0
-      if BfxAccounts.EXCHANGE in self.balances and \
-         self.ccy in self.balances[BfxAccounts.EXCHANGE]:
-         pending = self.balances[BfxAccounts.EXCHANGE][self.ccy][BfxBalances.TOTAL]
+      pendingDict = self.getPendingBalances()
+      for acc in pendingDict:
+         for ccy in pendingDict[acc]:
+            pending += pendingDict[acc][ccy]
 
       return {
          'total' : balance[BfxBalances.TOTAL],
          'pending' : pending,
-         'ratio' : self.getCollateralRatio(),
-         'price' : priceAsk.price
+         'ratio' : self.getCollateralRatio()
       }
+
+   ##
+   def getPendingBalances(self):
+      result = {}
+      if BfxAccounts.DERIVATIVES in self.balances:
+         bal = self.balances[BfxAccounts.DERIVATIVES]
+         if self.ccy_base in bal:
+            result[BfxAccounts.DERIVATIVES] = {
+               self.ccy_base : bal[self.ccy_base][BfxBalances.TOTAL]
+            }
+
+      if BfxAccounts.EXCHANGE in self.balances:
+         bal = self.balances[BfxAccounts.EXCHANGE]
+         result[BfxAccounts.EXCHANGE] = {}
+         if self.ccy_base in bal:
+            result[BfxAccounts.EXCHANGE][self.ccy_base] = bal[self.ccy_base][BfxBalances.TOTAL]
+
+         if self.ccy in bal:
+            result[BfxAccounts.EXCHANGE][self.ccy] = bal[self.ccy][BfxBalances.TOTAL]
+
+      return result
 
    ## exposure ##
    def getExposure(self):
@@ -642,7 +688,8 @@ class BitfinexProvider(Factory):
    ## withdrawals ##
    async def withdraw(self, amount, callback):
       self.cashOps.addTask(BfxBalanceSwap(
-         BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE, amount))
+         BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE, \
+         self.ccy, self.ccy_base, amount))
       task = self.cashOps.addTask(BfxWithdrawal(amount, callback))
       await self.cashOps.process()
       return task
@@ -650,7 +697,8 @@ class BitfinexProvider(Factory):
    async def cancelWithdrawals(self):
       self.cashOps.addTask(BfxCancelWithdrawals())
       task = self.cashOps.addTask(BfxBalanceSwap(
-         BfxAccounts.EXCHANGE, BfxAccounts.DERIVATIVES))
+         BfxAccounts.EXCHANGE, BfxAccounts.DERIVATIVES, \
+         self.ccy_base, self.ccy))
       await self.cashOps.process()
       return task
 

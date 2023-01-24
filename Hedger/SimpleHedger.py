@@ -23,7 +23,8 @@ class HedgerException(Exception):
 ## Rebalance
 ################################################################################
 class ProviderTarget(object):
-   def __init__(self, cashMetrics, target):
+   def __init__(self, name, cashMetrics, target):
+      self.name = name
       self.cash = cashMetrics
       self.target = target
 
@@ -75,8 +76,8 @@ class RebalanceTarget(object):
       self.min_amount = float(config['rebalance']['min_amount'])
       self.threshold = float(config['rebalance']['threshold_pct'])
 
-      self.maker = ProviderTarget(makerCash, makerTarget)
-      self.taker = ProviderTarget(takerCash, takerTarget)
+      self.maker = ProviderTarget('maker', makerCash, makerTarget)
+      self.taker = ProviderTarget('taker', takerCash, takerTarget)
 
    def needsRebalance(self):
       if self.maker.cancelPending['status'] != CANCEL_PENDING_DONE or \
@@ -460,9 +461,9 @@ class RebalanceStatusReport(RebalanceReport):
          result += " |    N/A"
       else:
          def setBalances(target):
-            cashMetrics = target.provider.getCashMetrics()
+            cashMetrics = target.cash
             return " |  * {}: balance: {}, pending: {}, target: {}\n".format(
-               target.provider.name,
+               target.name,
                round(cashMetrics['total'], 2),
                round(cashMetrics['pending'], 2),
                round(target.target, 2))
