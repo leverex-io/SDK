@@ -21,16 +21,14 @@ class LocalReporter(Factory):
       print ("")
 
    def printBalances(self):
-      print (f"-- WALLETS: {datetime.fromtimestamp(time.time())} --")
-
-      print (str(self.balances[MAKER]))
-      print (str(self.balances[TAKER]))
+      print (f"++ WALLETS: {datetime.fromtimestamp(time.time())} ++")
+      final = str(self.balances[MAKER]) + " +\n" + str(self.balances[TAKER])
+      print (final)
 
    def printPositions(self):
-      print (f"-- POSITIONS: {datetime.fromtimestamp(time.time())} --")
-
-      print (str(self.positions[MAKER]))
-      print (str(self.positions[TAKER]))
+      print (f"** POSITIONS: {datetime.fromtimestamp(time.time())} **")
+      final = str(self.positions[MAKER]) + " *\n" + str(self.positions[TAKER])
+      print (final)
 
    def printPnl(self):
       print (f"-- PnL: {datetime.fromtimestamp(time.time())} --")

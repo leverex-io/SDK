@@ -81,7 +81,7 @@ class BfxPositionsReport(PositionsReport):
 
    def __str__(self):
       #header
-      result = "  * {} -- exp: {} -- product: {} *\n".format(
+      result = " ** {} -- exp: {} -- product: {}\n".format(
          self.name, self.netExposure, self.product)
 
       #positions
@@ -91,7 +91,7 @@ class BfxPositionsReport(PositionsReport):
 
       productPos = self.positions[self.product]
       for pos in productPos:
-         result += "    {}\n".format(str(productPos[pos]))
+         result += " *  {}\n".format(str(productPos[pos]))
 
       #untracked products
       untrackedProducts = []
@@ -146,58 +146,48 @@ class BfxPositionsReport(PositionsReport):
 class BfxBalanceReport(BalanceReport):
    def __init__(self, provider):
       super().__init__(provider)
-      self.ccy = provider.ccy
+      self.ccy = [provider.ccy, provider.ccy_base]
+      self.acc = [BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE]
       self.balances = provider.balances
 
    def __str__(self):
-      mainAcc = {}
-      mainCcy = {}
-      if BfxAccounts.DERIVATIVES in self.balances:
-         mainAcc = self.balances[BfxAccounts.DERIVATIVES]
-
-      if self.ccy in mainAcc:
-         mainCcy = mainAcc[self.ccy]
-
       #header
-      result = "  + {} +\n".format(self.name)
+      result = " +- {}:\n".format(self.name)
 
-      mainTotal = "N/A"
-      if BfxAccounts.TOTAL in mainCcy:
-         mainTotal = round(mainCcy[BfxAccounts.TOTAL], 2)
+      hasAcc = False
+      for i in range(0, len(self.acc)):
+         acc = self.acc[i]
+         if not acc in self.balances:
+            continue
+         hasAcc = True
+         result += " +--- Account: {}\n".format(acc)
 
-      mainFree = "N/A"
-      if BfxAccounts.FREE in mainCcy:
-         mainFree = round(mainCcy[BfxAccounts.FREE], 2)
+         accDict = self.balances[acc]
+         hasCcy = False
+         for ccy in accDict:
+            if ccy not in accDict:
+               continue
+            hasCcy = True
 
-      #main {account:ccy}
-      result += "    * Derivatives Account ({}) *\n".format(BfxAccounts.DERIVATIVES)
-      result += "      <[{}] total: {}, free: {}>\n".format(
-         self.ccy, mainTotal, mainFree)
-
-      #alt ccy in main acc
-      miscCcy = []
-      for ccy in mainAcc:
-         if ccy != self.ccy:
-            miscCcy.append(ccy)
-
-      if len(miscCcy) != 0:
-         #header
-         result += "\n      - misc currencies -\n"
-
-         #body
-         for ccyKey in miscCcy:
-            ccy = mainAcc[ccyKey]
             mainTotal = "N/A"
-            if BfxAccounts.TOTAL in ccy:
-               mainTotal = ccy[BfxAccounts.TOTAL]
+            if BfxBalances.TOTAL in accDict[ccy]:
+               mainTotal = round(accDict[ccy][BfxBalances.TOTAL], 2)
 
             mainFree = "N/A"
-            if BfxAccounts.FREE in ccy:
-               mainFree = ccy[BfxAccounts.FREE]
+            if BfxBalances.FREE in accDict[ccy]:
+               mainFree = round(accDict[ccy][BfxBalances.FREE], 2)
 
-            result += "        <[{}] total: {}, free: {}>\n".format(
-               ccyKey, mainTotal, mainFree)
+            result += " +    <[{}] total: {}, free: {}>\n".format(
+               ccy, mainTotal, mainFree
+            )
 
+         if not hasCcy:
+            result += " +    <N/A>\n"
+         elif i < len(self.acc) - 1:
+            result += " +\n"
+
+      if not hasAcc:
+            result += " +  <N/A>\n"
       return result
 
    def __eq__(self, obj):
@@ -316,7 +306,8 @@ class BitfinexProvider(Factory):
          'derivatives_currency',
          'product',
          'collateral_pct',
-         'max_collateral_deviation'
+         'max_collateral_deviation',
+         'deposit_method'
       ],
       'hedger': [
          'max_offer_volume'
@@ -334,7 +325,6 @@ class BitfinexProvider(Factory):
       self.lastReadyState = False
       self.indexPrice = 0
 
-      #check for required config entries
       #check for required config entries
       for k in self.required_settings:
          if k not in config:

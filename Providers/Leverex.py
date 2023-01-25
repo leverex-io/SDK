@@ -113,7 +113,7 @@ class LeverexPositionsReport(PositionsReport):
    def __str__(self):
       #header
       pnl = self.getPnl()
-      result = "  * {} -- exp: {}".format(\
+      result = " ** {} -- exp: {}".format(\
          self.name, self.netExposure)
 
       #grab session from orderData
@@ -125,7 +125,7 @@ class LeverexPositionsReport(PositionsReport):
       if session is not None and session.isOpen():
          result += " -- session: {}, open price: {}".format(
             session.getSessionId(), session.getOpenPrice())
-      result += " *\n"
+      result += "\n"
 
       if self.getOrderCount() == 0:
          result += "    N/A\n"
@@ -153,11 +153,16 @@ class LeverexPositionsReport(PositionsReport):
          orderList = orderDict[posType]
          if len(orderList) == 0:
             continue
+         result += " *  - {} -\n".format(posType)
 
-         result += "    - {} -\n".format(posType)
-         for orderId in orderList:
-            result += "      {}\n".format(str(self.orderData.orders[orderId]))
-         result += "\n"
+         for i in range(0, len(orderList)):
+            orderId = orderList[i]
+            result += " *    {}".format(str(self.orderData.orders[orderId]))
+            if i < len(orderList) - 1:
+               result += "\n"
+
+         if posType is not next(reversed(orderDict.keys())):
+            result += "\n"
 
       return result
 
@@ -192,17 +197,17 @@ class LeverexBalanceReport(BalanceReport):
 
    def __str__(self):
       #header
-      result = "  + {} +\n".format(self.name)
+      result = " +- {}:\n".format(self.name)
 
       #breakdown
       for ccy in self.balances:
-         result += "    <{}: {}".format(ccy, round(self.balances[ccy], 2))
+         result += " +  <{}: {}".format(ccy, round(self.balances[ccy], 2))
          if ccy == self.ccy:
             result += " (total)"
          result += ">\n"
 
       if len(self.balances) == 0:
-         result += "    <N/A>\n"
+         result += " +  <N/A>\n"
 
       return result
 
