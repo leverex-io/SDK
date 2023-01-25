@@ -150,31 +150,37 @@ class BfxPositionsReport(PositionsReport):
 
 ################################################################################
 class BfxBalanceReport(BalanceReport):
+   acc = [BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE]
+
    def __init__(self, provider):
       super().__init__(provider)
       self.ccy = [provider.ccy, provider.ccy_base]
-      self.acc = [BfxAccounts.DERIVATIVES, BfxAccounts.EXCHANGE]
-      self.balances = provider.balances
+      self.balances = {}
+
+      #filter out 
+      for acc in provider.balances:
+         if acc not in self.acc:
+            continue
+
+         for ccy in provider.balances[acc]:
+            if ccy not in self.ccy:
+               continue
+            if acc not in self.balances:
+               self.balances[acc] = {}
+            self.balances[acc][ccy] = provider.balances[acc][ccy]
 
    def __str__(self):
       #header
       result = " +- {}:\n".format(self.name)
+      if not self.balances:
+         result += " +  <N/A>"
+         return
 
-      hasAcc = False
-      for i in range(0, len(self.acc)):
-         acc = self.acc[i]
-         if not acc in self.balances:
-            continue
-         hasAcc = True
+      for acc in self.balances:
          result += " +--- Account: {}\n".format(acc)
 
          accDict = self.balances[acc]
-         hasCcy = False
          for ccy in accDict:
-            if ccy not in accDict:
-               continue
-            hasCcy = True
-
             mainTotal = "N/A"
             if BfxBalances.TOTAL in accDict[ccy]:
                mainTotal = round(accDict[ccy][BfxBalances.TOTAL], 2)
@@ -186,14 +192,9 @@ class BfxBalanceReport(BalanceReport):
             result += " +    <[{}] total: {}, free: {}>\n".format(
                ccy, mainTotal, mainFree
             )
-
-         if not hasCcy:
-            result += " +    <N/A>\n"
-         elif i < len(self.acc) - 1:
+         if acc != next(reversed(self.balances.keys())):
             result += " +\n"
 
-      if not hasAcc:
-            result += " +  <N/A>\n"
       return result
 
    def __eq__(self, obj):
