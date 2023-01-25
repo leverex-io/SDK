@@ -8,7 +8,8 @@ from Factories.Dealer.Factory import DealerFactory
 from Factories.Definitions import AggregationOrderBook, Order, \
    SIDE_BUY, SIDE_SELL
 
-from Providers.Bitfinex import BitfinexProvider, BfxAccounts
+from Providers.Bitfinex import BitfinexProvider, BfxAccounts, \
+   productToCcy
 from Providers.bfxapi.bfxapi.models.wallet import Wallet
 
 AMOUNT = 2
@@ -22,12 +23,9 @@ COLLATERAL = 17
 #### Bitfinex Provider Tests
 ##
 ################################################################################
-def symbolToCcy(symbol):
-   return symbol.split(':')[-1]
-
 def methodToCcy(method):
    if method == 'TETHERUSL':
-      return 'usdt'
+      return 'USDT'
    return None
 
 ####
@@ -110,7 +108,7 @@ class FakeBfxWsInterface(object):
 
       #push wallet balance notification to update free cash
       balance = 0
-      ccy = symbolToCcy(symbol)
+      ccy = productToCcy(symbol)
       if BfxAccounts.DERIVATIVES in self.balance:
          balance = self.balance[BfxAccounts.DERIVATIVES][ccy]
       await self.push_wallet_update(symbol, balance, BfxAccounts.DERIVATIVES)
@@ -119,7 +117,7 @@ class FakeBfxWsInterface(object):
       pass
 
    def getFreeBalance(self, symbol, wallet):
-      ccy = symbolToCcy(symbol)
+      ccy = productToCcy(symbol)
       val = 0
       if symbol in self.positions:
          val = self.positions[symbol][COLLATERAL]
@@ -127,7 +125,7 @@ class FakeBfxWsInterface(object):
 
    async def push_wallet_snapshot(self, symbol, balance, acc):
       #track wallets internally
-      ccy = symbolToCcy(symbol)
+      ccy = productToCcy(symbol)
       if acc not in self.balance:
          self.balance[acc] = {}
       self.balance[acc][ccy] = balance
@@ -140,7 +138,7 @@ class FakeBfxWsInterface(object):
 
    async def push_wallet_update(self, symbol, balance, acc):
       #track wallets internally
-      ccy = symbolToCcy(symbol)
+      ccy = productToCcy(symbol)
       if acc not in self.balance:
          self.balance[acc] = {}
       self.balance[acc][ccy] = balance
@@ -197,8 +195,8 @@ class MockedBfxClientClass(object):
    def __init__(self):
       self.ws = FakeBfxWsInterface()
       self.rest = FakeBfxRestInterface(self)
-      self.product = 'btcf0:usdtf0'
-      self.ccy = 'usdtf0'
+      self.product = 'BTCF0:USDTF0'
+      self.ccy = 'USDTF0'
 
    async def push_authorize(self):
       await self.ws.callbacks['authenticated']("")
@@ -289,9 +287,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
    config['bitfinex'] = {
       'api_key' : 'the_key',
       'api_secret' : 'the_secret',
-      'product' : 'btcf0:usdtf0',
-      'base_currency' : 'usdt',
-      'derivatives_currency' : 'usdtf0',
+      'product' : 'BTCF0:USDTF0',
       'collateral_pct' : 15,
       'max_collateral_deviation' : 2,
       'deposit_method' : 'TETHERUSL'
@@ -350,7 +346,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.isReady() == False
       assert dealer.isReady() == False
       assert taker._balanceInitialized == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
 
       #get exposure should fail if the provider is not ready
       assert taker.getExposure() == None
@@ -446,7 +442,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker._balanceInitialized == True
       assert taker.getExposure() == 0
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
       assert taker.getOpenVolume() == None
 
       #push order book snapshot
@@ -532,7 +528,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker._balanceInitialized == True
       assert round(taker.getExposure(), 8) == 0.2
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
       assert mockedConnection.getPositionExposure() == 0.2
 
    @patch('Providers.Bitfinex.Client')
@@ -589,7 +585,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker._balanceInitialized == True
       assert round(taker.getExposure(), 8) == 0
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
 
       #notify maker of new order, taker exposure should be updated accordingly
       await maker.newOrder(Order(1, 1, 1, 10200, SIDE_BUY))
@@ -654,7 +650,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker._balanceInitialized == True
       assert round(taker.getExposure(), 8) == 0
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
 
       #notify maker of new order, taker exposure should be updated accordingly
       await maker.newOrder(Order(1, 1, 1, 10200, SIDE_BUY))
@@ -737,7 +733,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert round(taker.getExposure(), 8) == 0
       assert hedger.isReady() == True
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
       assert maker.balance == 1000
 
       #check open volume
@@ -835,7 +831,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert round(taker.getExposure(), 8) == 0
       assert hedger.isReady() == True
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
       assert maker.balance == 1000
 
       #check hedger can rebalance
@@ -846,7 +842,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #set taker balance to trigger rebalance
       await mockedConnection.push_wallet_update(4000)
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 4000
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 4000
       assert maker.balance == 1000
       assert hedger.canRebalance() == True
       assert hedger.needsRebalance() == True
@@ -899,7 +895,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #apply effect of withdrawal on taker's balance
       await mockedConnection.completeWithdrawals()
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 3000
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 3000
       assert maker.balance == 1000
       assert hedger.canRebalance() == True
 
@@ -962,7 +958,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert round(taker.getExposure(), 8) == 0
       assert hedger.isReady() == True
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
       assert maker.balance == 1000
 
       #check hedger can rebalance
@@ -1102,11 +1098,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker._balanceInitialized == True
       assert round(taker.getExposure(), 8) == 0
       assert dealer.isReady() == True
-      assert taker.balances[BfxAccounts.DERIVATIVES]['usdtf0']['total'] == 1500
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
       assert hedger.canRebalance() == True
 
       #deposit usdt to exchange account
-      await mockedConnection.ws.push_wallet_update('usdt', 500, BfxAccounts.EXCHANGE)
+      await mockedConnection.ws.push_wallet_update('USDT', 500, BfxAccounts.EXCHANGE)
       cash = taker.getCashMetrics()
       assert cash['total'] == 1500
       assert cash['pending'] == 500

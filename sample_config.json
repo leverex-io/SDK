@@ -1,7 +1,4 @@
 {
-    "status_server" : {
-       "port" : 8000
-    },
     "leverex" :
     {
        "api_endpoint" : "wss://api-dev.leverex.io",
@@ -14,12 +11,10 @@
        "api_key" : "****",
        "api_secret" : "****",
        "log_level" : "WARN",
-       "orderbook_product" : "tTESTBTCF0:TESTUSDTF0",
        "order_book_len" : 100,
        "order_book_aggregation" : "P0",
        "product" : "tTESTBTCF0:TESTUSDTF0",
-       "derivatives_currency" : "TESTUSDTF0",
-       "collateral_pct" : 15,
+       "collateral_pct" : 50,
        "max_collateral_deviation" : 2,
        "deposit_method" : "TETHERUSL"
     },

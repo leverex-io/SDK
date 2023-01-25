@@ -15,6 +15,12 @@ import Providers.bfxapi.bfxapi.models as bfx_models
 class BitfinexException(Exception):
    pass
 
+def productToCcy(symbol):
+   return symbol.split(':')[-1]
+
+def ccyToBase(ccy):
+   return ccy.split('F0')[0]
+
 ################################################################################
 class BfxAccounts():
    DERIVATIVES = 'margin'
@@ -302,8 +308,6 @@ class BitfinexProvider(Factory):
    required_settings = {
       'bitfinex': [
          'api_key', 'api_secret',
-         'base_currency',
-         'derivatives_currency',
          'product',
          'collateral_pct',
          'max_collateral_deviation',
@@ -335,9 +339,9 @@ class BitfinexProvider(Factory):
                raise BitfinexException(f'Missing \"{kk}\" in config group \"{k}\"')
 
       self.config = config['bitfinex']
-      self.ccy_base = self.config['base_currency']
-      self.ccy = self.config['derivatives_currency']
       self.product = self.config['product']
+      self.ccy = productToCcy(self.product)
+      self.ccy_base = ccyToBase(self.ccy)
       self.collateral_pct = self.config['collateral_pct']
       self.max_collateral_deviation = self.config['max_collateral_deviation']
       self.max_offer_volume = config['hedger']['max_offer_volume']
