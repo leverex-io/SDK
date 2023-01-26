@@ -12,16 +12,22 @@ import Providers.bfxapi.bfxapi.models as bfx_models
 
 
 ################################################################################
+##
+#### utilities
+##
+################################################################################
 class BitfinexException(Exception):
    pass
 
+########
 def productToCcy(symbol):
    return symbol.split(':')[-1]
 
+########
 def ccyToBase(ccy):
    return ccy.split('F0')[0]
 
-################################################################################
+########
 class BfxAccounts():
    DERIVATIVES = 'margin'
    EXCHANGE    = 'exchange'
@@ -32,6 +38,10 @@ class BfxBalances():
    FREE     = 'free'
    RESERVED = 'reserved'
 
+################################################################################
+##
+#### StatusReporter classes
+##
 ################################################################################
 class BfxPosition(object):
    def __init__(self, position):
@@ -214,6 +224,10 @@ class BfxBalanceReport(BalanceReport):
       return wltSelf == wltObj
 
 ################################################################################
+##
+#### cash operations
+##
+################################################################################
 class BfxBalanceSwap(CashOperation):
    def __init__(self, accFrom, accTo, ccyFrom, ccyTo, amount = None):
       super().__init__()
@@ -260,7 +274,6 @@ class BfxBalanceSwap(CashOperation):
          return False
       return bal[BfxBalances.TOTAL] >= self.baseAmount + self.amount
 
-
 #######
 class BfxWithdrawal(CashOperation):
    def __init__(self, amount, callback):
@@ -276,6 +289,10 @@ class BfxWithdrawal(CashOperation):
          amount=self.amount,
          address=bfx.chainAddresses.getDefaultWithdrawAddr()
       )
+
+      result = await bfx.connection.rest.get_movement_history(bfx.ccy_base, limit=5)
+      print (f"^^^^^^ loadWithdrawals: {result} ^^^^^^\n")
+
       if self.callback != None:
          await self.callback()
 
@@ -303,7 +320,10 @@ class BfxCancelWithdrawals(CashOperation):
       #TODO: assess state of cancelled "movements"
       return True
 
-
+################################################################################
+##
+#### Provider
+##
 ################################################################################
 class BitfinexProvider(Factory):
    required_settings = {
@@ -368,6 +388,7 @@ class BitfinexProvider(Factory):
       self.connection = Client(API_KEY=self.config['api_key'],
          API_SECRET=self.config['api_secret'], logLevel=log_level)
 
+      self.connection.ws.on('error', self.on_error)
       self.connection.ws.on('authenticated', self.on_authenticated)
       self.connection.ws.on('balance_update', self.on_balance_updated)
       self.connection.ws.on('wallet_snapshot', self.on_wallet_snapshot)
@@ -398,6 +419,8 @@ class BitfinexProvider(Factory):
       self.chainAddresses.setWithdrawAddresses(addresses)
 
    async def loadWithdrawals(self, callback):
+      result = await self.connection.rest.get_movement_history(self.ccy_base, limit=5)
+      print (f"...... loadWithdrawals: {result} ......\n")
       await callback()
 
    #############################################################################
@@ -405,6 +428,14 @@ class BitfinexProvider(Factory):
    #############################################################################
 
    ## connection events ##
+   async def on_error(self, error):
+      logging.error(f"Bfx error: {error}")
+
+      #stop the bfx provider loop
+      loop = asyncio.get_running_loop()
+      loop.stop()
+
+   ##
    async def on_authenticated(self, auth_message):
       await super().setConnected(True)
 

@@ -16,7 +16,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
    config = {}
    config['hedger'] = {
       'price_ratio' : 0.01,
-      'max_offer_volume' : 5
+      'max_offer_volume' : 5,
+      'min_size' : 0.00006
    }
    config['rebalance'] = {
       'enable' : True,

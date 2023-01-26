@@ -286,7 +286,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
    config['hedger'] = {
       'price_ratio' : 0.01,
       'max_offer_volume' : 5,
-      'offer_refresh_delay_ms' : 0
+      'offer_refresh_delay_ms' : 0,
+      'min_size' : 0.00006
    }
    config['rebalance'] = {
       'enable' : True,

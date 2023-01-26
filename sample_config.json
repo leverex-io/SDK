@@ -22,7 +22,8 @@
     {
        "max_offer_volume" : 5.0,
        "price_ratio" : 0.002,
-       "offer_refresh_delay_ms" : 200
+       "offer_refresh_delay_ms" : 200,
+       "min_size" : 0.00006
     },
     "rebalance" :
     {

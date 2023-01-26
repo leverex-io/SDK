@@ -477,7 +477,7 @@ class RebalanceStatusReport(RebalanceReport):
 ################################################################################
 class SimpleHedger(HedgerFactory):
    required_settings = {
-      'hedger' : ['price_ratio', 'max_offer_volume'],
+      'hedger' : ['price_ratio', 'max_offer_volume', 'min_size'],
       'rebalance' : ['enable', 'threshold_pct', 'min_amount']
    }
 
@@ -496,6 +496,7 @@ class SimpleHedger(HedgerFactory):
       self.config = config
       self.price_ratio = config['hedger']['price_ratio']
       self.max_offer_volume = config['hedger']['max_offer_volume']
+      self.min_exposure = config['hedger']['min_size']
 
       self.offer_refresh_delay = 200 #in milliseconds
       if 'offer_refresh_delay_ms' in config['hedger']:
@@ -640,7 +641,7 @@ class SimpleHedger(HedgerFactory):
       exposureDiff = makerExposure + takerExposure
 
       #ignore differences that are less than 100 satoshis
-      if abs(exposureDiff) > 0.000001:
+      if abs(exposureDiff) >= self.min_exposure:
          #we need to adjust the taker position by the opposite of the difference
          exposureUpdate = exposureDiff * -1.0
 

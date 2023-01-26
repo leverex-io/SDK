@@ -190,6 +190,9 @@ class FakeBfxRestInterface(object):
          'amount': amount
       })
 
+   async def get_movement_history(self, ccy, start="", end="", limit=25):
+      return []
+
 ####
 class MockedBfxClientClass(object):
    def __init__(self):
@@ -295,7 +298,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
    config['hedger'] = {
       'max_offer_volume' : 5,
       'price_ratio' : 0.01,
-      'offer_refresh_delay_ms' : 0
+      'offer_refresh_delay_ms' : 0,
+      'min_size' : 0.00006
    }
    config['rebalance'] = {
       'enable' : True,
