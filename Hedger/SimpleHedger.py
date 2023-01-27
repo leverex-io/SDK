@@ -401,7 +401,7 @@ class RebalanceStatusReport(RebalanceReport):
          if provider.toWithdraw['amount'] == 0:
             provider = self.rebalMan.target.taker
          result = "Withdrawing from {}: {} usdt".format(
-            provider.provider.name, provider.toWithdraw['amount'])
+            provider.name, provider.toWithdraw['amount'])
          return result
 
       return "Idle"
