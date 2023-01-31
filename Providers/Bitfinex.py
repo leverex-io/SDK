@@ -655,21 +655,26 @@ class BitfinexProvider(Factory):
    ##
    def getPendingBalances(self):
       result = {}
+      def addBalance(acc, ccy):
+         if acc not in result:
+            result[acc] = {}
+
+         if ccy not in result[acc]:
+            result[acc][ccy] = 0
+         result[acc][ccy] += self.balances[acc][ccy][BfxBalances.TOTAL]
+
       if BfxAccounts.DERIVATIVES in self.balances:
          bal = self.balances[BfxAccounts.DERIVATIVES]
          if self.ccy_base in bal:
-            result[BfxAccounts.DERIVATIVES] = {
-               self.ccy_base : bal[self.ccy_base][BfxBalances.TOTAL]
-            }
+            addBalance(BfxAccounts.DERIVATIVES, self.ccy_base)
 
       if BfxAccounts.EXCHANGE in self.balances:
          bal = self.balances[BfxAccounts.EXCHANGE]
-         result[BfxAccounts.EXCHANGE] = {}
          if self.ccy_base in bal:
-            result[BfxAccounts.EXCHANGE][self.ccy_base] = bal[self.ccy_base][BfxBalances.TOTAL]
+            addBalance(BfxAccounts.EXCHANGE, self.ccy_base)
 
          if self.ccy in bal:
-            result[BfxAccounts.EXCHANGE][self.ccy] = bal[self.ccy][BfxBalances.TOTAL]
+            addBalance(BfxAccounts.EXCHANGE, self.ccy)
 
       return result
 
