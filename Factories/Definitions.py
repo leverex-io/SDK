@@ -539,3 +539,49 @@ class CashOperation(object):
       elif self.state == self.PROGRESS:
          if self.assessProgress(provider):
             self.state = self.DONE
+
+################################################################################
+class SideVolume(object):
+   def __init__(self, balance, margin, price):
+      self.freeBalance = balance
+      self.freeMargin = margin
+      self.priceFactor = price
+
+   def getOpenVolume(self, maxVolume, unquoteRatio):
+      #this is the max balance the dealer is allowed to quote
+      maxBalance = maxVolume * self.priceFactor
+
+      #this is the balance the provider has avaible to quote,
+      #capped by max dealer volume
+      openBalance = min(maxBalance, self.freeBalance)
+
+      #this is the balance the provider is allowed to quote, as
+      #defined by the portion of balance it has to keep unemcumbered
+      #for rebalancing purposes
+      quotableBalance = self.freeBalance * (1-unquoteRatio)
+
+      #keep the smallest of the 2 as our balance to quote
+      balanceToQuote = min(openBalance, quotableBalance)
+
+      #finally, undiscriminately add free margin, as it is
+      #balance freed by reducing position on the opposite side
+      #margin freed on one side can be reused on the other,
+      #hence the 2x
+      return (balanceToQuote + self.freeMargin * 2) / self.priceFactor
+
+########
+class OpenVolume(object):
+   def __init__(self, balance, askMargin, askPrice, bidMargin, bidPrice):
+
+      #ask side should know margin held in bids and vice versa
+      #this is because margin is freed by increasing exposure
+      #in the opposite side
+      self.ask = SideVolume(balance, bidMargin, askPrice)
+      self.bid = SideVolume(balance, askMargin, bidPrice)
+
+   def get(self, maxVolume, unquoteRatio):
+      result = {
+         'ask': self.ask.getOpenVolume(maxVolume, unquoteRatio),
+         'bid': self.bid.getOpenVolume(maxVolume, unquoteRatio)
+      }
+      return result

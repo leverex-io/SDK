@@ -17,7 +17,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
    config['hedger'] = {
       'price_ratio' : 0.01,
       'max_offer_volume' : 5,
-      'min_size' : 0.00006
+      'min_size' : 0.00006,
+      'quote_ratio' : 0.2
    }
    config['rebalance'] = {
       'enable' : True,
@@ -95,9 +96,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers0 = maker.offers[0]
       assert len(offers0) == 1
-      assert offers0[0].volume == 1
-      assert offers0[0].bid == round(9981.25  * 0.99, 2)
-      assert offers0[0].ask == round(10018.75 * 1.01, 2)
+      assert offers0[0].volume == 0.8
+      assert offers0[0].bid == round(9989.58  * 0.99, 2)
+      assert offers0[0].ask == round(10010.42 * 1.01, 2)
 
       #balance event
       await maker.updateBalance(500)
@@ -105,7 +106,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers1 = maker.offers[1]
       assert len(offers1) == 1
-      assert offers1[0].volume == 0.5
+      assert offers1[0].volume == 0.4
       assert offers1[0].bid == round(9989.58  * 0.99, 2)
       assert offers1[0].ask == round(10010.42 * 1.01, 2)
 
@@ -115,7 +116,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers2 = maker.offers[2]
       assert len(offers2) == 1
-      assert offers2[0].volume == 0.5
+      assert offers2[0].volume == 0.4
       assert offers2[0].bid == round(9993.75  * 0.99, 2)
       assert offers2[0].ask == round(10006.25 * 1.01, 2)
 
@@ -137,7 +138,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers0 = maker.offers[0]
       assert len(offers0) == 1
-      assert offers0[0].volume == 0.5
+      assert offers0[0].volume == 0.4
       assert offers0[0].bid == round(9993.75  * 0.99, 2)
       assert offers0[0].ask == round(10006.25 * 1.01, 2)
 
@@ -151,23 +152,28 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.1
 
       #check volumes
-      makerVolume = maker.getOpenVolume()
-      assert makerVolume['ask'] == 0.6
-      assert makerVolume['bid'] == 0.4
+      openVolume = maker.getOpenVolume()
+      makerVolume = maker.getOpenVolume().get(
+         self.config['hedger']['max_offer_volume'],
+         self.config['hedger']['quote_ratio'])
+      assert makerVolume['ask'] == 0.52
+      assert makerVolume['bid'] == 0.32
 
-      takerVolume = taker.getOpenVolume()
-      assert takerVolume['ask'] == 0.9
-      assert takerVolume['bid'] == 1.1
+      takerVolume = taker.getOpenVolume().get(
+         self.config['hedger']['max_offer_volume'],
+         self.config['hedger']['quote_ratio'])
+      assert takerVolume['ask'] == 0.72
+      assert takerVolume['bid'] == 0.92
 
       #check offers
       offers1 = maker.offers[1]
       assert len(offers1) == 2
 
-      assert offers1[0].volume == 0.6
+      assert offers1[0].volume == 0.52
       assert offers1[0].bid == None
-      assert offers1[0].ask == round(10011.25 * 1.01, 2)
+      assert offers1[0].ask == round(10006.25 * 1.01, 2)
 
-      assert offers1[1].volume == 0.4
+      assert offers1[1].volume == 0.32
       assert offers1[1].bid == round(9993.75  * 0.99, 2)
       assert offers1[1].ask == None
 

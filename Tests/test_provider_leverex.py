@@ -287,7 +287,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       'price_ratio' : 0.01,
       'max_offer_volume' : 5,
       'offer_refresh_delay_ms' : 0,
-      'min_size' : 0.00006
+      'min_size' : 0.00006,
+      'quote_ratio' : 0.2
    }
    config['rebalance'] = {
       'enable' : True,
@@ -381,9 +382,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
       assert len(offers0) == 1
-      assert offers0[0].volume == 1
-      assert offers0[0].bid == round(9981.25  * 0.99, 2)
-      assert offers0[0].ask == round(10018.75 * 1.01, 2)
+      assert offers0[0].volume == 0.8
+      assert offers0[0].bid == round(9989.58  * 0.99, 2)
+      assert offers0[0].ask == round(10010.42 * 1.01, 2)
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(2) #session_id
@@ -470,9 +471,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
       assert len(offers0) == 1
-      assert offers0[0].volume == 1
-      assert offers0[0].bid == round(9981.25  * 0.99, 2)
-      assert offers0[0].ask == round(10018.75 * 1.01, 2)
+      assert offers0[0].volume == 0.8
+      assert offers0[0].bid == round(9989.58  * 0.99, 2)
+      assert offers0[0].ask == round(10010.42 * 1.01, 2)
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(3) #session_id
@@ -554,9 +555,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 1
       offers0 = mockedConnection.offers[0]
       assert len(offers0) == 1
-      assert offers0[0].volume == 1
-      assert offers0[0].bid == round(9981.25  * 0.99, 2)
-      assert offers0[0].ask == round(10018.75 * 1.01, 2)
+      assert offers0[0].volume == 0.8
+      assert offers0[0].bid == round(9989.58  * 0.99, 2)
+      assert offers0[0].ask == round(10010.42 * 1.01, 2)
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(4) #session_id
@@ -1293,7 +1294,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.setIndexPrice(10000)
 
       #check open volume
-      vol = maker.getOpenVolume()
+      vol = maker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 1
       assert vol['bid'] == 1
 
@@ -1315,7 +1316,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.3
 
       #check open volume, should reflect effect of exposure
-      vol = maker.getOpenVolume()
+      vol = maker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 1.3
       assert vol['bid'] == 0.7
 
@@ -1337,7 +1338,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0.2
 
       #check open volume, should reflect effect of exposure
-      vol = maker.getOpenVolume()
+      vol = maker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 0.8
       assert vol['bid'] == 1.2
 
@@ -1365,7 +1366,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
        - pos2: 0 pnl
        - pos3: -20 pnl
       '''
-      vol = maker.getOpenVolume()
+      vol = maker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 0.98
       assert vol['bid'] == 0.98
 
@@ -1378,7 +1379,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
        - pos2: -50 pnl
        - pos3: 0 pnl
       '''
-      vol = maker.getOpenVolume()
+      vol = maker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 0.98
       assert vol['bid'] == 0.98
 

@@ -5,7 +5,7 @@ import json
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
    PositionsReport, BalanceReport, SessionInfo, PriceEvent, \
-   DepositWithdrawAddresses, CashOperation, WithdrawInfo
+   DepositWithdrawAddresses, CashOperation, WithdrawInfo, OpenVolume
 from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
@@ -537,13 +537,10 @@ class LeverexProvider(Factory):
          sessionOrders.setIndexPrice(self.indexPrice)
          margins = sessionOrders.getUnencumberedMargin()
 
-      #add free ask margin to bid and vice versa
-      #margin that has been freed from one side can then be used on the other
-      #this explains the 2x
-      result = {}
-      result['ask'] = (balance + margins['bid']*2) / (leverageRatio * price)
-      result['bid'] = (balance + margins['ask']*2) / (leverageRatio * price)
-      return result
+      return OpenVolume(balance,
+         margins['ask'], leverageRatio * price,
+         margins['bid'], leverageRatio * price,
+      )
 
    def getCashMetrics(self):
       if self.ccy not in self.balances:

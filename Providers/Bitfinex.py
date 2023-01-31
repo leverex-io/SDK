@@ -4,7 +4,7 @@ import asyncio
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook, PositionsReport, BalanceReport, \
-   PriceEvent, CashOperation
+   PriceEvent, CashOperation, OpenVolume
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -291,8 +291,6 @@ class BfxWithdrawal(CashOperation):
       )
 
       result = await bfx.connection.rest.get_movement_history(bfx.ccy_base, limit=5)
-      print (f"^^^^^^ loadWithdrawals: {result} ^^^^^^\n")
-
       if self.callback != None:
          await self.callback()
 
@@ -420,7 +418,6 @@ class BitfinexProvider(Factory):
 
    async def loadWithdrawals(self, callback):
       result = await self.connection.rest.get_movement_history(self.ccy_base, limit=5)
-      print (f"...... loadWithdrawals: {result} ......\n")
       await callback()
 
    #############################################################################
@@ -622,17 +619,17 @@ class BitfinexProvider(Factory):
          #finex balance can be left negative after a forced liquidation
          return None
 
-      askBal = balance[balanceKey]
-      bidBal = balance[balanceKey]
+      askMargin = 0
+      bidMargin = 0
       if self.getExposure() > 0:
-         askBal += freeMargin*2
+         bidMargin = freeMargin
       else:
-         bidBal += freeMargin*2
+         askMargin = freeMargin
 
-      result = {}
-      result["ask"] = askBal / (collateralPct * priceAsk.price)
-      result["bid"] = bidBal / (collateralPct * priceBid.price)
-      return result
+      return OpenVolume(balance[balanceKey],
+         askMargin, collateralPct * priceAsk.price,
+         bidMargin, collateralPct * priceBid.price
+      )
 
    ## cash metrics
    def getCashMetrics(self):

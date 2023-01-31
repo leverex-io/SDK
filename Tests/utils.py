@@ -2,7 +2,7 @@ import asyncio
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import AggregationOrderBook, \
-   WithdrawInfo, CashOperation
+   WithdrawInfo, CashOperation, OpenVolume
 
 price = 10000
 
@@ -47,11 +47,20 @@ class TestProvider(Factory):
       if not self.isReady():
          return None
 
-      vol = self.balance / (price * self.getCollateralRatio())
-      exposure = self.getExposure()
-      bid = vol - exposure
-      ask = vol + exposure
-      return { 'ask' : ask, 'bid' : bid }
+      exposure = self.getExposure() * price * self.getCollateralRatio()
+      balance = self.balance - abs(exposure)
+
+      bidExposure = 0
+      askExposure = 0
+      if exposure > 0:
+         bidExposure = exposure
+      else:
+         askExposure = abs(exposure)
+
+      return OpenVolume(balance,
+         askExposure, price * self.getCollateralRatio(),
+         bidExposure, price * self.getCollateralRatio()
+      )
 
    def getCashMetrics(self):
       pending = 0

@@ -1,4 +1,4 @@
-import pdb; pdb.set_trace()
+#import pdb; pdb.set_trace()
 import unittest
 from unittest.mock import patch
 
@@ -299,7 +299,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       'max_offer_volume' : 5,
       'price_ratio' : 0.01,
       'offer_refresh_delay_ms' : 0,
-      'min_size' : 0.00006
+      'min_size' : 0.00006,
+      'quote_ratio' : 0.2
    }
    config['rebalance'] = {
       'enable' : True,
@@ -368,9 +369,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection.push_orderbook_snapshot(20)
 
       #check volume
-      volume = taker.getOpenVolume()
-      assert round(volume['ask'], 4) == 0.993
-      assert round(volume['bid'], 4) == 1.0071
+      volume = taker.getOpenVolume().get(
+         self.config['hedger']['max_offer_volume'],
+         self.config['hedger']['quote_ratio'])
+      assert round(volume['ask'], 4) == 0.7944
+      assert round(volume['bid'], 4) == 0.8057
 
       ## check price offers ##
       '''
@@ -385,11 +388,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers0 = maker.offers[0]
       assert len(offers0) == 2
 
-      assert offers0[0].volume == 1
+      assert offers0[0].volume == 0.8
       assert offers0[0].bid == None
       assert offers0[0].ask == round(10020.83 * 1.01, 2)
 
-      assert round(offers0[1].volume, 4) == 0.993
+      assert round(offers0[1].volume, 4) == 0.7944
       assert offers0[1].bid == round(9979.17  * 0.99, 2)
       assert offers0[1].ask == None
 
@@ -453,9 +456,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       mockedConnection.push_orderbook_snapshot(20)
 
       #check volume
-      volume = taker.getOpenVolume()
-      assert round(volume['ask'], 4) == 0.993
-      assert round(volume['bid'], 4) == 1.0071
+      volume = taker.getOpenVolume().get(
+         self.config['hedger']['max_offer_volume'],
+         self.config['hedger']['quote_ratio'])
+      assert round(volume['ask'], 4) == 0.7944
+      assert round(volume['bid'], 4) == 0.8057
 
       ## check price offers ##
       '''
@@ -470,11 +475,11 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers0 = maker.offers[0]
       assert len(offers0) == 2
 
-      assert offers0[0].volume == 1
+      assert offers0[0].volume == 0.8
       assert offers0[0].bid == None
       assert offers0[0].ask == round(10020.83 * 1.01, 2)
 
-      assert round(offers0[1].volume, 4) == 0.993
+      assert round(offers0[1].volume, 4) == 0.7944
       assert offers0[1].bid == round(9979.17  * 0.99, 2)
       assert offers0[1].ask == None
 
@@ -741,7 +746,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.balance == 1000
 
       #check open volume
-      vol = taker.getOpenVolume()
+      vol = taker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 1500 / (0.15 * 10400)
       assert vol['bid'] == 1500 / (0.15 * 9600)
 
@@ -753,7 +758,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.3
 
       #check open volume, should reflect effect of exposure
-      vol = taker.getOpenVolume()
+      vol = taker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 1050 / (0.15 * 10400)
       assert vol['bid'] == 1950 / (0.15 * 9600)
 
@@ -765,7 +770,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0.2
 
       #check open volume, should reflect effect of exposure
-      vol = taker.getOpenVolume()
+      vol = taker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 1800 / (0.15 * 10400)
       assert vol['bid'] == 1200 / (0.15 * 9600)
 
@@ -776,7 +781,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
 
-      vol = taker.getOpenVolume()
+      vol = taker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 1500 / (0.15 * 10400)
       assert vol['bid'] == 1500 / (0.15 * 9600)
 

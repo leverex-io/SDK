@@ -477,7 +477,12 @@ class RebalanceStatusReport(RebalanceReport):
 ################################################################################
 class SimpleHedger(HedgerFactory):
    required_settings = {
-      'hedger' : ['price_ratio', 'max_offer_volume', 'min_size'],
+      'hedger' : [
+         'price_ratio',
+         'max_offer_volume',
+         'min_size',
+         'quote_ratio'
+      ],
       'rebalance' : ['enable', 'threshold_pct', 'min_amount']
    }
 
@@ -493,10 +498,11 @@ class SimpleHedger(HedgerFactory):
             if kk not in config[k]:
                raise HedgerException(f'Missing \"{kk}\" in config group \"{k}\"')
 
-      self.config = config
-      self.price_ratio = config['hedger']['price_ratio']
-      self.max_offer_volume = config['hedger']['max_offer_volume']
-      self.min_exposure = config['hedger']['min_size']
+      self.config             = config
+      self.price_ratio        = config['hedger']['price_ratio']
+      self.max_offer_volume   = config['hedger']['max_offer_volume']
+      self.min_exposure       = config['hedger']['min_size']
+      self.quote_ratio        = config['hedger']['quote_ratio']
 
       self.offer_refresh_delay = 200 #in milliseconds
       if 'offer_refresh_delay_ms' in config['hedger']:
@@ -533,9 +539,9 @@ class SimpleHedger(HedgerFactory):
          return
 
       #figure out long and short buying power for the taker and the maker
-      maker_volume = maker.getOpenVolume()
-      taker_volume = taker.getOpenVolume()
-      if maker_volume is None or taker_volume is None:
+      makerOpenVolume = maker.getOpenVolume()
+      takerOpenVolume = taker.getOpenVolume()
+      if makerOpenVolume is None or takerOpenVolume is None:
          await self.clearOffers(maker)
          return
 
@@ -545,12 +551,11 @@ class SimpleHedger(HedgerFactory):
       Maker ask should be matched with taker bid and so on when
       calculating price streams volume.
       '''
+      maker_volume = makerOpenVolume.get(self.max_offer_volume, self.quote_ratio)
+      taker_volume = takerOpenVolume.get(self.max_offer_volume, self.quote_ratio)
+
       ask_volume = min(maker_volume['ask'], taker_volume['bid'])
       bid_volume = min(maker_volume['bid'], taker_volume['ask'])
-
-      #cap by max offer volume where applicable
-      ask_volume = min(ask_volume, self.max_offer_volume)
-      bid_volume = min(bid_volume, self.max_offer_volume)
 
       #get a price from taker for that volume
       ask = taker.order_book.get_aggregated_ask_price(ask_volume)
