@@ -235,6 +235,9 @@ class LeverexWithdrawal(CashOperation):
       self.withdrawalId = None
       self.callback = callback
 
+   def setup(self, leverex):
+      return True
+
    async def doTheTask(self, leverex):
       async def withdrawCallback(withdrawal):
          self.withdrawalId = withdrawal.id
@@ -248,6 +251,7 @@ class LeverexWithdrawal(CashOperation):
          amount=self.amount,
          callback=withdrawCallback
       )
+      return True
 
    def assessProgress(self, leverex):
       if self.withdrawalId not in leverex.withdrawalHistory:
@@ -256,13 +260,25 @@ class LeverexWithdrawal(CashOperation):
       wtdState = leverex.withdrawalHistory[self.withdrawalId].status_code
       return wtdState == WithdrawInfo.WITHDRAW_COMPLETED
 
+   def __str__(self):
+      result = "#{} Withdrawal, stage: {}\n".format(
+         self.id, self.stageStr())
+      result += " |    - amount: {}, id: {}\n".format(
+         self.amount, self.withdrawalId)
+      return result
+
+   def __eq__(self, other):
+      if not isinstance(other, LeverexWithdrawal):
+         return False
+      return self.amount == other.amount
+
 #######
 class LeverexCancelWithdrawal(CashOperation):
    def __init__(self):
       super().__init__()
       self.ids = []
 
-   async def doTheTask(self, leverex):
+   def setup(self, leverex):
       #the list of ids is used to check for the completion condition
       #so set the list first, then start cancelling withdrawals
       for wId in leverex.withdrawalHistory:
@@ -270,6 +286,12 @@ class LeverexCancelWithdrawal(CashOperation):
             continue
          self.ids.append(wId)
 
+      #if there are no withdrawals, we are done
+      if not self.ids:
+         return None
+      return True
+
+   async def doTheTask(self, leverex):
       for wId in self.ids:
          async def callback(withdraw_info):
             #TODO: handle failures to cancel
@@ -277,6 +299,7 @@ class LeverexCancelWithdrawal(CashOperation):
             #cancelled withdrawal replies come along balance notifications
             #there is no need to fire a position notification here
          await leverex.connection.cancel_withdraw(id=wId, callback=callback)
+      return True
 
    def assessProgress(self, leverex):
       completed = True
@@ -290,6 +313,18 @@ class LeverexCancelWithdrawal(CashOperation):
             break
 
       return completed
+
+   def __str__(self):
+      result = "#{} Cancellation, stage: {}\n".format(
+         self.id, self.stageStr())
+      for id in self.ids:
+         result += " |    - id: {}\n".format(id)
+      return result
+
+   def __eq__(self, other):
+      if not isinstance(other, LeverexCancelWithdrawal):
+         return False
+      return self.ids == other.ids
 
 ################################################################################
 class LeverexProvider(Factory):

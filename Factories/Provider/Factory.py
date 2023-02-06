@@ -28,22 +28,45 @@ class CashOpsManager(object):
 
    async def process(self):
       while True:
-         if len(self.queue) == 0:
+         if not self.queue:
             return
 
          #select first task in the queue
          key = next(iter(self.queue))
+         task = self.queue[key]
 
          #progress it
-         await self.queue[key].process(self.provider)
+         await task.process(self.provider)
 
          #if it's not completed, return
-         if not self.queue[key].done():
+         if not task.done():
             return
 
          #delete the task, iterate over next one
-         del self.queue[key]
+         if key in self.queue:
+            del self.queue[key]
 
+   def peekLastTask(self):
+      if not self.queue:
+         return None
+
+      key = next(reversed(self.queue.keys()))
+      return self.queue[key]
+
+   def __str__(self):
+      taskId = "N/A"
+      if self.queue:
+         taskId = next(iter(self.queue))
+      result = " |  + {} - current task: #{}\n".format(self.provider.name, taskId)
+
+      if not self.queue:
+         result += " |  N/A\n"
+      else:
+         for key in self.queue:
+            cashOp = self.queue[key]
+            result += " |     - {}".format(str(cashOp))
+
+      return result
 
 ################################################################################
 class Factory(object):
@@ -211,3 +234,6 @@ class Factory(object):
 
    def getCashMetrics(self):
       return None
+
+   def getCashOpsStr(self):
+      return str(self.cashOps)

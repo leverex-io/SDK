@@ -329,6 +329,9 @@ class RebalanceManager(object):
 
    ## rebalance process ##
    async def processRebalance(self):
+      if not (self.maker.isReady() and self.taker.isReady()):
+         return
+
       #get a target if we dont have one
       if self.target == None or not self.target.inTransit():
          await self.assessRebalanceTarget()
@@ -371,9 +374,11 @@ class RebalanceManager(object):
 
 ################################################################################
 class RebalanceStatusReport(RebalanceReport):
-   def __init__(self, hedger):
+   def __init__(self, hedger, maker, taker):
       super().__init__(hedger)
       self.rebalMan = hedger.rebalMan
+      self.maker = maker
+      self.taker = taker
 
    def getReadyString(self):
       if self.rebalMan.canWithdraw():
@@ -442,6 +447,7 @@ class RebalanceStatusReport(RebalanceReport):
       #withdrawals
       result += " |\n"
       result += " |- WITHDRAWALS:\n"
+
       def setWithdrawals(provider):
          wtdList = provider.getPendingWithdrawals()
          resultStr = " |  * {} *\n".format(provider.name)
@@ -460,16 +466,26 @@ class RebalanceStatusReport(RebalanceReport):
       if self.rebalMan.target == None:
          result += " |    N/A"
       else:
-         def setBalances(target):
-            cashMetrics = target.cash
+         def setBalances(provider, target):
+            cashMetrics = provider.getCashMetrics()
             return " |  * {}: balance: {}, pending: {}, target: {}\n".format(
-               target.name,
+               provider.name,
                round(cashMetrics['total'], 2),
                round(cashMetrics['pending'], 2),
                round(target.target, 2))
 
-         result += setBalances(self.rebalMan.target.maker)
-         result += setBalances(self.rebalMan.target.taker)
+         result += setBalances(self.maker, self.rebalMan.target.maker)
+         result += setBalances(self.taker, self.rebalMan.target.taker)
+
+      #cash ops
+      result += " |\n"
+      result += " |- CASH OPS -\n"
+
+      def setCashOps(provider):
+         return provider.getCashOpsStr()
+      result += "{} |\n".format(setCashOps(self.maker))
+      result += setCashOps(self.taker)
+
       return result
 
 ################################################################################
@@ -684,7 +700,6 @@ class SimpleHedger(HedgerFactory):
 
       return self.rebalMan.needsRebalance()
 
-
    #############################################################################
    ## taker events
    #############################################################################
@@ -694,7 +709,7 @@ class SimpleHedger(HedgerFactory):
    ####
    async def onTakerPositionEvent(self, maker, taker):
       # check balance across maker and taker, rebalance if needed
-      await self.checkBalanceDistribution(maker, taker)
+      await self.checkBalanceDistribution()
 
       # check exposure across maker and taker, resync accordingly
       await self.checkExposureSync(maker, taker)
@@ -704,7 +719,7 @@ class SimpleHedger(HedgerFactory):
    #############################################################################
    async def onMakerPositionEvent(self, maker, taker):
       # check balance across maker and taker, rebalance if needed
-      await self.checkBalanceDistribution(maker, taker)
+      await self.checkBalanceDistribution()
 
       # check exposure across maker and taker, resync accordingly
       await self.checkExposureSync(maker, taker)
@@ -717,13 +732,13 @@ class SimpleHedger(HedgerFactory):
    #############################################################################
    async def onBalanceEvent(self, maker, taker):
       # check balance across maker and taker, rebalance if needed
-      await self.checkBalanceDistribution(maker, taker)
+      await self.checkBalanceDistribution()
 
       # update offers
       await self.submitOffers(maker, taker)
 
    ####
-   async def checkBalanceDistribution(self, maker, taker):
+   async def checkBalanceDistribution(self):
       if self.rebalMan != None:
          await self.rebalMan.processRebalance()
 
@@ -733,12 +748,13 @@ class SimpleHedger(HedgerFactory):
    async def onReadyEvent(self, maker, taker):
       # update offers
       await self.checkExposureSync(maker, taker)
+      await self.checkBalanceDistribution()
       await self.submitOffers(maker, taker)
 
    #############################################################################
    ## rebalance status
    #############################################################################
-   def getRebalanceStatus(self):
+   def getRebalanceStatus(self, maker, taker):
       if self.rebalMan == None:
          return None
-      return RebalanceStatusReport(self)
+      return RebalanceStatusReport(self, maker, taker)

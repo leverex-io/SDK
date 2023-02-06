@@ -124,7 +124,7 @@ class TestProvider(Factory):
 
       for wtd in self.withdrawalsToPush:
          #set in history
-         wtd[2].state = CashOperation.PROGRESS
+         wtd[2].state = CashOperation.MONITORING_TASK
          self.withdrawalHist.append({
                'amount': wtd[0],
                'status': WithdrawInfo.WITHDRAW_BROADCASTED,

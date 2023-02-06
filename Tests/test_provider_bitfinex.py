@@ -29,6 +29,20 @@ def methodToCcy(method):
    return None
 
 ####
+class BfxMockWithdraw(object):
+   def __init__(self, id):
+      self.id = id
+
+####
+class BfxMockNotification(object):
+   def __init__(self, success, id):
+      self.success = success
+      self.notify_info = BfxMockWithdraw(id)
+
+   def is_success(self):
+      return self.success
+
+####
 class FakeBfxWsInterface(object):
    def __init__(self):
       self.callbacks = {}
@@ -179,6 +193,7 @@ class FakeBfxRestInterface(object):
          'amount': amount,
          'address': address
       })
+      return BfxMockNotification(True, len(self.withdrawals))
 
    async def submit_wallet_transfer(self, from_wallet, to_wallet,
       from_currency, to_currency, amount):
@@ -191,6 +206,9 @@ class FakeBfxRestInterface(object):
       })
 
    async def get_movement_history(self, ccy, start="", end="", limit=25):
+      return []
+
+   async def get_ledgers(self, symbol, start, end, limit=25, category=None):
       return []
 
 ####
@@ -239,7 +257,7 @@ class MockedBfxClientClass(object):
       movements = self.rest.cash_movements
       self.rest.cash_movements = []
 
-      #aggragate effect
+      #aggregate effect
       aggregate = {}
       for mvmt in movements:
          fromAcc = mvmt['from']

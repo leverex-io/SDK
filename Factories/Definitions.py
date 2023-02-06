@@ -504,9 +504,12 @@ class WithdrawInfo(object):
 
 ################################################################################
 class CashOperation(object):
-   INIT     = 1
-   PROGRESS = 2
-   DONE     = 3
+   INIT            = 1
+   SETUP           = 2
+   READY           = 3
+   PERFORMING_TASK = 10
+   MONITORING_TASK = 11
+   DONE            = 20
 
    def __init__(self):
       self.state = self.INIT
@@ -527,18 +530,65 @@ class CashOperation(object):
       #implement me
       pass
 
+   async def setup(self, provider):
+      #implement me
+      pass
+
    def assessProgress(self, provider):
       #implement me
       return False
 
    async def process(self, provider):
-      if self.state == self.INIT:
-         self.state = self.PROGRESS
-         await self.doTheTask(provider)
+      state = self.state
+      if state == self.INIT:
+         self.state = self.SETUP
+         success = self.setup(provider)
 
-      elif self.state == self.PROGRESS:
+         if success == True:
+            self.state = self.READY
+            await self.process(provider)
+         elif success == False:
+            self.state = self.INIT
+         elif success == None:
+            self.state = self.DONE
+
+      elif state == self.READY:
+         self.state = self.PERFORMING_TASK
+         success = await self.doTheTask(provider)
+
+         if success == True:
+            self.state = self.MONITORING_TASK
+         elif success == False:
+            self.state = self.READY
+         return
+
+      elif state == self.MONITORING_TASK:
          if self.assessProgress(provider):
             self.state = self.DONE
+         return
+
+   def stageStr(self):
+      if self.state == self.INIT:
+         return "INIT"
+      elif self.state == self.SETUP:
+         return "SETUP"
+      elif self.state == self.READY:
+         return "READY"
+      elif self.state == self.PERFORMING_TASK:
+         return "PERFORMING TASK"
+      elif self.state == self.MONITORING_TASK:
+         return "MONITORING TASK"
+      elif self.state == self.DONE:
+         return "DONE"
+      return "N/A"
+
+   def __str__(self):
+      return "N/A"
+
+   def __eq__(self, other):
+      if not isinstance(other, CashOperation):
+         return False
+      raise Exception("implement me!")
 
 ################################################################################
 class SideVolume(object):

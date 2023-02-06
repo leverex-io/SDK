@@ -56,5 +56,5 @@ class HedgerFactory(object):
          return "waiting on exposure sync..."
       return "N/A"
 
-   def getRebalanceStatus(self):
+   def getRebalanceStatus(self, maker, taker):
       logging.debug("[HedgerFactory::getRebalanceStatus]")

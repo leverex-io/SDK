@@ -106,5 +106,6 @@ class Factory(object):
       await self.report(Definitions.PriceEvent)
 
    async def onRebalanceEvent(self, dealer):
-      self.rebalance = dealer.hedger.getRebalanceStatus()
+      self.rebalance = dealer.hedger.getRebalanceStatus(
+         dealer.maker, dealer.taker)
       await self.report(Definitions.Rebalance)

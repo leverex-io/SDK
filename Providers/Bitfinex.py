@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import time
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
@@ -238,30 +239,42 @@ class BfxBalanceSwap(CashOperation):
       self.amount = amount
       self.baseAmount = 0
 
-   async def doTheTask(self, bfx):
+   def setup(self, bfx):
       if self.amount == None:
          #no amount was mentionned, move it all
          if self.accFrom not in bfx.balances or \
             self.ccyFrom not in bfx.balances[self.accFrom]:
-            self.state = CashOperation.DONE
-            return
+            return None
 
          bal = bfx.balances[self.accFrom][self.ccyFrom]
          self.amount = bal[BfxBalances.TOTAL]
 
       if self.amount == 0:
-         self.state = CashOperation.DONE
-         return
+         return None
 
       #get base amount
-      if self.accTo in bfx.balances and self.ccyTo in bfx.balances[self.accTo]:
-         self.baseAmount = bfx.balances[self.accTo][self.ccyTo][BfxBalances.TOTAL]
+      if self.accTo not in bfx.balances or self.ccyTo not in bfx.balances[self.accTo]:
+         return True
 
-      await bfx.connection.rest.submit_wallet_transfer(
-         self.accFrom, self.accTo,
-         self.ccyFrom, self.ccyTo,
-         self.amount
-      )
+      bal = bfx.balances[self.accTo][self.ccyTo]
+      if BfxBalances.FREE not in bal:
+         if bal[BfxBalances.TOTAL] == 0:
+            return True
+         return False
+      self.baseAmount = bal[BfxBalances.FREE]
+      return True
+
+   async def doTheTask(self, bfx):
+      try:
+         await bfx.connection.rest.submit_wallet_transfer(
+            self.accFrom, self.accTo,
+            self.ccyFrom, self.ccyTo,
+            self.amount
+         )
+         return True
+      except Exception:
+         #bfx command failed, reset task state so we can retry later
+         return False
 
    def assessProgress(self, bfx):
       if self.accTo not in bfx.balances:
@@ -270,9 +283,26 @@ class BfxBalanceSwap(CashOperation):
       bal = None
       if self.accTo in bfx.balances and self.ccyTo in bfx.balances[self.accTo]:
          bal = bfx.balances[self.accTo][self.ccyTo]
-      if bal == None:
+      if bal == None or BfxBalances.FREE not in bal:
          return False
-      return bal[BfxBalances.TOTAL] >= self.baseAmount + self.amount
+      return bal[BfxBalances.FREE] >= self.baseAmount + self.amount
+
+   def __str__(self):
+      result = "#{} Balance Swap, stage: {}\n".format(
+         self.id(), self.stageStr())
+      result += " |      + from: {}, for {} {} - to: {}, for {} {}\n".format(
+         self.accFrom, self.amount, self.ccyFrom,
+         self.accTo, self.amount, self.ccyTo
+      )
+      return result
+
+   def __eq__(self, other):
+      if not isinstance(other, BfxBalanceSwap):
+         return False
+
+      return self.accFrom == other.accFrom and self.accTo == other.accTo and \
+         self.ccyFrom == other.ccyFrom and self.ccyTo == other.ccyTo and \
+         self.amount == other.amount
 
 #######
 class BfxWithdrawal(CashOperation):
@@ -281,18 +311,39 @@ class BfxWithdrawal(CashOperation):
       self.amount = amount
       self.positionId = None
       self.callback = callback
+      self.withdrawResult = None
+
+   def setup(self, bfx):
+      if self.amount == None or self.amount == 0:
+         return None
+
+      #check free cash
+      if BfxAccounts.EXCHANGE in bfx.balances and \
+         bfx.ccy_base in bfx.balances[BfxAccounts.EXCHANGE]:
+         bal = bfx.balances[BfxAccounts.EXCHANGE][bfx.ccy_base]
+         if BfxBalances.FREE not in bal:
+            return False
+         return bal[BfxBalances.FREE] >= self.amount
+      return False
 
    async def doTheTask(self, bfx):
-      await bfx.connection.rest.submit_wallet_withdraw(
+      #withdraw
+      self.withdrawResult = await bfx.connection.rest.submit_wallet_withdraw(
          wallet=BfxAccounts.EXCHANGE,
          method=bfx.deposit_method,
          amount=self.amount,
          address=bfx.chainAddresses.getDefaultWithdrawAddr()
       )
 
-      result = await bfx.connection.rest.get_movement_history(bfx.ccy_base, limit=5)
+      if self.withdrawResult.is_success == False or \
+         self.withdrawResult.notify_info.id == 0:
+         return False
+      self.positionId = self.withdrawResult.notify_info.id
+
+      #trigger callback
       if self.callback != None:
          await self.callback()
+      return True
 
    def assessProgress(self, bfx):
       #should prompt bfx by positionId instead
@@ -302,6 +353,22 @@ class BfxWithdrawal(CashOperation):
       bal = bfx.balances[BfxAccounts.EXCHANGE][bfx.ccy_base]
       return bal[BfxBalances.TOTAL] == 0
 
+   def __str__(self):
+      result = "#{} Withdrawal, stage: {}\n".format(
+         self.id(), self.stageStr())
+      result += " |      + amount: {}\n".format(self.amount)
+
+      #bfx replies
+      if self.withdrawResult:
+         result += " |        > {}\n".format(str(self.withdrawResult.notify_info))
+      return result
+
+   def __eq__(self, other):
+      if not isinstance(other, BfxWithdrawal):
+         return False
+
+      return self.amount == other.amount
+
 ########
 class BfxCancelWithdrawals(CashOperation):
    def __init__(self):
@@ -309,13 +376,27 @@ class BfxCancelWithdrawals(CashOperation):
       self.state = CashOperation.DONE
 
    ##
+   def setup(self, bfx):
+      return True
+
+   ##
    async def doTheTask(self, bfx):
       #TODO: cancel ongoing "movements"
-      return
+      return True
 
    ##
    def assessProgress(self, bfx):
       #TODO: assess state of cancelled "movements"
+      return True
+
+   def __str__(self):
+      result = "#{} |   + Cancellation - stage: {} + \n".format(
+         self.id(), self.stageStr())
+      return result
+
+   def __eq__(self, other):
+      if not isinstance(other, BfxCancelWithdrawals):
+         return False
       return True
 
 ################################################################################
@@ -417,7 +498,6 @@ class BitfinexProvider(Factory):
       self.chainAddresses.setWithdrawAddresses(addresses)
 
    async def loadWithdrawals(self, callback):
-      result = await self.connection.rest.get_movement_history(self.ccy_base, limit=5)
       await callback()
 
    #############################################################################
@@ -508,8 +588,11 @@ class BitfinexProvider(Factory):
                to queue a swap, likely the final swap will have no effect
                as the rebalance withdrawal wiped the pending balance clean
                '''
-               self.cashOps.addTask(BfxBalanceSwap(
-                  acc, BfxAccounts.DERIVATIVES, ccy, self.ccy))
+               moveTask = BfxBalanceSwap(
+                  acc, BfxAccounts.DERIVATIVES, ccy, self.ccy)
+               lastTask = self.cashOps.peekLastTask()
+               if moveTask != lastTask:
+                  self.cashOps.addTask(moveTask)
 
          await self.onBalanceUpdate()
 
