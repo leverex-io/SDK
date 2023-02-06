@@ -29,6 +29,7 @@ class Factory(object):
    def __init__(self, config):
       self.lastPriceEvent = 0
       self.state = []
+      self.offers = None
 
       self.balances = {
          MAKER : None,
@@ -101,8 +102,9 @@ class Factory(object):
          return
       self.lastPriceEvent = time.time()
 
-      self.balances[MAKER] = dealer.maker.getBalance()
-      self.balances[TAKER] = dealer.taker.getBalance()
+      self.positions[MAKER] = dealer.maker.getPositions()
+      self.positions[TAKER] = dealer.taker.getPositions()
+      self.offers = dealer.hedger.getOffersReport()
       await self.report(Definitions.PriceEvent)
 
    async def onRebalanceEvent(self, dealer):

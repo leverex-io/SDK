@@ -85,7 +85,7 @@ class PriceOffer():
       if volume == 0 or (ask == 0 and bid == 0):
          raise OfferException()
 
-      self._volume = volume
+      self._volume = round(volume, 8)
       self._ask = ask
       self._bid = bid
       self._timestamp = time.time_ns() / 1000000 #time in ms
@@ -125,6 +125,9 @@ class PriceOffer():
          return False
 
       return True
+
+   def __str__(self):
+      return f"vol: {self.volume} - ask: {self.ask}, bid: {self.bid}"
 
 ################################################################################
 class Offer():
@@ -311,7 +314,7 @@ class PositionsReport(object):
       return "N/A"
 
    def getPnlReport(self):
-      result = f"  <{self.name} - pnl: {self.getPnl()}"
+      result = f" $    <{self.name} - pnl: {self.getPnl()}"
       result += f" - open price: {self.openPrice}, index price: {self.indexPrice}>"
       return result
 

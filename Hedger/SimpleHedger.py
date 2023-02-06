@@ -201,7 +201,7 @@ class RebalanceTarget(object):
 
       return None
 
-################################################################################
+####
 class RebalanceManager(object):
    LOAD_ADDRESS_PENDING    = 1
    LOAD_ADDRESS_MISMATCH   = 2
@@ -372,7 +372,7 @@ class RebalanceManager(object):
             task = await self.taker.withdraw(step['taker'][WITHDRAW], None)
             step['taker']['callback'](task)
 
-################################################################################
+####
 class RebalanceStatusReport(RebalanceReport):
    def __init__(self, hedger, maker, taker):
       super().__init__(hedger)
@@ -616,6 +616,10 @@ class SimpleHedger(HedgerFactory):
       self.offers = offers
       await maker.submitOffers(self.offers)
 
+   ####
+   def getOffersReport(self):
+      return HedgerOffersReport(self)
+
    #############################################################################
    ## exposure & rebalance methods
    #############################################################################
@@ -758,3 +762,17 @@ class SimpleHedger(HedgerFactory):
       if self.rebalMan == None:
          return None
       return RebalanceStatusReport(self, maker, taker)
+
+####
+class HedgerOffersReport(object):
+   def __init__(self, hedger):
+      self.offers = hedger.offers
+
+   def __str__(self):
+      if not self.offers:
+         return " $  <N/A>"
+
+      result = ""
+      for offer in self.offers:
+         result += f" $    <{str(offer)}>\n"
+      return result

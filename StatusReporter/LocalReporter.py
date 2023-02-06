@@ -30,12 +30,14 @@ class LocalReporter(Factory):
       final = str(self.positions[MAKER]) + " *\n" + str(self.positions[TAKER])
       print (final)
 
-   def printPnl(self):
-      print (f"-- PnL: {datetime.fromtimestamp(time.time())} --")
+   def printPriceEvent(self):
+      print (f"$$ PRICE UPDATE: {datetime.fromtimestamp(time.time())} $$")
 
+      print (" $  - PNL:")
       print (self.positions[MAKER].getPnlReport())
       print (self.positions[TAKER].getPnlReport())
-      print ("")
+      print (" $\n $  - OFFERS:")
+      print (self.offers)
 
    def printRebalance(self):
       print (f"-- REBALANCE: {datetime.fromtimestamp(time.time())} --")
@@ -55,7 +57,7 @@ class LocalReporter(Factory):
          self.printPositions()
 
       elif notification == PriceEvent:
-         self.printPnl()
+         self.printPriceEvent()
 
       elif notification == Rebalance:
          self.printRebalance()
