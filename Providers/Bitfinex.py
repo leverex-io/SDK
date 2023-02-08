@@ -277,6 +277,8 @@ class BfxBalanceSwap(CashOperation):
          return False
 
    def assessProgress(self, bfx):
+      return True
+
       if self.accTo not in bfx.balances:
          return False
 

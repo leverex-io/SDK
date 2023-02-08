@@ -262,7 +262,7 @@ class LeverexWithdrawal(CashOperation):
 
    def __str__(self):
       result = "#{} Withdrawal, stage: {}\n".format(
-         self.id, self.stageStr())
+         self.id(), self.stageStr())
       result += " |    - amount: {}, id: {}\n".format(
          self.amount, self.withdrawalId)
       return result
