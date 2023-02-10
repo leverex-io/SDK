@@ -1577,9 +1577,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 1200
       assert target.taker.target == 1800
-      assert target.maker.cancelPending['status'] == 2
+      assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 300
-      assert target.maker.toWithdraw['status'] == 4
+      assert target.maker.toWithdraw['status'] == 'withdraw_todo'
       assert '20' in mockedConnection.pendingWtdr
 
       #complete the cancellation request
@@ -1594,9 +1594,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 1200
       assert target.taker.target == 1800
-      assert target.maker.cancelPending['status'] == 3
+      assert target.maker.cancelPending['status'] == 'cancel_pending_done'
       assert target.maker.toWithdraw['amount'] == 300
-      assert target.maker.toWithdraw['status'] == 5
+      assert target.maker.toWithdraw['status'] == 'withdraw_ongoing'
       assert len(mockedConnection.pendingWtdr) == 0
 
       #ACK withdrawal request

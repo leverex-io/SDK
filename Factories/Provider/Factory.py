@@ -27,8 +27,11 @@ class CashOpsManager(object):
       return id < self.counter
 
    async def process(self):
+      hasTasks = len(self.queue) != 0
       while True:
          if not self.queue:
+            if hasTasks:
+               await self.provider.onBalanceUpdate()
             return
 
          #select first task in the queue
@@ -45,6 +48,12 @@ class CashOpsManager(object):
          #delete the task, iterate over next one
          if key in self.queue:
             del self.queue[key]
+
+   def hasTasks(self, taskType=Definitions.CashOperation):
+      for taskId in self.queue:
+         if isinstance(self.queue[taskId], taskType):
+            return True
+      return False
 
    def peekLastTask(self):
       if not self.queue:

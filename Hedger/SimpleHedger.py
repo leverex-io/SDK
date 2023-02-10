@@ -6,14 +6,14 @@ from Factories.Definitions import PriceOffer, OfferException, \
    Rebalance, RebalanceReport
 
 CANCEL_PENDING          = 'cancel_pending'
-CANCEL_PENDING_TODO     = 1
-CANCEL_PENDING_ONGOING  = 2
-CANCEL_PENDING_DONE     = 3
+CANCEL_PENDING_TODO     = 'cancel_pending_todo'
+CANCEL_PENDING_ONGOING  = 'cancel_pending_ongoing'
+CANCEL_PENDING_DONE     = 'cancel_pending_done'
 
 WITHDRAW             = 'withdraw'
-WITHDRAW_TODO        = 4
-WITHDRAW_ONGOING     = 5
-WITHDRAW_DONE        = 6
+WITHDRAW_TODO        = 'withdraw_todo'
+WITHDRAW_ONGOING     = 'withdraw_ongoing'
+WITHDRAW_DONE        = 'withdraw_done'
 
 ################################################################################
 class HedgerException(Exception):
@@ -44,15 +44,15 @@ class ProviderTarget(object):
          'task' : None
       }
 
-      if self.cash['total'] + self.cash['pending'] > self.target:
+      allCash = self.cash['total'] + self.cash['pending']
+      if allCash > self.target:
          #provider has more cash than it needs
          self.toWithdraw['status'] = WITHDRAW_TODO
-         self.toWithdraw['amount'] = self.cash['total'] - self.target
+         self.toWithdraw['amount'] = allCash - self.target
 
          if self.cash['pending'] > 0:
             #avoid multiple withdrawals when possible
             self.cancelPending['status'] = CANCEL_PENDING_TODO
-            self.toWithdraw['amount'] += self.cash['pending']
 
       elif self.cash['total'] < self.target:
          #provider has less cash than desired
@@ -65,11 +65,11 @@ class ProviderTarget(object):
 
 ####
 class RebalanceTarget(object):
-   STATE_INIT              = 1
-   STATE_NO_REBALANCE      = 2
-   STATE_CANCELLING_WTDR   = 3
-   STATE_WITHDRAWING       = 4
-   STATE_COMPLETED         = 5
+   STATE_INIT              = 'target_state_init'
+   STATE_NO_REBALANCE      = 'target_state_no_rebalance'
+   STATE_CANCELLING_WTDR   = 'target_state_cancelling_withdrawal'
+   STATE_WITHDRAWING       = 'target_state_withdrawing'
+   STATE_COMPLETED         = 'target_state_completed'
 
    def __init__(self, config, makerCash, makerTarget, takerCash, takerTarget):
       self.state = self.STATE_INIT
@@ -80,12 +80,12 @@ class RebalanceTarget(object):
       self.taker = ProviderTarget('taker', takerCash, takerTarget)
 
    def needsRebalance(self):
-      if self.maker.cancelPending['status'] != CANCEL_PENDING_DONE or \
-         self.taker.cancelPending['status'] != CANCEL_PENDING_DONE:
-         return True
+      #if self.maker.cancelPending['status'] != CANCEL_PENDING_DONE or \
+      #   self.taker.cancelPending['status'] != CANCEL_PENDING_DONE:
+      #   return True
 
-      amount = max(\
-         self.maker.toWithdraw['amount'], \
+      amount = max(
+         self.maker.toWithdraw['amount'],
          self.taker.toWithdraw['amount'])
       if amount < self.min_amount:
          return False
@@ -141,7 +141,7 @@ class RebalanceTarget(object):
       def evaluate(provider):
          resultInner = None
          if provider.toWithdraw['status'] == WITHDRAW_TODO:
-            #mark maker for withdrawal
+            #mark for withdrawal
             def callback(task):
                provider.toWithdraw['task'] = task
             resultInner = {
@@ -153,7 +153,7 @@ class RebalanceTarget(object):
          elif provider.toWithdraw['status'] == WITHDRAW_ONGOING:
             task = provider.toWithdraw['task']
             if task != None and task.done():
-               #maker balance has met target
+               #balance has met target
                provider.toWithdraw['status'] = WITHDRAW_DONE
 
          return resultInner

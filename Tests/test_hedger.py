@@ -1,5 +1,6 @@
 #import pdb; pdb.set_trace()
 import unittest
+import copy
 
 from .utils import TestTaker, TestMaker, price
 from Factories.Definitions import Order, SIDE_BUY, SIDE_SELL, \
@@ -506,6 +507,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert target.taker.toWithdraw['amount'] == 2000
 
    async def test_rebalance_target_with_pending(self):
+      localConfig = copy.deepcopy(self.config)
+      localConfig['rebalance']['threshold_pct'] = 0.02
+
       #setup taker and maker
       taker = TestTaker(startBalance=1500)
       maker = TestMaker(startBalance=1000, pendingWithdrawals=[200])
@@ -516,7 +520,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.balance == 0
       assert taker.balance == 0
 
-      hedger = SimpleHedger(self.config)
+      hedger = SimpleHedger(localConfig)
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
       await dealer.waitOnReady()
@@ -537,7 +541,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 1080
       assert target.taker.target == 1620
-      assert target.maker.cancelPending['status'] == 2
+      assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 120
 
       #reduce taker cash, maker rebalance target should go up
@@ -550,7 +554,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 960
       assert target.taker.target == 1440
-      assert target.maker.cancelPending['status'] == 2
+      assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 240
 
       #post an order, rebalance target shouldn't change
@@ -573,7 +577,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 20560
       assert target.taker.target == 30840
-      assert target.maker.cancelPending['status'] == 2
+      assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 29640
 
       #reduce balances near 1.5x max volume
@@ -586,7 +590,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 28080
       assert target.taker.target == 42120
-      assert target.maker.cancelPending['status'] == 2
+      assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 22120
 
       await maker.updateBalance(15000)
@@ -598,7 +602,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 14080
       assert target.taker.target == 21120
-      assert target.maker.cancelPending['status'] == 2
+      assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 1120
 
       #set taker above maker
@@ -610,7 +614,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       target = hedger.rebalMan.target
       assert target.maker.target == 12080
       assert target.taker.target == 18120
-      assert target.maker.cancelPending['status'] == 2
+      assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 1880
 
@@ -814,6 +818,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(maker.withdrawalsToPush) == 0
 
    async def test_rebalance_target_with_maker_cancellation(self):
+      localConfig = copy.deepcopy(self.config)
+      localConfig['rebalance']['threshold_pct'] = 0.02
+
       #setup taker and maker
       taker = TestTaker(startBalance=2000, addr="efgh")
       maker = TestMaker(startBalance=800, pendingWithdrawals=[200])
@@ -824,7 +831,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.balance == 0
       assert taker.balance == 0
 
-      hedger = SimpleHedger(self.config)
+      hedger = SimpleHedger(localConfig)
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
       await dealer.waitOnReady()
@@ -908,6 +915,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.withdrawalHist[0]['status'] == WithdrawInfo.WITHDRAW_COMPLETED
 
    async def test_rebalance_target_with_taker_cancellation(self):
+      localConfig = copy.deepcopy(self.config)
+      localConfig['rebalance']['threshold_pct'] = 0.02
+
       #setup taker and maker
       taker = TestTaker(startBalance=1200, addr="efgh", pendingWithdrawals=[400])
       maker = TestMaker(startBalance=1400)
@@ -918,7 +928,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.balance == 0
       assert taker.balance == 0
 
-      hedger = SimpleHedger(self.config)
+      hedger = SimpleHedger(localConfig)
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
       await dealer.waitOnReady()
