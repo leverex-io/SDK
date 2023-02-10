@@ -68,6 +68,9 @@ class DealerFactory(object):
       elif eventType == Definitions.Rebalance:
          await self.onRebalanceEvent()
          return
+      elif eventType == Definitions.Transaction:
+         await self.onTransactionEvent()
+         return
 
       if provider == self.maker:
          await self.onMakerEvent(eventType)
@@ -148,3 +151,9 @@ class DealerFactory(object):
    async def onRebalanceEvent(self):
       for reporter in self.statusReporters:
          await reporter.onRebalanceEvent(self)
+
+   ## transactions ##
+   async def onTransactionEvent(self):
+      await self.maker.cashOps.process()
+      await self.taker.cashOps.process()
+      await self.hedger.onBalanceEvent(self.maker, self.taker)

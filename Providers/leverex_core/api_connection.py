@@ -11,7 +11,8 @@ from typing import Callable
 
 from .login_connection import LoginServiceClientWS
 from Factories.Definitions import PriceOffer, \
-   SessionCloseInfo, SessionOpenInfo, Order, WithdrawInfo
+   SessionCloseInfo, SessionOpenInfo, Order, WithdrawInfo, \
+   DepositInfo
 
 LOGIN_ENDPOINT = "wss://login-live.leverex.io/ws/v1/websocket"
 API_ENDPOINT = "wss://api-live.leverex.io"
@@ -190,38 +191,9 @@ class LeverexOrder(Order):
 
       return self.sessionIM * self.quantity
 
-
-class DepositInfo():
-   def __init__(self, data):
-      self._tx_id = str(data['tx_id'])
-      self._nb_conf = int(data['nb_conf'])
-      self._unblinded_link = str(data['unblinded_link'])
-      self._timestamp = datetime.fromtimestamp(data['timestamp'])
-      self._outputs = data['outputs']
-
-   @property
-   def transacion_id(self):
-      return self._tx_id
-
-   @property
-   def confirmations_count(self):
-      return self._nb_conf
-
-   @property
-   def unblinded_link(self):
-      return self._unblinded_link
-
-   @property
-   def outputs(self):
-      return self._outputs
-
-   @property
-   def timestamp(self):
-      return self._timestamp
-
 PriceOffers = list[PriceOffer]
 
-
+################################################################################
 class AsyncApiConnection(object):
    def __init__(self, api_endpoint=API_ENDPOINT,
       login_endpoint=LOGIN_ENDPOINT,

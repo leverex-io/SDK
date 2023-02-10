@@ -1,8 +1,10 @@
 import asyncio
+import random
+import string
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import AggregationOrderBook, \
-   WithdrawInfo, CashOperation, OpenVolume
+   WithdrawInfo, CashOperation, OpenVolume, TheTxTracker
 
 price = 10000
 
@@ -148,6 +150,16 @@ class TestProvider(Factory):
          wtd['task'].state = CashOperation.DONE
          await counterparty.updateBalance(counterparty.balance + wtd['amount'])
 
+   async def completeTransaction(self, amount):
+      txid = ''.join(random.choice(string.ascii_lowercase) for i in range(12))
+      TheTxTracker.addTransaction(txid,
+         self.chainAddresses.getDepositAddr(),
+         2, [{
+            'currency': 'USDT',
+            'amount': amount
+      }])
+      await self.updateBalance(self.balance + amount)
+      await self.onTransactionUpdate()
 
    async def cancelWithdrawals(self):
       if self.cancelWithdrawalsRequested != None:

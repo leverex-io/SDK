@@ -5,7 +5,7 @@ import time
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook, PositionsReport, BalanceReport, \
-   PriceEvent, CashOperation, OpenVolume
+   PriceEvent, CashOperation, OpenVolume, TheTxTracker
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -297,8 +297,10 @@ class BfxWithdrawal(CashOperation):
       self.amount = amount
       self.baseAmount = 0
       self.positionId = None
+      self.txId = None
       self.callback = callback
       self.withdrawResult = None
+      self.withdrawalTimestamp = None
 
    def setup(self, bfx):
       if self.amount == None or self.amount == 0:
@@ -316,6 +318,7 @@ class BfxWithdrawal(CashOperation):
 
    async def doTheTask(self, bfx):
       #withdraw
+      self.withdrawalTimestamp = round(time.time() * 1000)
       self.withdrawResult = await bfx.connection.rest.submit_wallet_withdraw(
          wallet=BfxAccounts.EXCHANGE,
          method=bfx.deposit_method,
@@ -334,12 +337,27 @@ class BfxWithdrawal(CashOperation):
       return True
 
    def assessProgress(self, bfx):
-      #should prompt bfx by positionId instead
-      if BfxAccounts.EXCHANGE not in bfx.balances:
+      if self.txId == None:
+         transactions = TheTxTracker.getTransactionsSince(
+            self.withdrawalTimestamp)
+         for tx in transactions:
+            if tx.recipient == bfx.chainAddresses.getDefaultWithdrawAddr():
+               for output in tx.outputs:
+                  if output['currency'] == bfx.ccy_base and \
+                     output['amount'] == self.amount:
+                     self.txId = tx.id
+                     break
+
+      if self.txId == None:
          return False
 
-      bal = bfx.balances[BfxAccounts.EXCHANGE][bfx.ccy_base]
-      return bal[BfxBalances.TOTAL] <= (self.baseAmount - self.amount)
+      theTx = TheTxTracker.getTx(self.txId)
+      if theTx == None:
+         self.txId = None
+         return False
+
+      if theTx.nConf >= 2:
+         return True
 
    def __str__(self):
       result = "#{} Withdrawal, stage: {}\n".format(
@@ -349,6 +367,8 @@ class BfxWithdrawal(CashOperation):
       #bfx replies
       if self.withdrawResult:
          result += " |        > {}\n".format(str(self.withdrawResult.notify_info))
+      if self.txId != None:
+         result += " |        > txId: {}\n".format(str(self.txId))
       return result
 
    def __eq__(self, other):

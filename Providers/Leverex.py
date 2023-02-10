@@ -5,7 +5,8 @@ import json
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
    PositionsReport, BalanceReport, SessionInfo, PriceEvent, \
-   DepositWithdrawAddresses, CashOperation, WithdrawInfo, OpenVolume
+   DepositWithdrawAddresses, CashOperation, WithdrawInfo, OpenVolume, \
+   TheTxTracker
 from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
@@ -503,6 +504,11 @@ class LeverexProvider(Factory):
    async def on_market_data(self, marketData):
       self.indexPrice = float(marketData['live_cutoff'])
       await self.dealerCallback(self, PriceEvent)
+
+   ## deposits ##
+   async def on_deposit_update(self, deposit_info):
+      TheTxTracker.addTransaction(deposit_info)
+      self.onTransactionEvent()
 
    #############################################################################
    #### methods

@@ -174,6 +174,9 @@ class Factory(object):
       #then propagate the notification to rest of dealer
       await self.dealerCallback(self, Definitions.Balance)
 
+   async def onTransactionUpdate(self):
+      await self.dealerCallback(self, Definitions.Transaction)
+
    async def onOrderBookUpdate(self):
       await self.dealerCallback(self, Definitions.OrderBook)
 

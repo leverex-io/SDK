@@ -1,4 +1,4 @@
-import pdb; pdb.set_trace()
+#import pdb; pdb.set_trace()
 import unittest
 from unittest.mock import patch
 
@@ -289,7 +289,7 @@ class MockedBfxClientClass(object):
             bal = aggregate[acc][ccy] + initialBal
             await self.ws.push_wallet_update(ccy, bal, acc)
 
-   async def completeWithdrawals(self):
+   async def pushWithdrawals(self):
       withdrawals = self.rest.withdrawals
       self.rest.withdrawals = []
 
@@ -921,13 +921,22 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.rest.withdrawals[0]['amount'] == 1000
 
       #apply effect of withdrawal on taker's balance
-      await mockedConnection.completeWithdrawals()
+      await mockedConnection.pushWithdrawals()
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 3000
       assert maker.balance == 1000
       assert hedger.canRebalance() == True
 
+      assert target == hedger.rebalMan.target
+      assert target.state == 'target_state_withdrawing'
+      assert hedger.rebalMan.canAssess() == False
+
+      #finalize withdrawal
+      await maker.completeTransaction(1000)
+      assert hedger.canRebalance() == True
+
       assert target != hedger.rebalMan.target
       assert target.state == 'target_state_completed'
+      assert hedger.rebalMan.needsRebalance() == False
       assert hedger.rebalMan.canAssess() == True
 
    @patch('Providers.Bitfinex.Client')
@@ -1058,18 +1067,28 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.rest.cash_movements) == 0
       assert mockedConnection.rest.withdrawals[0]['amount'] == 400
 
-      #complete withdrawal
-      await mockedConnection.completeWithdrawals()
+      #push withdrawal
+      await mockedConnection.pushWithdrawals()
       cashMetrics = taker.getCashMetrics()
       assert cashMetrics['total'] == 2100
       assert cashMetrics['pending'] == 0
 
       assert hedger.canRebalance() == True
-      assert hedger.needsRebalance() == False
-      assert hedger.rebalMan.canAssess() == True
-      assert target.state == 'target_state_completed'
-      assert target.taker.toWithdraw['status'] == 'withdraw_done'
+      assert hedger.needsRebalance() == True
+      assert hedger.rebalMan.canAssess() == False
+      assert target.state == 'target_state_withdrawing'
+      assert target.taker.toWithdraw['status'] == 'withdraw_ongoing'
+      assert target == hedger.rebalMan.target
+
+      #finalize withdrawal
+      await maker.completeTransaction(400)
+      assert hedger.canRebalance() == True
+
       assert target != hedger.rebalMan.target
+      assert target.state == 'target_state_completed'
+      assert hedger.rebalMan.needsRebalance() == False
+      assert hedger.rebalMan.canAssess() == True
+
 
    @patch('Providers.Bitfinex.Client')
    async def test_cash_swap(self, MockedBfxClientObj):
@@ -1272,11 +1291,15 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.rest.withdrawals[0]['amount'] == 400
       #assert mockedConnection.rest.cash_movements[0]['amount'] == 100
 
-      #complete withdrawal
-      await mockedConnection.completeWithdrawals()
+      #push withdrawal
+      await mockedConnection.pushWithdrawals()
       cash = taker.getCashMetrics()
       assert cash['total'] == 2100
       assert cash['pending'] == 100
       assert len(mockedConnection.rest.withdrawals) == 0
+      assert len(mockedConnection.rest.cash_movements) == 0
+
+      #complete transaction
+      await maker.completeTransaction(400)
       assert len(mockedConnection.rest.cash_movements) == 1
       assert mockedConnection.rest.cash_movements[0]['amount'] == 100

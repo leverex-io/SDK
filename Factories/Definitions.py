@@ -9,6 +9,7 @@ Ready = 'ready'
 Collateral = 'collateral'
 PriceEvent = 'index_price'
 Rebalance = 'rebalance'
+Transaction = 'transaction'
 ##
 
 
@@ -638,3 +639,87 @@ class OpenVolume(object):
          'bid': self.bid.getOpenVolume(maxVolume, unquoteRatio)
       }
       return result
+
+################################################################################
+class DepositInfo():
+   def __init__(self, data):
+      self._tx_id = str(data['tx_id'])
+      self._nb_conf = int(data['nb_conf'])
+      self._unblinded_link = str(data['unblinded_link'])
+      self._timestamp = datetime.fromtimestamp(data['timestamp'])
+      self._outputs = data['outputs']
+      self._recv_address = data['recv_address']
+
+   @property
+   def transacion_id(self):
+      return self._tx_id
+
+   @property
+   def confirmations_count(self):
+      return self._nb_conf
+
+   @property
+   def unblinded_link(self):
+      return self._unblinded_link
+
+   @property
+   def outputs(self):
+      return self._outputs
+
+   @property
+   def timestamp(self):
+      return self._timestamp
+
+   @property
+   def recv_address(self):
+      return self._recv_address
+
+########
+class OnChainTransaction(object):
+   def __init__(self, txid, recipient, nConf, outputs):
+      self._id = txid
+      self.recipient = recipient
+      self.nConf = nConf
+      self.outputs = outputs
+
+   def __eq__(self, other):
+      if not isinstance(other, OnChainTransaction):
+         return False
+      return self.id == other.id
+
+   @property
+   def id(self):
+      return self._id
+
+########
+class TransactionTracker(object):
+   def __init__(self):
+      self.transactions = {}
+      self.orderedByTimestamp = {}
+
+   def addTransaction(self, txid, recipient, nConf, outputs):
+      if txid in self.transactions:
+         self.transactions[txid].nConf = nConf
+      else:
+         self.transactions[txid] = OnChainTransaction(
+            txid, recipient, nConf, outputs)
+         now = round(time.time() * 1000)
+         self.orderedByTimestamp[now] = txid
+
+   def addDeposit(self, deposit):
+      self.addTransaction(deposit.transaction_id,
+         deposit.recv_address,
+         deposit.confirmations_count,
+         deposit.outputs)
+
+   def getTransactionsSince(self, timestamp=0):
+      #i hate python =)
+      txids = [v for k, v in self.orderedByTimestamp.items() if k >= timestamp]
+      return [tx for id, tx in self.transactions.items() if id in txids]
+
+   def getTx(self, txId):
+      if txId not in self.transactions:
+         return None
+      return self.transactions[txId]
+
+TheTxTracker = TransactionTracker()
