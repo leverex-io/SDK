@@ -507,7 +507,7 @@ class LeverexProvider(Factory):
 
    ## deposits ##
    async def on_deposit_update(self, deposit_info):
-      TheTxTracker.addTransaction(deposit_info)
+      TheTxTracker.addDeposit(deposit_info)
       self.onTransactionEvent()
 
    #############################################################################
