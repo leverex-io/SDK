@@ -8,6 +8,7 @@ import certifi
 
 class DataProxyObject:
    def __init__(self):
+      self.dealer_id = None
       self.ready_state = None
       self.balances = None
       self.positions = None
@@ -67,6 +68,7 @@ class WebReporter(Factory):
    def createDataProxy(self):
        obj = DataProxyObject()
        obj.ready_state = self.state
+       obj.dealer_id = self.config["exporter_service"].get("name")
        
        balance = {} 
        pos = {}
