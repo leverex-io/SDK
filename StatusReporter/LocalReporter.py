@@ -26,8 +26,12 @@ class LocalReporter(Factory):
       takerBalance = self.balances[TAKER]
       if makerBalance is None:
          makerBalance = "maker: N/A"
+      else:
+         makerBalance = str(makerBalance)
       if takerBalance is None:
          takerBalance = "taker: N/A"
+      else:
+         takerBalance = str(takerBalance)
       final = makerBalance + " +\n" + takerBalance
       print (final)
 
