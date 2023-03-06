@@ -22,7 +22,13 @@ class LocalReporter(Factory):
 
    def printBalances(self):
       print (f"++ WALLETS: {datetime.fromtimestamp(time.time())} ++")
-      final = str(self.balances[MAKER]) + " +\n" + str(self.balances[TAKER])
+      makerBalance = self.balances[MAKER]
+      takerBalance = self.balances[TAKER]
+      if makerBalance is None:
+         makerBalance = "maker: N/A"
+      if takerBalance is None:
+         takerBalance = "taker: N/A"
+      final = makerBalance + " +\n" + takerBalance
       print (final)
 
    def printPositions(self):
