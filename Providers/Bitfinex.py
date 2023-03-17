@@ -650,6 +650,18 @@ class BitfinexProvider(Factory):
    def isReady(self):
       return self.lastReadyState
 
+   def getMinTargetBalance(self, target):
+      if not self.isReady():
+         return None
+
+      if BfxAccounts.DERIVATIVES not in self.balances or \
+         self.ccy not in self.balances[BfxAccounts.DERIVATIVES]:
+         return None
+
+      bfx_balance = self.balances[BfxAccounts.DERIVATIVES][self.ccy]
+
+      return min(target, bfx_balance[BfxBalances.TOTAL])
+
    ## volume ##
    def getOpenVolume(self):
       if not self.isReady():
@@ -859,13 +871,22 @@ class BitfinexProvider(Factory):
          totalSwing *= -1
 
       collateralTarget = position.collateral_min
+
       if totalSwing > 0:
          collateralTarget = max(collateralTarget, totalSwing * abs(position.amount))
 
       #if the collateralTarget is within 10% of the minimum allowed
       #collateral value, we ignore it
+      collateral_diff = position.collateral - position.collateral_min 
+      logging.info("collateral diff: {}".format(collateral_diff))
+
       if position.collateral / position.collateral_min <= 1.1:
          return
+
+      logging.info("collateral target: {}".format(collateralTarget))
+      logging.info("total swing: {}".format(totalSwing))
+
+      collateralTarget = self.getMinTargetBalance(collateralTarget)
 
       await self.connection.rest.set_derivative_collateral(
          symbol=self.product, collateral=collateralTarget)
