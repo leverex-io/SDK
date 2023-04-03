@@ -83,10 +83,10 @@ class SessionInfo():
 ################################################################################
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None):
-      if volume == 0 or (ask == 0 and bid == 0):
+      self._volume = round(volume, 8)
+      if self._volume == 0 or (ask == 0 and bid == 0):
          raise OfferException()
 
-      self._volume = round(volume, 8)
       self._ask = ask
       self._bid = bid
       self._timestamp = time.time_ns() / 1000000 #time in ms
