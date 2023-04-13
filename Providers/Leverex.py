@@ -389,6 +389,7 @@ class LeverexProvider(Factory):
    async def loadAddresses(self, callback):
       async def depositAddressCallback(address):
          self.chainAddresses.setDepositAddr(address)
+         print (f"{self.name} deposit address: {address}")
          await callback()
 
       async def withdrawAddressCallback(addresses):
