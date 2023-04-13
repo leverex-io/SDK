@@ -43,4 +43,4 @@ if __name__ == '__main__':
       except Exception as e:
          logging.error(f"!! Main loop broke with error: {str(e)} !!")
          logging.warning("!! Restarting in 5 !!")
-         time.sleep(5)
+         time.sleep(20)

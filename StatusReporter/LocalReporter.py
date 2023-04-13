@@ -57,17 +57,20 @@ class LocalReporter(Factory):
 
    #### report override ####
    async def report(self, notification):
-      if notification == Ready:
-         self.printReady()
+      try:
+         if notification == Ready:
+            self.printReady()
 
-      elif notification == Balance:
-         self.printBalances()
+         elif notification == Balance:
+            self.printBalances()
 
-      elif notification == Position:
-         self.printPositions()
+         elif notification == Position:
+            self.printPositions()
 
-      elif notification == PriceEvent:
-         self.printPriceEvent()
+         elif notification == PriceEvent:
+            self.printPriceEvent()
 
-      elif notification == Rebalance:
-         self.printRebalance()
+         elif notification == Rebalance:
+            self.printRebalance()
+      except Exception as e:
+         print ("failed to print report with exception: {e}")
