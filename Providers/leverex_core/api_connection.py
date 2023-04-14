@@ -440,6 +440,8 @@ class AsyncApiConnection(object):
    async def login(self):
       #get token from login server
       access_token_info = await self._login_client.get_access_token(self._api_endpoint)
+      if access_token_info == None:
+         raise Exception("Failed to get access token")
 
       #submit to service
       self.access_token = access_token_info
@@ -452,8 +454,9 @@ class AsyncApiConnection(object):
       await self.websocket.send(json.dumps(auth_request))
       data = await self.websocket.recv()
       loginResult = json.loads(data)
-      if not loginResult['authorize']['success']:
+      if not 'authorize' in loginResult or not loginResult['authorize']['success']:
          raise Exception("Login failed")
+      print (f"-- LOGGED IN AS: {loginResult['authorize']['email']}")
 
    async def run(self, listener):
       self.listener = listener

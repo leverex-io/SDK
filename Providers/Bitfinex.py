@@ -498,6 +498,7 @@ class BitfinexProvider(Factory):
          deposit_address = await self.connection.rest.get_wallet_deposit_address(
             wallet=BfxAccounts.DERIVATIVES, method=self.deposit_method)
          self.chainAddresses.setDepositAddr(deposit_address.notify_info.address)
+         print (f"{self.name} deposit address: {deposit_address.notify_info.address}")
          await callback()
       except Exception as e:
          logging.error(f'Failed to load Bitfinex deposit address: {str(e)}')
