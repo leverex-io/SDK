@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import json
+import time
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
@@ -328,6 +329,38 @@ class LeverexCancelWithdrawal(CashOperation):
       return self.ids == other.ids
 
 ################################################################################
+class OfferToPush(object):
+   def __init__(self, offers):
+      self.offers = offers
+      self.timestamp = self.getTimeMs() #time in milliseconds
+      self.waiting = False
+
+   def getTimeMs(self):
+      return time.time_ns() / 1000000
+
+   def updateOffers(self, offers):
+      #update offers but not the timestamp
+      self.offers = offers
+
+   def updateTimestamp(self):
+      self.timestamp = self.getTimeMs()
+
+   def ready(self):
+      if self.waiting:
+         return False
+      return self.getTimeMs() >= self.timestamp + 200
+
+   async def wait(self):
+      if self.waiting:
+         return
+      self.waiting = True
+      diff = self.timestamp + 200 - self.getTimeMs()
+      if diff <= 0:
+         return
+      await asyncio.sleep(diff/1000)
+      self.waiting = False
+
+################################################################################
 class LeverexProvider(Factory):
    required_settings = {
       'leverex': [
@@ -351,6 +384,7 @@ class LeverexProvider(Factory):
       self.lastReadyState = False
       self.indexPrice = None
       self.withdrawalHistory = None
+      self.offerToPush = None
 
       #check for required config entries
       for k in self.required_settings:
@@ -615,8 +649,24 @@ class LeverexProvider(Factory):
          if reply['submit_offer']['result'] != 1:
             logging.error(f"Failed to submit offers with error: {str(reply)}")
 
+      #do not push offers more than once every 200ms
+      if self.offerToPush != None:
+         if (self.offerToPush.ready()):
+            self.offerToPush = None
+         else:
+            self.offerToPush.updateOffers(offers)
+            await self.offerToPush.wait()
+            if not self.offerToPush.ready():
+               return
+
+      if self.offerToPush == None:
+         self.offerToPush = OfferToPush(offers)
+      self.offerToPush.updateTimestamp()
+
       await self.connection.submit_offers(
-         target_product=self.product, offers=offers, callback=callback)
+         target_product=self.product,
+         offers=self.offerToPush.offers,
+         callback=callback)
 
    ## orders ##
    def storeOrder(self, order, eventType):
