@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 from Factories.Hedger.Factory import HedgerFactory
 from Factories.Definitions import PriceOffer, OfferException, \
@@ -525,6 +526,7 @@ class SimpleHedger(HedgerFactory):
          self.offer_refresh_delay = config['hedger']['offer_refresh_delay_ms']
 
       self.offers = []
+      self.offersTimestamp = time.time()
       self.rebalMan = None
 
    #############################################################################
@@ -535,10 +537,15 @@ class SimpleHedger(HedgerFactory):
          return
 
       self.offers = []
+      self.offersTimestamp = time.time()
       await maker.submitOffers(self.offers)
 
    ####
    def compareOffers(self, offers):
+      if time.time() - self.offersTimestamp >= 5:
+         #force an offer update if it's more than 5seconds old
+         return False
+
       if len(offers) != len(self.offers):
          return False
 
@@ -549,7 +556,7 @@ class SimpleHedger(HedgerFactory):
       return True
 
    ####
-   async def submitOffers(self, maker, taker):
+   async def submitOffers(self, maker, taker, force=False):
       if not self.isReady():
          await self.clearOffers(maker)
          return
@@ -582,14 +589,14 @@ class SimpleHedger(HedgerFactory):
          ask_volume = 0
          ask_price = 0
       else:
-         ask_volume = min(ask_volume, ask.volume)
+         ask_volume = round(min(ask_volume, ask.volume), 8)
          ask_price = round(ask.price * (1 + self.price_ratio), 2)
 
       if bid == None:
          bid_volume = 0
          bid_price = 0
       else:
-         bid_volume = min(bid_volume, bid.volume)
+         bid_volume = round(min(bid_volume, bid.volume), 8)
          bid_price = round(bid.price * (1 - self.price_ratio), 2)
 
       #form the price offers
@@ -608,12 +615,14 @@ class SimpleHedger(HedgerFactory):
             f"  ask vol: {ask_volume}, price: {ask_price}\n"
             f"  bid vol: {bid_volume}, price: {bid_price}")
 
-      #do not push offers if they didn't change
-      if self.compareOffers(offers) == True:
-         return
+      if not force:
+         #do not push offers if they didn't change, unless we force it
+         if self.compareOffers(offers) == True:
+            return
 
       #submit offers to maker
       self.offers = offers
+      self.offersTimestamp = time.time()
       await maker.submitOffers(self.offers)
 
    ####
@@ -729,7 +738,7 @@ class SimpleHedger(HedgerFactory):
       await self.checkExposureSync(maker, taker)
 
       # update offers
-      await self.submitOffers(maker, taker)
+      await self.submitOffers(maker, taker, True)
 
    #############################################################################
    ## balance events
