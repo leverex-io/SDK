@@ -486,19 +486,21 @@ class LeverexProvider(Factory):
    async def on_authorized(self):
       await super().setConnected(True)
 
-      async def balanceCallback(balances):
-         await self.onLoadBalance(balances)
-         await self.setInitBalance()
-         await self.evaluateReadyState()
-      self.connection.loadBalances(balanceCallback)
-
+      #load existing positions
       await self.connection.load_open_positions(
          target_product=self.product, callback=self.on_positions_loaded)
+
+      #setup subscriptions
       await self.connection.subscribe_session_open(self.product)
       await self.connection.subscribe_to_product(self.product)
+      await self.connection.subscribe_to_balance_updates(self.product)
 
    ## balance events ##
-   async def onLoadBalance(self, balances):
+   async def on_balance_update(self, balances):
+      if not self._balanceInitialized:
+         await self.setInitBalance()
+         await self.evaluateReadyState()
+
       for balance_info in balances:
          self.balances[balance_info['currency']] = float(balance_info['balance'])
 

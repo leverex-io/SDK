@@ -30,7 +30,6 @@ class MockedLeverexConnectionClass(object):
       self.balance = balance
 
       self.session_product = None
-      self.balance_callback = None
       self.positions_callback = None
       self.withdrawRequest = []
       self.cancelWithdraw = []
@@ -46,14 +45,12 @@ class MockedLeverexConnectionClass(object):
    async def submit_offers(self, target_product, offers, callback):
       self.offers.append(offers)
 
-   def loadBalances(self, callback):
-      self.balance_callback = callback
+   async def subscribe_to_balance_updates(self, target_product):
+      if self.session_product != target_product:
+         raise Exception("balance sub product mismatch")
 
-   async def replyLoadBalances(self):
-      if self.balance_callback == None:
-         raise Exception("balances were not requested")
-
-      margin = self.getMarginedCash()
+   async def pushBalanceUpdate(self):
+      margin = abs(self.getMarginedCash())
       result = [{
          'currency' : 'USDT',
          'balance' : self.balance - margin
@@ -63,9 +60,7 @@ class MockedLeverexConnectionClass(object):
          'currency' : 'USDP',
          'balance' : margin
       })
-
-      await self.balance_callback(result)
-      self.balance_callback = None
+      await self.listener.on_balance_update(result)
 
    async def load_open_positions(self, target_product, callback):
       self.positions_callback = callback
@@ -131,18 +126,7 @@ class MockedLeverexConnectionClass(object):
 
       self.orders[levOrder.id] = levOrder
       await self.listener.on_order_event(levOrder, ORDER_ACTION_CREATED)
-
-      margin = abs(self.getMarginedCash())
-      result = [{
-         'currency' : 'USDT',
-         'balance' : self.balance - margin
-      }]
-      if margin != 0:
-         result.append({
-         'currency' : 'USDP',
-         'balance' : margin
-      })
-      await self.listener.onLoadBalance(result)
+      await self.pushBalanceUpdate()
 
    async def close_order(self, order):
       order['product_type'] = self.session_product
@@ -188,17 +172,7 @@ class MockedLeverexConnectionClass(object):
       for withdrawal in self.withdrawRequest:
 
          self.balance -= withdrawal['amount']
-         margin = self.getMarginedCash()
-         result = [{
-            'currency' : withdrawal['ccy'],
-            'balance' : self.balance - margin
-         }]
-         if margin != 0:
-            result.append({
-            'currency' : 'USDP',
-            'balance' : margin
-         })
-         await self.listener.onLoadBalance(result)
+         await self.pushBalanceUpdate()
 
          wtd = WithdrawInfo({
             'id' : 0,
@@ -235,17 +209,7 @@ class MockedLeverexConnectionClass(object):
          await cancellation['callback'](wtdr)
 
          self.balance += float(wtdr.amount)
-         margin = self.getMarginedCash()
-         balanceJson = [{
-            'currency' : wtdr.currency,
-            'balance' : self.balance - margin
-         }]
-         if margin != 0:
-            balanceJson.append({
-            'currency' : 'USDP',
-            'balance' : margin
-         })
-         await self.listener.onLoadBalance(balanceJson)
+         await self.pushBalanceUpdate()
 
    def getMarginedCash(self):
       #this is a simplified version of leverex margin calculation,
@@ -355,10 +319,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == None
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
@@ -446,10 +408,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == None
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
@@ -541,10 +501,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == None
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       await dealer.waitOnReady()
       assert maker.isReady() == True
       assert dealer.isReady() == True
@@ -601,10 +559,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
       #reply to session sub
@@ -709,10 +665,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker._connected == True
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
@@ -860,10 +814,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
       #reply to session sub
@@ -1037,10 +989,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
       #reply to session sub
@@ -1136,10 +1086,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
       #reply to session sub
@@ -1265,10 +1213,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
       #reply to session sub
@@ -1417,10 +1363,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
       #reply to session sub
@@ -1531,10 +1475,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers) == 0
 
       #reply to load balances request
-      assert mockedConnection.balance_callback != None
       assert len(maker.balances) == 0
-      await mockedConnection.replyLoadBalances()
-      assert mockedConnection.balance_callback == None
+      await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
       #reply to session sub
