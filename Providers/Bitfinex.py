@@ -498,7 +498,6 @@ class BitfinexProvider(Factory):
          deposit_address = await self.connection.rest.get_wallet_deposit_address(
             wallet=BfxAccounts.DERIVATIVES, method=self.deposit_method)
          self.chainAddresses.setDepositAddr(deposit_address.notify_info.address)
-         print (f"{self.name} deposit address: {deposit_address.notify_info.address}")
          await callback()
       except Exception as e:
          logging.error(f'Failed to load Bitfinex deposit address: {str(e)}')
@@ -878,17 +877,11 @@ class BitfinexProvider(Factory):
 
       #if the collateralTarget is within 10% of the minimum allowed
       #collateral value, we ignore it
-      collateral_diff = position.collateral - position.collateral_min 
-      logging.info("collateral diff: {}".format(collateral_diff))
-
+      collateral_diff = position.collateral - position.collateral_min
       if position.collateral / position.collateral_min <= 1.1:
          return
 
-      logging.info("collateral target: {}".format(collateralTarget))
-      logging.info("total swing: {}".format(totalSwing))
-
       collateralTarget = self.getMinTargetBalance(collateralTarget)
-
       await self.connection.rest.set_derivative_collateral(
          symbol=self.product, collateral=collateralTarget)
 

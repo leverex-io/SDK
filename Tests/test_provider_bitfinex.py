@@ -74,6 +74,9 @@ class FakeBfxWsInterface(object):
 
       price = self.positions[symbol][PRICE]
       collateral = self.positions[symbol][COLLATERAL]
+      if collateral == 0 or collateral == None:
+         self.positions[symbol][LIQ_PRICE] = None
+         return
 
       priceBuffer = abs(collateral / amount)
       if amount > 0:
@@ -132,9 +135,11 @@ class FakeBfxWsInterface(object):
 
    def getFreeBalance(self, symbol, wallet):
       ccy = productToCcy(symbol)
-      val = 0
+      val = None
       if symbol in self.positions:
          val = self.positions[symbol][COLLATERAL]
+      if val == None:
+         val = 0
       return self.balance[wallet][ccy] - val
 
    async def push_wallet_snapshot(self, symbol, balance, acc):
@@ -696,8 +701,15 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.getPositionLiquidationPrice() == 11500
 
       #set maker's open price way above the position's base price
+      #NOTE: liquidation price for this exposure and open price should 13800,
+      #      however taker only has 1500 usdt in total cash while it would
+      #      need to post 1520 in margin to reach 13800 in liquidation price.
+      #
+      #Consider adding a sanity check to detect this condition. There should
+      #be some sort of warning when taker doesn't have enough cash to meet
+      #its desired liquidation price target.
       await maker.setOpenPrice(12000)
-      assert mockedConnection.getPositionLiquidationPrice() == 13800
+      assert mockedConnection.getPositionLiquidationPrice() == 13750
 
       #set maker's open price way below the position's base price
       await maker.setOpenPrice(8000)

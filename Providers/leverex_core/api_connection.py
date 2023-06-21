@@ -244,6 +244,7 @@ class AsyncApiConnection(object):
       reference = self._generate_reference_id()
       loadBalanceRequest = {
          'load_balance' : {
+         'product_type': "xbtusd_rf",
          'reference': reference
       }}
       if callback is not None:
