@@ -425,11 +425,9 @@ class AsyncApiConnection(object):
       await self.websocket.send(json.dumps(subscribe_request))
 
    async def subscribe_to_balance_updates(self, target_product: str):
-      reference = self._generate_reference_id()
       subscribe_request = {
          'load_balance' : {
             'product_type': target_product,
-            'reference': reference
       }}
       await self.websocket.send(json.dumps(subscribe_request))
 
@@ -472,9 +470,7 @@ class AsyncApiConnection(object):
          readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
          if self._login_client is not None:
             cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
-
          await readTask
-         await writeTask
 
          if self._login_client is not None:
             await cycleTask
@@ -608,7 +604,7 @@ class AsyncApiConnection(object):
             await self._call_listener_cb(self.listener.on_session_open, SessionOpenInfo(update['session_open']))
 
          elif 'load_balance' in update:
-            await self._call_listener_method(self.listener.on_balance_update, update['load_balance']['balances'])
+            await self._call_listener_cb(self.listener.on_balance_update, update['load_balance'])
 
          elif 'authorize' in update:
             if not update['authorize']['success']:

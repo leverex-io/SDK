@@ -50,16 +50,52 @@ class MockedLeverexConnectionClass(object):
          raise Exception("balance sub product mismatch")
 
    async def pushBalanceUpdate(self):
+      freeMargin = 0
+      for orderId in self.orders:
+         order = self.orders[orderId]
+         if order.is_filled():
+            #filled orders do not affect exposure
+            continue
+
+         margin = order.getMargin()
+         if margin == None:
+            continue
+
+         #apply margin to relevant side
+         if order.is_sell():
+            freeMargin -= margin
+         else:
+            freeMargin += margin
+
+      freeAskMargin = 0
+      freeBidMargin = 0
+      if freeMargin > 0:
+         freeAskMargin = abs(freeMargin) * 2
+      else:
+         freeBidMargin = abs(freeMargin) * 2
+
       margin = abs(self.getMarginedCash())
-      result = [{
+      openBalance = self.balance - margin
+
+      balanceSection = [{
          'currency' : 'USDT',
-         'balance' : self.balance - margin
+         'balance' : str(openBalance),
       }]
       if margin != 0:
-         result.append({
+         balanceSection.append({
          'currency' : 'USDP',
-         'balance' : margin
+         'balance' : str(margin)
       })
+
+      result = {
+         'balances' : balanceSection,
+         'max_amount_buy' : {
+            'qty' : str((openBalance + freeBidMargin)/(price/10)),
+         },
+         'max_amount_sell' : {
+            'qty' : str((openBalance + freeAskMargin)/(price/10))
+         }
+      }
       await self.listener.on_balance_update(result)
 
    async def load_open_positions(self, target_product, callback):
