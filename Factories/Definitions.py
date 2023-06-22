@@ -12,6 +12,14 @@ Rebalance = 'rebalance'
 Transaction = 'transaction'
 ##
 
+## balance dict keys ##
+kBalanceSectionKey = 'balances'
+kBalanceKey = 'balance'
+kMaxBuyKey = 'max_amount_buy'
+kMaxSellKey = 'max_amount_sell'
+kCurrencyKey = 'currency'
+kQuantityKey = 'qty'
+##
 
 SIDE_BUY = 1
 SIDE_SELL = 2
@@ -639,6 +647,31 @@ class OpenVolume(object):
          'bid': self.bid.getOpenVolume(maxVolume, unquoteRatio)
       }
       return result
+
+################################################################################
+class MaxAmounts(object):
+   def __init__(self, jsonDict):
+      self.sell = None
+      if kMaxSellKey in jsonDict and kQuantityKey in jsonDict[kMaxSellKey]:
+         self.sell = float(jsonDict[kMaxSellKey][kQuantityKey])
+
+      self.buy = None
+      if kMaxBuyKey in jsonDict and kQuantityKey in jsonDict[kMaxBuyKey]:
+         self.buy = float(jsonDict[kMaxBuyKey][kQuantityKey])
+
+   def isValid(self):
+      return self.sell != None and self.buy != None
+
+########
+def getBalancesFromJson(jsonDict):
+   result = {}
+   if kBalanceSectionKey in jsonDict:
+      for account in jsonDict[kBalanceSectionKey]:
+         if not kBalanceKey in account or not kCurrencyKey in account:
+            continue
+         result[account[kCurrencyKey]] = float(account[kBalanceKey])
+
+   return result, MaxAmounts(jsonDict)
 
 ################################################################################
 class DepositInfo():

@@ -779,7 +779,7 @@ class HedgerOffersReport(object):
 
    def __str__(self):
       if not self.offers:
-         return " $  <N/A>"
+         return " $  <N/A>\n"
 
       result = ""
       for offer in self.offers:

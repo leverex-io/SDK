@@ -218,10 +218,6 @@ class AsyncApiConnection(object):
 
       self.websocket = None
       self.listener = None
-
-      # setup write queue
-      self.write_queue = asyncio.Queue()
-
       self._requests_cb = {}
 
    async def _call_listener_cb(self, cb, *args, **kwargs):
@@ -239,17 +235,6 @@ class AsyncApiConnection(object):
 
    def _generate_reference_id(self):
       return str(round(time.time() * 1000000))
-
-   def loadBalances(self, callback):
-      reference = self._generate_reference_id()
-      loadBalanceRequest = {
-         'load_balance' : {
-         'product_type': "xbtusd_rf",
-         'reference': reference
-      }}
-      if callback is not None:
-         self._requests_cb[reference] = callback
-      self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
 
    async def load_deposit_address(self, callback: Callable = None):
       reference = self._generate_reference_id()
@@ -269,10 +254,11 @@ class AsyncApiConnection(object):
 
       await self.websocket.send(json.dumps(load_deposit_address_request))
 
-   async def load_trade_history(self, target_product, limit=0, offset=0, start_time: datetime = None
-                                , end_time: datetime = None, callback: Callable = None):
-      reference = self._generate_reference_id()
+   async def load_trade_history(self, target_product,
+      limit=0, offset=0, start_time: datetime = None,
+      end_time: datetime = None, callback: Callable = None):
 
+      reference = self._generate_reference_id()
       load_trades_request = {
          'trade_history': {
             'limit': limit,
@@ -438,6 +424,13 @@ class AsyncApiConnection(object):
       }
       await self.websocket.send(json.dumps(subscribe_request))
 
+   async def subscribe_to_balance_updates(self, target_product: str):
+      subscribe_request = {
+         'load_balance' : {
+            'product_type': target_product,
+      }}
+      await self.websocket.send(json.dumps(subscribe_request))
+
    async def login(self):
       #get token from login server
       access_token_info = await self._login_client.get_access_token(self._api_endpoint)
@@ -475,13 +468,9 @@ class AsyncApiConnection(object):
 
          # start the loops
          readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
-         writeTask = asyncio.create_task(self.writeLoop(), name="Leverex write task")
-
          if self._login_client is not None:
             cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
-
          await readTask
-         await writeTask
 
          if self._login_client is not None:
             await cycleTask
@@ -495,14 +484,6 @@ class AsyncApiConnection(object):
 
          if 'market_data' in update:
             await self.listener.on_market_data(update['market_data'])
-
-         elif 'load_balance' in update:
-            if 'reference' in update['load_balance'] and \
-               update['load_balance']['reference'] in self._requests_cb:
-               cb = self._requests_cb.pop(update['load_balance']['reference'])
-               await self._call_listener_cb(cb, update['load_balance']['balances'])
-            else:
-               await self._call_listener_method('onLoadBalance', update['load_balance']['balances'])
 
          elif 'subscribe' in update:
             if not update['subscribe']['success']:
@@ -622,6 +603,9 @@ class AsyncApiConnection(object):
          elif 'session_open' in update:
             await self._call_listener_cb(self.listener.on_session_open, SessionOpenInfo(update['session_open']))
 
+         elif 'load_balance' in update:
+            await self._call_listener_cb(self.listener.on_balance_update, update['load_balance'])
+
          elif 'authorize' in update:
             if not update['authorize']['success']:
                raise Exception('Failed to renew session token')
@@ -629,11 +613,6 @@ class AsyncApiConnection(object):
             raise Exception('ERROR: we got a logout message. Closing connection')
          else:
             logging.warning('!!! Ignore update\n{} !!!'.format(update))
-
-   async def writeLoop(self):
-      while True:
-         write_data = await self.write_queue.get()
-         await self.websocket.send(write_data)
 
    async def cycleSession(self):
       while True:

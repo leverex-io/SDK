@@ -6,8 +6,8 @@ import time
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
    PositionsReport, BalanceReport, SessionInfo, PriceEvent, \
-   DepositWithdrawAddresses, CashOperation, WithdrawInfo, OpenVolume, \
-   TheTxTracker
+   DepositWithdrawAddresses, CashOperation, WithdrawInfo, \
+   TheTxTracker, getBalancesFromJson, MaxAmounts
 from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
@@ -63,36 +63,6 @@ class SessionOrders(object):
          return False
 
       return self.id == obj.id and self.orders.keys() == obj.orders.keys()
-
-   def getUnencumberedMargin(self):
-      freeMargin = 0
-      for orderId in self.orders:
-         order = self.orders[orderId]
-         if order.is_filled():
-            #filled orders do not affect exposure
-            continue
-
-         margin = order.getMargin()
-         if margin == None:
-            continue
-
-         #apply margin to relevant side
-         if order.is_sell():
-            freeMargin -= margin
-         else:
-            freeMargin += margin
-
-      freeAskMargin = 0
-      freeBidMargin = 0
-      if freeMargin < 0:
-         freeAskMargin = abs(freeMargin)
-      else:
-         freeBidMargin = freeMargin
-
-      return {
-         'ask': freeAskMargin,
-         'bid': freeBidMargin
-      }
 
 ################################################################################
 class LeverexPositionsReport(PositionsReport):
@@ -274,7 +244,7 @@ class LeverexWithdrawal(CashOperation):
          return False
       return self.amount == other.amount
 
-#######
+########
 class LeverexCancelWithdrawal(CashOperation):
    def __init__(self):
       super().__init__()
@@ -359,6 +329,25 @@ class OfferToPush(object):
          return
       await asyncio.sleep(diff/1000)
       self.waiting = False
+
+################################################################################
+class LeverexOpenVolume(object):
+   def __init__(self, maxAmounts):
+      if not maxAmounts.isValid():
+         raise Exception
+
+      self.max_sell = maxAmounts.sell
+      self.max_buy = maxAmounts.buy
+
+   def get(self, maxVolume, unquoteRatio):
+      sellVol = min(maxVolume, self.max_sell)
+      buyVol = min(maxVolume, self.max_buy)
+
+      return {
+         'ask': sellVol,
+         'bid': buyVol
+      }
+
 
 ################################################################################
 class LeverexProvider(Factory):
@@ -486,22 +475,22 @@ class LeverexProvider(Factory):
    async def on_authorized(self):
       await super().setConnected(True)
 
-      async def balanceCallback(balances):
-         await self.onLoadBalance(balances)
-         await self.setInitBalance()
-         await self.evaluateReadyState()
-      self.connection.loadBalances(balanceCallback)
-
+      #load existing positions
       await self.connection.load_open_positions(
          target_product=self.product, callback=self.on_positions_loaded)
+
+      #setup subscriptions
       await self.connection.subscribe_session_open(self.product)
       await self.connection.subscribe_to_product(self.product)
+      await self.connection.subscribe_to_balance_updates(self.product)
 
    ## balance events ##
-   async def onLoadBalance(self, balances):
-      for balance_info in balances:
-         self.balances[balance_info['currency']] = float(balance_info['balance'])
+   async def on_balance_update(self, balances):
+      if not self._balanceInitialized:
+         await self.setInitBalance()
+         await self.evaluateReadyState()
 
+      self.balances, self.maxAmounts = getBalancesFromJson(balances)
       await self.onBalanceUpdate()
 
    ## position events ##
@@ -595,27 +584,13 @@ class LeverexProvider(Factory):
       if not self.isReady():
          return None
 
-      leverageRatio = 1 / self.leverage
-      price = self.currentSession.getOpenPrice()
-      if self.ccy not in self.balances:
+      if self.currentSession == None:
          return None
-      balance = self.balances[self.ccy]
 
-      #calculate the volume that can be freed per order
-      margins = {
-         'ask': 0,
-         'bid': 0
-      }
-
-      if self.currentSession != None:
-         sessionOrders = self.orderData[self.currentSession.getSessionId()]
-         sessionOrders.setIndexPrice(self.indexPrice)
-         margins = sessionOrders.getUnencumberedMargin()
-
-      return OpenVolume(balance,
-         margins['ask'], leverageRatio * price,
-         margins['bid'], leverageRatio * price,
-      )
+      try:
+         return LeverexOpenVolume(self.maxAmounts)
+      except:
+         return None
 
    def getCashMetrics(self):
       if self.ccy not in self.balances:

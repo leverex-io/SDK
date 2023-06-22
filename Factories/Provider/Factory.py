@@ -129,7 +129,6 @@ class Factory(object):
       if self._balanceInitialized:
          raise Definitions.ProviderException("init failure")
       self._balanceInitialized = True
-      await self.onBalanceUpdate()
 
    async def setInitPosition(self):
       if self._positionInitialized:
