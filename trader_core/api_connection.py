@@ -29,9 +29,11 @@ class AsyncApiConnection(object):
          self.write_queue.put_nowait(json.dumps(data))
       self.listener.send = send_data
 
-   def loadBalances(self):
+   def loadBalances(self, product):
       loadBalanceRequest = {
-         'load_balance' : {}
+         'load_balance' : {
+            'product_type' : product
+         }
       }
       self.write_queue.put_nowait(json.dumps(loadBalanceRequest))
 
@@ -66,7 +68,7 @@ class AsyncApiConnection(object):
          await self.login(service_url)
 
          # load balances
-         self.loadBalances()
+         self.loadBalances(self.listener.target_product)
 
          # subscribe to prices
          subscribeRequest = {
