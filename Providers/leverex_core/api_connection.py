@@ -191,6 +191,18 @@ class LeverexOrder(Order):
 
       return self.sessionIM * self.quantity
 
+   def getValue(self, price):
+      if price > self.price + self.sessionIM:
+         price = self.price + self.sessionIM
+      elif price < self.price - self.sessionIM:
+         price = self.price - self.sessionIM
+
+      sign = 1
+      if self.is_sell():
+         sign = -1
+      return self.quantity * (price - self.price) * sign
+
+
 PriceOffers = list[PriceOffer]
 
 ################################################################################
