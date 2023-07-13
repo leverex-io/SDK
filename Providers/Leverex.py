@@ -332,16 +332,100 @@ class OfferToPush(object):
 
 ################################################################################
 class LeverexOpenVolume(object):
-   def __init__(self, maxAmounts):
-      if not maxAmounts.isValid():
-         raise Exception
+   def __init__(self, provider):
+      #open balance
+      self.openBalance = 0
+      if provider.ccy in provider.balances:
+         self.openBalance = provider.balances[provider.ccy]
 
-      self.max_sell = maxAmounts.sell
-      self.max_buy = maxAmounts.buy
+      self.margin = 0
+      if provider.margin_ccy in provider.balances:
+         self.margin = provider.balances[provider.margin_ccy]
+
+      #index price
+      self.indexPrice = provider.indexPrice
+
+      #session
+      self.session = provider.currentSession
+
+      #orders
+      self.orders = None
+      if self.session.getSessionId() in provider.orderData:
+         self.orders = provider.orderData[self.session.getSessionId()].orders
+
+   def getReleasableExposure(self):
+      if not self.session.isHealthy() or \
+         not self.indexPrice or \
+         self.orders is None or \
+         len(self.orders) == 0:
+         return 0, 0
+
+      #get the sessionIM
+      sessionIM = self.session.getSessionIM()
+
+      #get boundaries
+      boundaries = set()
+      for orderId in self.orders:
+         orderPrice = self.orders[orderId].price
+         boundaries.add(orderPrice + sessionIM)
+         boundaries.add(orderPrice - sessionIM)
+
+      #inject current index price in boundaries
+      maxSellPrice = self.indexPrice + sessionIM
+      maxBuyPrice = self.indexPrice - sessionIM
+      boundaries.add(maxSellPrice)
+      boundaries.add(maxBuyPrice)
+
+      #order the boundaries
+      boundaries = sorted(boundaries)
+
+      #get values at boundaries
+      values = {}
+      highestValue = 0
+      for price in boundaries:
+         value = 0
+         for orderId in self.orders:
+            order = self.orders[orderId]
+            value += order.getValue(price)
+         values[price] = value
+         highestValue = max(highestValue, value)
+      valuesList = list(values)
+
+      #sell side: find what's to the right of the max loss
+      maxSellLoss = highestValue
+      for i in range(0, len(values)):
+         price = valuesList[i]
+         if price >= maxSellPrice:
+            maxSellLoss = min(maxSellLoss, values[price])
+      maxSellLoss += self.margin
+
+      #buy side: find what's to the left of the max loss
+      maxBuyLoss = highestValue
+      for i in range(0, len(values)):
+         price = valuesList[i]
+         if price > maxBuyPrice:
+            break
+         maxBuyLoss = min(maxBuyLoss, values[price])
+      maxBuyLoss += self.margin
+
+      return round(maxBuyLoss / sessionIM , 8), round(maxSellLoss / sessionIM, 8)
 
    def get(self, maxVolume, unquoteRatio):
-      sellVol = min(maxVolume, self.max_sell)
-      buyVol = min(maxVolume, self.max_buy)
+      #get releasable exposure for both sides
+      releasableBuy, releaseableSell = self.getReleasableExposure()
+
+      #convert free balance to exposure
+      openBal = self.openBalance / self.session.getSessionIM()
+
+      #add releasble exposure
+      maxBuy = openBal + releasableBuy
+      maxSell = openBal + releaseableSell
+
+      #limit by max volume, apply unquote ratio
+      #unquote ratio is the portion of the available exposure
+      #that should be kept unencumbured at all times
+      sellVol = round(min(maxVolume, maxSell) * (1.0 - unquoteRatio), 8)
+      buyVol = round(min(maxVolume, maxBuy) * (1.0 - unquoteRatio), 8)
 
       return {
          'ask': sellVol,
@@ -588,7 +672,7 @@ class LeverexProvider(Factory):
          return None
 
       try:
-         return LeverexOpenVolume(self.maxAmounts)
+         return LeverexOpenVolume(self)
       except:
          return None
 

@@ -88,13 +88,7 @@ class MockedLeverexConnectionClass(object):
       })
 
       result = {
-         'balances' : balanceSection,
-         'max_amount_buy' : {
-            'qty' : str((openBalance + freeBidMargin)/(price/10)),
-         },
-         'max_amount_sell' : {
-            'qty' : str((openBalance + freeAskMargin)/(price/10))
-         }
+         'balances' : balanceSection
       }
       await self.listener.on_balance_update(result)
 
@@ -612,6 +606,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #push new order for 1btc
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      await mockedConnection.push_market_data(10000)
       await mockedConnection.push_new_order({
          'id' : 1,
          'timestamp' : 1,
@@ -888,6 +883,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       ]
 
       #push new order for 1btc
+      await mockedConnection.push_market_data(10000)
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
       await mockedConnection.push_new_order(orders[0])
@@ -1040,6 +1036,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isBroken() == False
       assert dealer.isReady() == True
 
+      await mockedConnection.push_market_data(10000)
+
       #push new order for 1btc
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
@@ -1141,6 +1139,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       #push new order for 1btc
       assert maker.getExposure() == 0
       assert taker.getExposure() == 0
+      await mockedConnection.push_market_data(10000)
       order = {
          'id' : 1,
          'timestamp' : 1,
@@ -1350,7 +1349,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       '''
       vol = maker.getOpenVolume().get(5, 0)
       assert vol['ask'] == 0.98
-      assert vol['bid'] == 0.98
+      assert vol['bid'] == 1.0
 
       #move the index price
       await mockedConnection.setIndexPrice(10100)
@@ -1362,7 +1361,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
        - pos3: 0 pnl
       '''
       vol = maker.getOpenVolume().get(5, 0)
-      assert vol['ask'] == 0.98
+      assert vol['ask'] == 1.0
       assert vol['bid'] == 0.98
 
    #cover withdrawal code, triggered by hedger rebalancing
@@ -1444,6 +1443,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.withdrawRequest) == 0
 
       #push an order through, it shouldnt affect the rebalance target
+      await mockedConnection.push_market_data(10000)
       await mockedConnection.push_new_order({
          'id' : 1,
          'timestamp' : 1,
