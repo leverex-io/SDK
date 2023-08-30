@@ -5,9 +5,13 @@ import websockets
 import random
 import logging
 import pyqrcode
+import platform
+import io
 
 from jwcrypto import jwk, jws, jwe
 from jwcrypto.common import json_encode
+
+from PIL import Image, ImageDraw
 
 ####
 class LoginException(Exception):
@@ -204,7 +208,15 @@ class LoginServiceClientWS():
 
                #display login QR
                print ("login request has been created, scan this QR with your aeid mobile app to proceed")
-               print(qr.terminal())
+
+               if platform.system() == 'Windows':
+                   buffer = io.BytesIO()
+                   qr.png(buffer, scale=10)
+                   buffer.seek(0)
+                   img = Image.open(buffer)
+                   img.show(title="Scan this QR with your Autheid mobile App")
+               else:
+                   print(qr.terminal())
 
                #wait on request status update
                continue
