@@ -12,7 +12,7 @@ from typing import Callable
 from .login_connection import LoginServiceClientWS
 from Factories.Definitions import PriceOffer, \
    SessionCloseInfo, SessionOpenInfo, Order, WithdrawInfo, \
-   DepositInfo
+   DepositInfo, SIDE_BUY, SIDE_SELL
 
 LOGIN_ENDPOINT = "wss://login-live.leverex.io/ws/v1/websocket"
 API_ENDPOINT = "wss://api-live.leverex.io"
@@ -70,8 +70,6 @@ class LeverexOrder(Order):
 
       self._status = int(data['status'])
       self._product_type = data['product_type']
-      #self._cut_off_price = float(data['cut_off_price'])
-      #self._trade_im = data['trade_im']
       self._trade_pnl = None
       self._reference_exposure = float(data['reference_exposure'])
       self._session_id = int(data['session_id'])
@@ -135,13 +133,6 @@ class LeverexOrder(Order):
       return None
 
    def __str__(self):
-      text = "<id: {} -- vol: {}, price: {} "
-      tradeType = self.tradeTypeStr(self._rollover_type)
-      if tradeType != None:
-         text += "-- {}: {}".format(tradeType, \
-            abs(self._reference_exposure) - self.quantity)
-      text += ">"
-
       pl = self.trade_pnl
       if isinstance(pl, float):
          pl = round(pl, 6)
@@ -150,7 +141,16 @@ class LeverexOrder(Order):
       if self.is_sell():
          vol *= -1
 
-      return text.format(self.id, vol, self.price, tradeType)
+      text = f"<id: {self.id} -- vol: {vol}, price: {self.price}, pnl: {pl}"
+      tradeType = self.tradeTypeStr(self._rollover_type)
+      if tradeType:
+         text += " -- ROLL, {}: {}".format(tradeType, \
+            abs(self._reference_exposure) - self.quantity)
+      elif not self.is_trade_position():
+         text += " -- ROLL"
+      text += ">"
+
+      return text
 
    def setSessionIM(self, session):
       if session == None:
@@ -202,7 +202,53 @@ class LeverexOrder(Order):
          sign = -1
       return self.quantity * (price - self.price) * sign
 
+################################################################################
+class DealerOffers(object):
+   def __init__(self, jsonPacket):
+      self.asks = []
+      self.bids = []
 
+      if not 'offers' in jsonPacket:
+         return
+
+      for offer in jsonPacket['offers']:
+         if offer['command'] == 0:
+            continue
+         if offer['side'] == SIDE_BUY:
+            self.bids.append(PriceOffer(
+               float(offer['volume']), bid=float(offer['price'])))
+         else:
+            self.asks.append(PriceOffer(
+               float(offer['volume']), ask=float(offer['price'])))
+
+      #sort the offers
+      self.bids.sort(key=lambda b : b.bid)
+      if len(self.bids) > 0:
+         self.bids[-1]._isLast = True
+
+      self.asks.sort(reverse=True, key=lambda a : a.ask)
+      if len(self.asks) > 0:
+         self.asks[-1]._isLast = True
+
+   def getAsk(self, vol: float):
+      if len(self.asks) == 0:
+         return PriceOffer(0, 0, isLast=True)
+
+      for ask in self.asks:
+         if ask.volume >= vol:
+            return ask
+      return self.asks[-1]
+
+   def getBid(self, vol: float):
+      if len(self.bids) == 0:
+         return PriceOffer(0, 0, isLast=True)
+
+      for bid in self.bids:
+         if bid.volume >= vol:
+            return bid
+      return self.bids[-1]
+
+####
 PriceOffers = list[PriceOffer]
 
 ################################################################################
@@ -221,12 +267,11 @@ class AsyncApiConnection(object):
       self._api_endpoint = api_endpoint
       self._login_endpoint = login_endpoint
 
-      if key_file_path is not None:
-         self._login_client = LoginServiceClientWS(
-            private_key_path=key_file_path,
-            login_endpoint=login_endpoint,
-            email=email,
-            dump_communication=dump_communication)
+      self._login_client = LoginServiceClientWS(
+         private_key_path=key_file_path,
+         login_endpoint=login_endpoint,
+         email=email,
+         dump_communication=dump_communication)
 
       self.websocket = None
       self.listener = None
@@ -443,9 +488,49 @@ class AsyncApiConnection(object):
       }}
       await self.websocket.send(json.dumps(subscribe_request))
 
+   async def subscribe_dealer_offers(self, product: str):
+      subscribe_request = {
+         'subscribe_dealer_offers' : {
+            'product_type': product,
+      }}
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def place_order(self, amount: float, side, product: str, price: float):
+      async def handleReply(reply):
+         if reply['success'] == False:
+            print (f"order failed with error: {reply['error_msg']}")
+
+      side_str = "buy" if side == SIDE_BUY else "sell"
+      print (f"placing market {side_str} order for {amount} xbt at price {price}")
+
+      reference = self._generate_reference_id()
+      market_order = {
+         'market_order' : {
+            'amount': str(amount),
+            'side': side,
+            'product_type': product,
+            'reference' : reference
+         }
+      }
+
+      self._requests_cb[reference] = handleReply
+      await self.websocket.send(json.dumps(market_order))
+
+   async def product_fee(self, product: str, cb):
+      reference = self._generate_reference_id()
+      product_fee = {
+         'product_fee' : {
+            'product_type': product,
+            'reference' : reference
+         }
+      }
+      self._requests_cb[reference] = cb
+      await self.websocket.send(json.dumps(product_fee))
+
    async def login(self):
       #get token from login server
-      access_token_info = await self._login_client.get_access_token(self._api_endpoint)
+      print ("logging in...")
+      access_token_info = await self._login_client.logMeIn(self._api_endpoint)
       if access_token_info == None:
          raise Exception("Failed to get access token")
 
@@ -617,6 +702,29 @@ class AsyncApiConnection(object):
 
          elif 'load_balance' in update:
             await self._call_listener_cb(self.listener.on_balance_update, update['load_balance'])
+
+         elif 'subscribe_dealer_offers' in update:
+            sub_reply = update['subscribe_dealer_offers']
+            if sub_reply['success'] != True:
+               logging.warning(f"failed to subcribe to dealer offers with error: {sub_reply['error']}")
+
+         elif 'dealer_offers' in update:
+            dealer_offers = DealerOffers(update['dealer_offers'])
+            await self._call_listener_method('on_dealer_offers', dealer_offers)
+
+         elif 'market_order' in update:
+            order_reply = update['market_order']
+            reference = order_reply['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               await self._call_listener_cb(cb, order_reply)
+
+         elif 'product_fee' in update:
+            fee_reply = update['product_fee']
+            reference = fee_reply['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               await self._call_listener_cb(cb, fee_reply)
 
          elif 'authorize' in update:
             if not update['authorize']['success']:

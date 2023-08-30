@@ -7,7 +7,7 @@ from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, Position, \
    PositionsReport, BalanceReport, SessionInfo, PriceEvent, \
    DepositWithdrawAddresses, CashOperation, WithdrawInfo, \
-   TheTxTracker, getBalancesFromJson, MaxAmounts
+   TheTxTracker, getBalancesFromJson
 from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
 from .leverex_core.product_mapping import get_product_info
 
@@ -353,9 +353,17 @@ class LeverexOpenVolume(object):
       if self.session.getSessionId() in provider.orderData:
          self.orders = provider.orderData[self.session.getSessionId()].orders
 
-   def getReleasableExposure(self):
+      #remove fee from margin
+      totalFee = 0
+      for orderId in self.orders:
+         order = self.orders[orderId]
+         if not order.is_trade_position() or not order.is_taker:
+            continue
+         totalFee += abs(order.fee)
+      self.margin -= totalFee
+
+   def getReleasableExposure(self, askPrice, bidPrice):
       if not self.session.isHealthy() or \
-         not self.indexPrice or \
          self.orders is None or \
          len(self.orders) == 0:
          return 0, 0
@@ -371,8 +379,8 @@ class LeverexOpenVolume(object):
          boundaries.add(orderPrice - sessionIM)
 
       #inject current index price in boundaries
-      maxSellPrice = self.indexPrice + sessionIM
-      maxBuyPrice = self.indexPrice - sessionIM
+      maxSellPrice = askPrice + sessionIM
+      maxBuyPrice = bidPrice - sessionIM
       boundaries.add(maxSellPrice)
       boundaries.add(maxBuyPrice)
 
@@ -412,7 +420,8 @@ class LeverexOpenVolume(object):
 
    def get(self, maxVolume, unquoteRatio):
       #get releasable exposure for both sides
-      releasableBuy, releaseableSell = self.getReleasableExposure()
+      releasableBuy, releaseableSell = self.getReleasableExposure(
+         self.indexPrice, self.indexPrice)
 
       #convert free balance to exposure
       openBal = self.openBalance / self.session.getSessionIM()
@@ -574,7 +583,7 @@ class LeverexProvider(Factory):
          await self.setInitBalance()
          await self.evaluateReadyState()
 
-      self.balances, self.maxAmounts = getBalancesFromJson(balances)
+      self.balances = getBalancesFromJson(balances)
       await self.onBalanceUpdate()
 
    ## position events ##

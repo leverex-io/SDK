@@ -90,7 +90,7 @@ class SessionInfo():
 
 ################################################################################
 class PriceOffer():
-   def __init__(self, volume, ask=None, bid=None):
+   def __init__(self, volume, ask=None, bid=None, isLast=False):
       self._volume = round(volume, 8)
       if self._volume == 0 or (ask == 0 and bid == 0):
          raise OfferException()
@@ -98,6 +98,7 @@ class PriceOffer():
       self._ask = ask
       self._bid = bid
       self._timestamp = time.time_ns() / 1000000 #time in ms
+      self._isLast = isLast
 
    @property
    def volume(self):
@@ -110,6 +111,10 @@ class PriceOffer():
    @property
    def bid(self):
       return self._bid
+
+   @property
+   def isLast(self):
+      return self._isLast
 
    def to_map(self):
       if self._ask is None and self._bid is None:
@@ -648,20 +653,6 @@ class OpenVolume(object):
       }
       return result
 
-################################################################################
-class MaxAmounts(object):
-   def __init__(self, jsonDict):
-      self.sell = None
-      if kMaxSellKey in jsonDict and kQuantityKey in jsonDict[kMaxSellKey]:
-         self.sell = float(jsonDict[kMaxSellKey][kQuantityKey])
-
-      self.buy = None
-      if kMaxBuyKey in jsonDict and kQuantityKey in jsonDict[kMaxBuyKey]:
-         self.buy = float(jsonDict[kMaxBuyKey][kQuantityKey])
-
-   def isValid(self):
-      return self.sell != None and self.buy != None
-
 ########
 def getBalancesFromJson(jsonDict):
    result = {}
@@ -671,7 +662,7 @@ def getBalancesFromJson(jsonDict):
             continue
          result[account[kCurrencyKey]] = float(account[kBalanceKey])
 
-   return result, MaxAmounts(jsonDict)
+   return result
 
 ################################################################################
 class DepositInfo():

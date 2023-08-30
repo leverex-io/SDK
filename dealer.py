@@ -36,11 +36,11 @@ if __name__ == '__main__':
          taker = BitfinexProvider(config)
          hedger = SimpleHedger(config)
          statusReporter = LocalReporter(config)
-         webStatusReporter = WebReporter(config)
-         dealer = DealerFactory(maker, taker, hedger, [statusReporter, webStatusReporter])
+         #webStatusReporter = WebReporter(config)
+         dealer = DealerFactory(maker, taker, hedger, [statusReporter])
 
          asyncio.run(dealer.run())
       except Exception as e:
          logging.error(f"!! Main loop broke with error: {str(e)} !!")
-         logging.warning("!! Restarting in 5 !!")
+         logging.warning("!! Restarting in 20 seconds !!")
          time.sleep(20)
