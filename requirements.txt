@@ -18,10 +18,11 @@ pyee==9.0.4
 requests==2.26.0
 typing-extensions==4.4.0
 urllib3==1.26.13
+websockets==11.0.3
 websocket==0.2.1
 websocket-client==1.2.1
-websockets==8.1
 wrapt==1.14.1
 yarl==1.8.2
 zope.event==4.5.0
 zope.interface==5.5.2
+pyqrcode
