@@ -257,7 +257,8 @@ class AsyncApiConnection(object):
       login_endpoint=LOGIN_ENDPOINT,
       key_file_path=None,
       dump_communication=False,
-      email=None):
+      email=None,
+      aeid_endpoint=None):
 
       self._dump_communication = dump_communication
 
@@ -271,7 +272,8 @@ class AsyncApiConnection(object):
          private_key_path=key_file_path,
          login_endpoint=login_endpoint,
          email=email,
-         dump_communication=dump_communication)
+         dump_communication=dump_communication,
+         aeid_endpoint=aeid_endpoint)
 
       self.websocket = None
       self.listener = None

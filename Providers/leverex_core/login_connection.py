@@ -16,8 +16,13 @@ class LoginException(Exception):
 
 ####
 class LoginServiceClientWS():
-   def __init__(self, private_key_path, login_endpoint,
-      email=None, dump_communication=False):
+   def __init__(self,
+      private_key_path,
+      login_endpoint,
+      email=None,
+      dump_communication=False,
+      aeid_endpoint=None):
+
       self._dump_communication = dump_communication
       self._login_endpoint = login_endpoint
       self._email = email
@@ -29,6 +34,7 @@ class LoginServiceClientWS():
             self._key.import_from_pem(key_file.read().encode())
       else:
          self._key = None
+      self._aeid_endpoint = aeid_endpoint
 
    def get_email(self):
       if self._email == None:
@@ -122,8 +128,10 @@ class LoginServiceClientWS():
    async def logMeIn(self, api_enpoint_url):
       if self._key != None:
          return await self.get_access_token_from_key(api_enpoint_url)
-      else:
+      elif self._aeid_endpoint:
          return await self.get_access_token_from_request(api_enpoint_url)
+      else:
+         raise LoginException("invalid setup, cannot login!")
 
    ## generate and sign access token provided private key
    async def get_access_token_from_key(self, api_enpoint_url):
@@ -168,7 +176,6 @@ class LoginServiceClientWS():
    ## get request id to generate token from 2FA
    async def get_access_token_from_request(self, api_enpoint_url):
       messageId = random.randint(0, 2**32-1)
-      print (f"** message id: {messageId} **")
       data = {'method': "login_init",
          'api': "login",
          'args': {'service_url': api_enpoint_url},
@@ -194,7 +201,7 @@ class LoginServiceClientWS():
             # handle login server replies
             if loginReply['method'] == 'login_init':
                requestId = loginReply['data']['request_id']
-               requestUrl = f"https://staging.autheid.com/app/requests/?request_id={requestId}"
+               requestUrl = f"{self._aeid_endpoint}/app/requests/?request_id={requestId}"
                qr = pyqrcode.create(requestUrl)
 
                #display login QR

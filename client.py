@@ -39,11 +39,16 @@ class LeverexClient(object):
       if 'key_file_path' in leverexConfig:
          keyPath = leverexConfig['key_file_path']
 
+      aeid_endpoint = None
+      if 'aeid' in self.config and 'endpoint' in self.config['aeid']:
+         aeid_endpoint = self.config['aeid']['endpoint']
+
       self.connection = AsyncApiConnection(
          api_endpoint=leverexConfig['api_endpoint'],
          login_endpoint=leverexConfig['login_endpoint'],
          key_file_path=keyPath,
-         dump_communication=False)
+         dump_communication=False,
+         aeid_endpoint=aeid_endpoint)
 
    async def subscribe(self):
       await self.connection.subscribe_to_product(self.product)
@@ -123,6 +128,23 @@ class LeverexClient(object):
 
          await self.placeOrder(netExposure, price)
 
+      elif command == 'help':
+         helpStr = "- commands:\n"
+         helpStr += "  . address: show deposit address\n"
+         helpStr += "  . balance: show balances\n"
+         helpStr += "  . positions: show positions, net exposure and pnl\n"
+         helpStr += "  . price: show index price and offer streams\n"
+         helpStr += "  . max: show maximum buyable and sellable exposure\n"
+         helpStr += "  . buy/sell XXX: place a long/short market order for XXX amount\n" \
+            "      XXX is in XBT. Enter a max position with XXX set to [max], e.g.:\n" \
+            "        buy 0.1: go long for 0.1 XBT\n" \
+            "        sell 2: go short for 2 XBT\n" \
+            "        buy max: go max long\n"
+         helpStr += "  . go flat: place a market order that will result in your net exposure being 0\n"
+         helpStr += "  . help: show this message\n"
+         helpStr += "  . exit: shutdown the client\n"
+         print (helpStr)
+
       else:
          print (f"unknown command: {command}")
 
@@ -136,7 +158,7 @@ class LeverexClient(object):
 
          #strip the terminating \n
          if len(command) > 1 and command[-1] == '\n':
-            command = command[0:-1]
+            command = command[0:-1].strip()
          run = await self.parseCommand(command)
 
    async def run(self):
