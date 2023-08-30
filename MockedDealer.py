@@ -6,9 +6,8 @@ import websockets.exceptions
 import random
 import argparse
 
-from trader_core.api_connection import AsyncApiConnection
-from trader_core.market_event_listener import MarketEventListener
-from trader_core.login_connection import LoginServiceClientWS
+from leverex_core.api_connection import AsyncApiConnection
+from leverex_core.login_connection import LoginServiceClientWS
 
 ################################################################################
 class SampleDealer(MarketEventListener):

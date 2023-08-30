@@ -4,7 +4,8 @@ import string
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import AggregationOrderBook, \
-   WithdrawInfo, CashOperation, OpenVolume, TheTxTracker
+   CashOperation, OpenVolume, TheTxTracker
+from leverex_core.utils import WithdrawInfo
 
 price = 10000
 

@@ -5,7 +5,8 @@ import time
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook, PositionsReport, BalanceReport, \
-   PriceEvent, CashOperation, OpenVolume, TheTxTracker
+   PriceEvent, CashOperation, OpenVolume, TheTxTracker, \
+   checkConfig
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -438,13 +439,7 @@ class BitfinexProvider(Factory):
       self.indexPrice = 0
 
       #check for required config entries
-      for k in self.required_settings:
-         if k not in config:
-            raise BitfinexException(f'Missing \"{k}\" in config')
-
-         for kk in self.required_settings[k]:
-            if kk not in config[k]:
-               raise BitfinexException(f'Missing \"{kk}\" in config group \"{k}\"')
+      checkConfig(config, self.required_settings)
 
       self.config = config['bitfinex']
       self.product = self.config['product']

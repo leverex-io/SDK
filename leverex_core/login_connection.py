@@ -84,9 +84,7 @@ class LoginServiceClientWS():
                logging.warning(f'Unexpected reply: {uploadResult}')
                continue
             else:
-               # for some reason first reply from Login service is not providing
-               # any data. so we just ignore it
-               if uploadResult['data'] is None:
+               if not 'data' in uploadResult:
                   continue
 
                operation_status = uploadResult['data']['status']

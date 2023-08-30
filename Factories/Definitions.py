@@ -12,136 +12,9 @@ Rebalance = 'rebalance'
 Transaction = 'transaction'
 ##
 
-## balance dict keys ##
-kBalanceSectionKey = 'balances'
-kBalanceKey = 'balance'
-kMaxBuyKey = 'max_amount_buy'
-kMaxSellKey = 'max_amount_sell'
-kCurrencyKey = 'currency'
-kQuantityKey = 'qty'
-##
-
-SIDE_BUY = 1
-SIDE_SELL = 2
-
 ################################################################################
 class ProviderException(Exception):
    pass
-
-class OfferException(Exception):
-   pass
-
-################################################################################
-class SessionOpenInfo():
-   def __init__(self, data):
-      self.product_type = data['product_type']
-      self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
-      self.last_cut_off_price = float(data['last_cut_off_price'])
-      self.session_id = int(data['session_id'])
-      self.previous_session_id = data['previous_session_id']
-      self._healthy = data['healthy']
-
-####
-class SessionCloseInfo():
-   def __init__(self, data):
-      self.product_type = data['product_type']
-      self.session_id = data['session_id']
-      self._healthy = data['healthy']
-
-####
-class SessionInfo():
-   def __init__(self, sessionObject):
-      self.open = None
-      self.close = None
-
-      if isinstance(sessionObject, SessionOpenInfo):
-         self.open = sessionObject
-      elif isinstance(sessionObject, SessionCloseInfo):
-         self.close = sessionObject
-
-   def isOpen(self):
-      if self.close is None and self.open is not None:
-         return True
-      return False
-
-   def isHealthy(self):
-      if self.open != None:
-         return self.open._healthy
-      elif self.close != None:
-         return self.close._healthy
-      else:
-         raise Exception("invalid session object")
-
-   def getOpenPrice(self):
-      if self.open is None:
-         return 0
-      return self.open.last_cut_off_price
-
-   def getSessionIM(self):
-      return self.getOpenPrice() / 10
-
-   def getSessionId(self):
-      if self.open != None:
-         return self.open.session_id
-      elif self.close != None:
-         return self.close.session_id
-      else:
-         raise Exception("invalid session object")
-
-################################################################################
-class PriceOffer():
-   def __init__(self, volume, ask=None, bid=None, isLast=False):
-      self._volume = round(volume, 8)
-      if self._volume == 0 or (ask == 0 and bid == 0):
-         raise OfferException()
-
-      self._ask = ask
-      self._bid = bid
-      self._timestamp = time.time_ns() / 1000000 #time in ms
-      self._isLast = isLast
-
-   @property
-   def volume(self):
-      return self._volume
-
-   @property
-   def ask(self):
-      return self._ask
-
-   @property
-   def bid(self):
-      return self._bid
-
-   @property
-   def isLast(self):
-      return self._isLast
-
-   def to_map(self):
-      if self._ask is None and self._bid is None:
-         return None
-
-      result = {}
-      result['volume'] = str(self._volume)
-      if self._ask is not None:
-         result['ask'] = str(self._ask)
-      if self._bid is not None:
-         result['bid'] = str(self._bid)
-      return result
-
-   def compare(self, offer, delay_ms):
-      if offer._timestamp <= self._timestamp + delay_ms:
-         #return false if delay is met
-         return False
-
-      if self._volume != offer._volume:
-         return False
-      if self._ask != offer._ask or self._bid != offer._bid:
-         return False
-
-      return True
-
-   def __str__(self):
-      return f"vol: {self.volume} - ask: {self.ask}, bid: {self.bid}"
 
 ################################################################################
 class Offer():
@@ -270,34 +143,6 @@ class AggregationOrderBook():
          print(f"  - price: {offer[0]}, vol: {offer[1]}")
 
 ################################################################################
-class Order():
-   def __init__(self, id, timestamp, quantity, price, side):
-      self._id = id
-      self._timestamp = timestamp
-      self._quantity = abs(quantity)
-      self._price = price
-      self._side = side
-
-   @property
-   def id(self):
-      return self._id
-
-   @property
-   def timestamp(self):
-      return self._timestamp
-
-   def is_sell(self):
-      return self._side == SIDE_SELL
-
-   @property
-   def quantity(self):
-      return self._quantity
-
-   @property
-   def price(self):
-      return self._price
-
-################################################################################
 class PositionsReport(object):
    def __init__(self, provider):
       self.name = provider.name
@@ -419,105 +264,6 @@ class DepositWithdrawAddresses():
 
    def hasDefaultWtdrAddr(self):
       return self._default_withdraw_addr != None
-
-################################################################################
-class WithdrawInfo(object):
-   WITHDRAW_FAILED      = 0
-   WITHDRAW_ACCEPTED    = 1
-   WITHDRAW_PENDING     = 2
-   WITHDRAW_BROADCASTED = 3
-   WITHDRAW_COMPLETED   = 4
-   WITHDRAW_CANCELLED   = 5
-   WITHDRAW_BATCHED     = 6
-
-   status_text = {
-      WITHDRAW_FAILED : 'failed',
-      WITHDRAW_ACCEPTED : 'accepted',
-      WITHDRAW_PENDING : 'pending',
-      WITHDRAW_BROADCASTED : 'broadcasted',
-      WITHDRAW_COMPLETED : 'completed',
-      WITHDRAW_CANCELLED : 'cancelled',
-      WITHDRAW_BATCHED : 'batched'
-   }
-
-   def __init__(self, data):
-      self._id = str(data['id'])
-      self._status = int(data['status'])
-      if 'success' in data:
-         if data['success']:
-            self._error_message = None
-         else:
-            self._error_message = data['error_msg']
-            return
-
-      self._tx_id = str(data.get('tx_id', ''))
-      self._recv_address = str(data['recv_address'])
-      self._currency = str(data['currency'])
-      self._amount = str(data['amount'])
-      self._timestamp = datetime.fromtimestamp(data['timestamp'])
-      self._unblinded_link = str(data.get('unblinded_link', ''))
-      self._error_message = None
-
-   def __str__(self):
-      result = f'<id: {self._id}> amount: {self.amount}, ccy: {self.currency}, status: {self.status}'
-      if len(self._tx_id) > 0:
-         result += f'tx id: {self._tx_id}. link: {self._unblinded_link}'
-      return result
-
-   @property
-   def id(self):
-      return self._id
-
-   @property
-   def status_code(self):
-      return self._status
-
-   @property
-   def status(self):
-      return self.status_text.get(self._status, "Undefined")
-
-   @property
-   def error_message(self):
-      return self._error_message
-
-   @property
-   def recv_address(self):
-      return self._recv_address
-
-   @property
-   def currency(self):
-      return self._currency
-
-   @property
-   def amount(self):
-      return self._amount
-
-   @property
-   def timestamp(self):
-      return self._timestamp
-
-   @property
-   def unblinded_link(self):
-      return self._unblinded_link
-
-   @property
-   def transacion_id(self):
-      return self._tx_id
-
-   def isPending(self):
-      return self._status in [
-         self.WITHDRAW_ACCEPTED,
-         self.WITHDRAW_PENDING,
-         self.WITHDRAW_BROADCASTED,
-         self.WITHDRAW_BATCHED
-      ]
-
-   def canBeCancelled(self):
-      return self._status in [
-         self.WITHDRAW_ACCEPTED,
-         self.WITHDRAW_PENDING,
-         self.WITHDRAW_BATCHED
-      ]
 
 ################################################################################
 class CashOperation(object):
@@ -654,51 +400,6 @@ class OpenVolume(object):
       return result
 
 ########
-def getBalancesFromJson(jsonDict):
-   result = {}
-   if kBalanceSectionKey in jsonDict:
-      for account in jsonDict[kBalanceSectionKey]:
-         if not kBalanceKey in account or not kCurrencyKey in account:
-            continue
-         result[account[kCurrencyKey]] = float(account[kBalanceKey])
-
-   return result
-
-################################################################################
-class DepositInfo():
-   def __init__(self, data):
-      self._tx_id = str(data['tx_id'])
-      self._nb_conf = int(data['nb_conf'])
-      self._unblinded_link = str(data['unblinded_link'])
-      self._timestamp = datetime.fromtimestamp(data['timestamp'])
-      self._outputs = data['outputs']
-      self._recv_address = data['recv_address']
-
-   @property
-   def transacion_id(self):
-      return self._tx_id
-
-   @property
-   def confirmations_count(self):
-      return self._nb_conf
-
-   @property
-   def unblinded_link(self):
-      return self._unblinded_link
-
-   @property
-   def outputs(self):
-      return self._outputs
-
-   @property
-   def timestamp(self):
-      return self._timestamp
-
-   @property
-   def recv_address(self):
-      return self._recv_address
-
-########
 class OnChainTransaction(object):
    def __init__(self, txid, recipient, nConf, outputs):
       self._id = txid
@@ -747,3 +448,16 @@ class TransactionTracker(object):
       return self.transactions[txId]
 
 TheTxTracker = TransactionTracker()
+
+########
+class ConfigException(Exception):
+   pass
+
+def checkConfig(config, requiredSetting):
+   for k in requiredSetting:
+      if k not in config:
+         raise ConfigException(f'Missing \"{k}\" in config')
+
+         for kk in requiredSetting[k]:
+            if kk not in config[k]:
+               raise ConfigException(f'Missing \"{kk}\" in config group \"{k}\"')

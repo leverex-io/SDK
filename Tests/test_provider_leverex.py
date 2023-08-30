@@ -7,14 +7,14 @@ from .utils import TestTaker, price
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 
-from Factories.Definitions import SessionInfo, \
-   SessionOpenInfo, SessionCloseInfo, SIDE_BUY, SIDE_SELL
-
-from Providers.Leverex import LeverexProvider
-from Providers.leverex_core.api_connection import LeverexOrder, \
+from leverex_core.utils import SessionInfo, \
+   SessionOpenInfo, SessionCloseInfo, \
+   SIDE_BUY, SIDE_SELL, LeverexOrder, \
    ORDER_STATUS_FILLED, ORDER_STATUS_PENDING, \
    ORDER_TYPE_TRADE_POSITION, ORDER_TYPE_NORMAL_ROLLOVER_POSITION, \
    ORDER_ACTION_CREATED, ORDER_ACTION_UPDATED, WithdrawInfo
+
+from Providers.Leverex import LeverexProvider
 
 #import pdb; pdb.set_trace()
 
@@ -298,7 +298,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
    '''
 
    #session notification last
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_bootstrap_1(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -384,7 +384,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers[1]) == 0
 
    #load position reply last
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_bootstrap_2(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -471,7 +471,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers[1]) == 0
 
    #load balances reply last
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_bootstrap_3(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -553,7 +553,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers[1]) == 0
 
    #cover new order handling and exposure signals
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_exposure_sync(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -670,7 +670,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos2.trade_pnl == 25
 
    #cover exposure sync at startup with existing maker orders
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_exposure_sync_startup(self, MockedLeverexConnObj):
       #setup mocked leverex connections
       mockedConnection = MockedLeverexConnectionClass(1000)
@@ -812,7 +812,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos12.trade_pnl == -50
 
    #cover session end and roll overs
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_session_roll(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -981,14 +981,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       pos3 = posrep.orderData.orders[3]
       assert pos3.trade_pnl == -50
 
-   ''' TODO
-   #cover liquidations and defaults
-   @patch('Providers.Leverex.AsyncApiConnection')
-   async def test_liq_default(self, MockedLeverexConnObj):
-   '''
-
    #break session, taker exposure should go to 0
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_unhealthy_session(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -1087,7 +1081,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
    #counterparty provider collateral should adjust to expected value
    #even though positions are opened at a different leverage
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_adjust_collateral(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -1215,7 +1209,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.targetCollateral == 765
 
    #cover open volume asymetry
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_open_volume(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -1365,7 +1359,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert vol['bid'] == 0.98
 
    #cover withdrawal code, triggered by hedger rebalancing
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_rebalance_withdrawals(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
@@ -1478,7 +1472,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.pendingWtdr) == 0
 
    #cover withdrawal code, triggered by hedger rebalancing
-   @patch('Providers.Leverex.AsyncApiConnection')
+   @patch('leverex_core.base_client.AsyncApiConnection')
    async def test_rebalance_withdrawals_with_cancel(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection

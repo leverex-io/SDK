@@ -5,60 +5,21 @@ import argparse
 import time
 import sys
 
-from Providers.leverex_core.api_connection import AsyncApiConnection, \
-   ORDER_ACTION_UPDATED, ORDER_ACTION_CREATED
-from Providers.leverex_core.product_mapping import get_product_info
-from Providers.Leverex import LeverexOpenVolume, SessionOrders
-from Factories.Definitions import SessionInfo, getBalancesFromJson, \
-   SIDE_BUY, SIDE_SELL
+from leverex_core.utils import LeverexOpenVolume, SessionOrders, \
+   SessionInfo, SIDE_BUY, SIDE_SELL, ORDER_ACTION_CREATED
+from leverex_core.base_client import LeverexBaseClient
 
 ################################################################################
-class LeverexClient(object):
+class LeverexClient(LeverexBaseClient):
    def __init__(self, config):
-      self.config = config
-      self.connection = None
-      self.send = None
-
-      self.product = self.config['leverex']['product']
-      productInfo = get_product_info(self.product)
-      self.ccy = productInfo.cash_ccy
-      self.margin_ccy = productInfo.margin_ccy
-
+      super().__init__(config)
       self.setupConnection()
-      self.orderData = {}
-
-      self.indexPrice = 0
-      self.balances = None
-      self.currentSession = None
       self.takerFee = None
 
-   ## setup
-   def setupConnection(self):
-      leverexConfig = self.config['leverex']
-      keyPath = None
-      if 'key_file_path' in leverexConfig:
-         keyPath = leverexConfig['key_file_path']
-
-      aeid_endpoint = None
-      if 'aeid' in self.config and 'endpoint' in self.config['aeid']:
-         aeid_endpoint = self.config['aeid']['endpoint']
-
-      self.connection = AsyncApiConnection(
-         api_endpoint=leverexConfig['api_endpoint'],
-         login_endpoint=leverexConfig['login_endpoint'],
-         key_file_path=keyPath,
-         dump_communication=False,
-         aeid_endpoint=aeid_endpoint)
-
    async def subscribe(self):
-      await self.connection.subscribe_to_product(self.product)
-      await self.connection.subscribe_session_open(self.product)
-      await self.connection.subscribe_to_balance_updates(self.product)
+      await super().subscribe()
       await self.connection.subscribe_dealer_offers(self.product)
       await self.connection.product_fee(self.product, self.setTakerFee)
-      await self.connection.load_open_positions(
-         target_product=self.product,
-         callback=self.on_positions_loaded)
 
    ## asyncio loops
    async def parseCommand(self, command):
@@ -112,7 +73,7 @@ class LeverexClient(object):
          await self.placeOrder(-amount, price)
 
       elif command == 'go flat':
-         netExposure = -self.getNetExposure()
+         netExposure = -self.getExposure()
          if netExposure < 0:
             offer = self.offers.getBid(netExposure)
             if offer.volume < netExposure:
@@ -151,15 +112,15 @@ class LeverexClient(object):
       return True
 
    async def inputLoop(self, loop):
-      run = True
-      while (run):
+      keepRunning = True
+      while keepRunning:
          print (">input a command>")
          command = await loop.run_in_executor(None, sys.stdin.readline)
 
          #strip the terminating \n
          if len(command) > 1 and command[-1] == '\n':
             command = command[0:-1].strip()
-         run = await self.parseCommand(command)
+         keepRunning = await self.parseCommand(command)
 
    async def run(self):
       tasks = [asyncio.create_task(self.connection.run(self))]
@@ -177,40 +138,16 @@ class LeverexClient(object):
       loop = asyncio.get_event_loop()
       asyncio.ensure_future(self.inputLoop(loop))
 
-   async def on_positions_loaded(self, orders):
-      for order in orders:
-         self.storeOrder(order, ORDER_ACTION_UPDATED)
-
    async def on_order_event(self, order, eventType):
       if eventType == ORDER_ACTION_CREATED:
          print (f"** new order: {str(order)} **")
       self.storeOrder(order, eventType)
-
-   async def on_session_open(self, sessionInfo):
-      self.setSession(SessionInfo(sessionInfo))
-
-   async def on_session_closed(self, sessionInfo):
-      self.setSession(SessionInfo(sessionInfo))
-
-   async def on_market_data(self, marketData):
-      self.setPrice(float(marketData['live_cutoff']))
 
    async def on_deposit_update(self, deposit_info):
       print (f"** detected deposit: {deposit_info.ouputs}")
 
    async def on_dealer_offers(self, offers):
       self.offers = offers
-
-   ## price and session events ##
-   def setPrice(self, price):
-      self.indexPrice = price
-
-   def setSession(self, session):
-      self.currentSession = session
-      sessionId = session.getSessionId()
-      if sessionId not in self.orderData:
-         self.orderData[sessionId] = SessionOrders(sessionId)
-      self.orderData[sessionId].setSessionObj(session)
 
    async def setTakerFee(self, feeReply):
       if feeReply['success'] == True:
@@ -254,52 +191,6 @@ class LeverexClient(object):
          'maxBid' : round(openVolBid, 8)
       }
 
-   def getSessionOrders(self):
-      currentSessionId = None
-      if self.currentSession:
-         currentSessionId = self.currentSession.getSessionId()
-      if not currentSessionId:
-         raise Exception()
-
-      sessionOrders = self.orderData[currentSessionId]
-      if not sessionOrders:
-         raise Exception()
-      return sessionOrders.orders
-
-   def getNetExposure(self):
-      orders = self.getSessionOrders()
-      netExposure = 0
-      for orderId in orders:
-         order = orders[orderId]
-         netExposure += \
-            order.quantity if not order.is_sell() \
-            else -order.quantity
-      return round(netExposure, 8)
-
-   def getTotalPnl(self):
-      orders = self.getSessionOrders()
-      totalPnl = 0
-      for orderId in orders:
-         order = orders[orderId]
-         order.setIndexPrice(self.indexPrice)
-         order.computePnL()
-         totalPnl += order.trade_pnl
-      return round(totalPnl, 6)
-
-   ## orders ##
-   def storeOrder(self, order, eventType):
-      sessionId = order.session_id
-      if sessionId not in self.orderData:
-         #create SessionOrders object
-         self.orderData[sessionId] = SessionOrders(sessionId)
-
-         #set session object if we have one
-         if self.currentSession != None and \
-            self.currentSession.getSessionId() == sessionId:
-            self.orderData[sessionId].setSessionObj(self.currentSession)
-
-      self.orderData[sessionId].setOrder(order, eventType)
-
    async def placeOrder(self, amount, price):
       side = SIDE_BUY if amount > 0 else SIDE_SELL
       await self.connection.place_order(
@@ -307,10 +198,6 @@ class LeverexClient(object):
          side,
          self.product, price
       )
-
-   ## balance events ##
-   async def on_balance_update(self, balances):
-      self.balances = getBalancesFromJson(balances)
 
    ## printers
    def printBalance(self):
@@ -339,7 +226,7 @@ class LeverexClient(object):
 
    def printPositions(self):
       try:
-         exposure = self.getNetExposure()
+         exposure = self.getExposure()
          pnl = self.getTotalPnl()
          orders = self.getSessionOrders()
 
