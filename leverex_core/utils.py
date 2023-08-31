@@ -308,7 +308,7 @@ class LeverexOrder(Order):
       if self.is_sell():
          vol *= -1
 
-      text = f"<id: {self.id} -- vol: {vol}, price: {self.price}, pnl: {pl}"
+      text = f"<id: {self.id} -- vol: {vol}, price: {self.price}, pnl: {pl}, fee: {self.fee}"
       tradeType = self.tradeTypeStr(self._rollover_type)
       if tradeType:
          text += " -- ROLL, {}: {}".format(tradeType, \
@@ -445,7 +445,7 @@ class LeverexOpenVolume(object):
       totalFee = 0
       for orderId in self.orders:
          order = self.orders[orderId]
-         if not order.is_trade_position() or not order.is_taker:
+         if not (order.is_trade_position() and order.is_taker):
             continue
          totalFee += abs(order.fee)
       self.margin -= totalFee

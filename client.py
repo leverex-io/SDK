@@ -163,8 +163,8 @@ class LeverexClient(LeverexBaseClient):
       while (True):
          #look for stream with matching open volume
          #NOTE: we bid into the dealer's ask and vice versa
-         ask = self.offers.getAsk(openVolAsk)
-         bid = self.offers.getBid(openVolBid)
+         ask = self.offers.getAsk(openVolBid)
+         bid = self.offers.getBid(openVolAsk)
 
          bidPrice = 0
          if bid.isValid():
