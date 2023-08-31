@@ -19,7 +19,6 @@ class LeverexClient(LeverexBaseClient):
    async def subscribe(self):
       await super().subscribe()
       await self.connection.subscribe_dealer_offers(self.product)
-      await self.connection.product_fee(self.product, self.setTakerFee)
 
    ## asyncio loops
    async def parseCommand(self, command):
@@ -39,12 +38,12 @@ class LeverexClient(LeverexBaseClient):
 
       elif command == 'address':
          async def printAddress(address):
-            print (f" - deposit address: {address} - ")
+            print (f" - deposit address: {address} - \n")
          await self.connection.load_deposit_address(printAddress)
 
       elif command == 'max':
          maxes = self.getMaxVolume()
-         print (f" - max buy: {maxes['maxBid']}, sell: {maxes['maxAsk']}")
+         print (f" - max buy: {maxes['maxBid']}, sell: {maxes['maxAsk']}\n")
 
       elif command.startswith('buy'):
          value = command[3:].strip()
@@ -89,12 +88,16 @@ class LeverexClient(LeverexBaseClient):
 
          await self.placeOrder(netExposure, price)
 
+      elif command == 'session':
+         self.printSession()
+
       elif command == 'help':
          helpStr = "- commands:\n"
          helpStr += "  . address: show deposit address\n"
          helpStr += "  . balance: show balances\n"
          helpStr += "  . positions: show positions, net exposure and pnl\n"
          helpStr += "  . price: show index price and offer streams\n"
+         helpStr += "  . session: current session info\n"
          helpStr += "  . max: show maximum buyable and sellable exposure\n"
          helpStr += "  . buy/sell XXX: place a long/short market order for XXX amount\n" \
             "      XXX is in XBT. Enter a max position with XXX set to [max], e.g.:\n" \
@@ -149,10 +152,6 @@ class LeverexClient(LeverexBaseClient):
    async def on_dealer_offers(self, offers):
       self.offers = offers
 
-   async def setTakerFee(self, feeReply):
-      if feeReply['success'] == True:
-         self.takerFee = float(feeReply['fee'])
-
    ## max calcs
    def getMaxVolume(self):
       lov = LeverexOpenVolume(self)
@@ -202,7 +201,8 @@ class LeverexClient(LeverexBaseClient):
             matchedAsk = ask
             break
 
-      feeRate = lov.session.getSessionIM() / (lov.session.getSessionIM() + self.takerFee)
+      feeRate = lov.session.getSessionIM() /\
+         (lov.session.getSessionIM() + lov.session.getTakerFee())
       if matchedBid and openVolAsk < matchedBid.volume:
          #only withhold cost of fees from our ask if it's smaller than the bid offer's volume
          openVolAsk *= feeRate
@@ -268,6 +268,13 @@ class LeverexClient(LeverexBaseClient):
          positionStr = "   . N/A"
 
       print (f" - Positions:\n{positionStr}")
+
+   def printSession(self):
+      if self.currentSession == None:
+         print (f" - Session: N/A\n")
+
+      prefix = "    "
+      print (f" - Session:\n{self.currentSession.prettyPrint(prefix)}\n")
 
 ################################################################################
 if __name__ == '__main__':

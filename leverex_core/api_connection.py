@@ -334,13 +334,16 @@ class AsyncApiConnection(object):
             await self._call_listener_method('on_authorized')
 
          # start the loops
-         readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
-         if self._login_client is not None:
-            cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
-         await readTask
+         try:
+            readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
+            if self._login_client is not None:
+               cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
+            await readTask
 
-         if self._login_client is not None:
-            await cycleTask
+            if self._login_client is not None:
+               await cycleTask
+         except:
+            return
 
    async def readLoop(self):
       while True:

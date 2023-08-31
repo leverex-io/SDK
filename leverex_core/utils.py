@@ -40,6 +40,8 @@ class SessionOpenInfo():
       self.session_id = int(data['session_id'])
       self.previous_session_id = data['previous_session_id']
       self._healthy = data['healthy']
+      self._feeTaker = data['fee_taker']
+      self._feeMaker = data['fee_maker']
 
 ####
 class SessionCloseInfo():
@@ -87,6 +89,37 @@ class SessionInfo():
          return self.close.session_id
       else:
          raise Exception("invalid session object")
+
+   def getTakerFee(self):
+      if not self.isOpen():
+         return None
+      return self.open._feeTaker
+
+   def getMakerFee(self):
+      if not self.isOpen():
+         return None
+      return self.open._feeMaker
+
+   def prettyPrint(self, linePrefix):
+      session = self.open if self.isOpen() else self.close
+      result = "{}id: {}, product: {}, status: {}, healthy: {}\n".format(
+         linePrefix,
+         session.product_type,
+         session.session_id,
+         str(self.isOpen()),
+         session._healthy
+      )
+
+      if self.isOpen():
+         result += "{}open price: {}, cutoff at: {}, taker fee: {}, maker fee: {}".format(
+            linePrefix,
+            session.last_cut_off_price,
+            session.cut_off_at,
+            session._feeTaker,
+            session._feeMaker
+         )
+
+      return result
 
 
 ### offers ###
