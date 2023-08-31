@@ -166,16 +166,26 @@ class LeverexClient(LeverexBaseClient):
          ask = self.offers.getAsk(openVolAsk)
          bid = self.offers.getBid(openVolBid)
 
+         bidPrice = 0
+         if bid.isValid():
+            bidPrice = bid.bid
+
+         askPrice = 0
+         if ask.isValid():
+            askPrice = ask.ask
+
          #get releasble exposure
-         maxBuy, maxSell = lov.getReleasableExposure(bid.bid, ask.ask)
+         maxBuy, maxSell = lov.getReleasableExposure(bidPrice, askPrice)
          openVolAsk = openVol + maxSell
          openVolBid = openVol + maxBuy
 
          #loop again until releasable exposure fits in offer volume
          #or this is the biggest offer for this side
-         if openVolAsk > bid.volume and not bid.isLast:
+         if bid.isValid() and openVolAsk > bid.volume and not bid.isLast:
+            openVolAsk = min(openVolAsk, bid.volume)
             continue
-         elif openVolBid > ask.volume and not ask.isLast:
+         elif ask.isValid() and openVolBid > ask.volume and not ask.isLast:
+            openVolBid = min(openVolBid, ask.volume)
             continue
          else:
             break

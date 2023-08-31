@@ -92,9 +92,13 @@ class SessionInfo():
 ### offers ###
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None, isLast=False):
-      self._volume = round(volume, 8)
+      if volume:
+         self._volume = round(volume, 8)
+      else:
+         self._volume = None
+
       if self._volume == 0 or (ask == 0 and bid == 0):
-         raise OfferException()
+            raise OfferException()
 
       self._ask = ask
       self._bid = bid
@@ -144,6 +148,9 @@ class PriceOffer():
    def __str__(self):
       return f"vol: {self.volume} - ask: {self.ask}, bid: {self.bid}"
 
+   def isValid(self):
+      return self._volume != None and self._volume > 0
+
 ####
 class DealerOffers(object):
    def __init__(self, jsonPacket):
@@ -174,7 +181,7 @@ class DealerOffers(object):
 
    def getAsk(self, vol: float):
       if len(self.asks) == 0:
-         return PriceOffer(0, 0, isLast=True)
+         return PriceOffer(0, None, isLast=True)
 
       for ask in self.asks:
          if ask.volume >= vol:
@@ -183,7 +190,7 @@ class DealerOffers(object):
 
    def getBid(self, vol: float):
       if len(self.bids) == 0:
-         return PriceOffer(0, 0, isLast=True)
+         return PriceOffer(0, None, isLast=True)
 
       for bid in self.bids:
          if bid.volume >= vol:
@@ -460,10 +467,15 @@ class LeverexOpenVolume(object):
          boundaries.add(orderPrice - sessionIM)
 
       #inject current index price in boundaries
-      maxSellPrice = askPrice + sessionIM
-      maxBuyPrice = bidPrice - sessionIM
-      boundaries.add(maxSellPrice)
-      boundaries.add(maxBuyPrice)
+      maxSellPrice = None
+      if askPrice != 0:
+         maxSellPrice = askPrice + sessionIM
+         boundaries.add(maxSellPrice)
+
+      maxBuyPrice = None
+      if bidPrice != 0:
+         maxBuyPrice = bidPrice - sessionIM
+         boundaries.add(maxBuyPrice)
 
       #order the boundaries
       boundaries = sorted(boundaries)
@@ -481,21 +493,25 @@ class LeverexOpenVolume(object):
       valuesList = list(values)
 
       #sell side: find what's to the right of the max loss
-      maxSellLoss = highestValue
-      for i in range(0, len(values)):
-         price = valuesList[i]
-         if price >= maxSellPrice:
-            maxSellLoss = min(maxSellLoss, values[price])
-      maxSellLoss += self.margin
+      maxSellLoss = 0
+      if maxSellPrice:
+         maxSellLoss = highestValue
+         for i in range(0, len(values)):
+            price = valuesList[i]
+            if price >= maxSellPrice:
+               maxSellLoss = min(maxSellLoss, values[price])
+         maxSellLoss += self.margin
 
       #buy side: find what's to the left of the max loss
-      maxBuyLoss = highestValue
-      for i in range(0, len(values)):
-         price = valuesList[i]
-         if price > maxBuyPrice:
-            break
-         maxBuyLoss = min(maxBuyLoss, values[price])
-      maxBuyLoss += self.margin
+      maxBuyLoss = 0
+      if maxBuyPrice:
+         maxBuyLoss = highestValue
+         for i in range(0, len(values)):
+            price = valuesList[i]
+            if price > maxBuyPrice:
+               break
+            maxBuyLoss = min(maxBuyLoss, values[price])
+         maxBuyLoss += self.margin
 
       return round(maxBuyLoss / sessionIM , 8), round(maxSellLoss / sessionIM, 8)
 

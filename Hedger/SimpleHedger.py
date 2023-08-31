@@ -602,7 +602,7 @@ class SimpleHedger(HedgerFactory):
       #form the price offers
       offers = []
       try:
-         if ask_volume == bid_volume:
+         if ask_volume == bid_volume and ask_volume:
                offer = PriceOffer(volume=ask_volume, ask=ask_price, bid=bid_price)
                offers = [offer]
          else:
