@@ -5,6 +5,7 @@ import websockets
 import websockets.exceptions
 import logging
 import functools
+import random
 from datetime import datetime
 
 from typing import Callable
@@ -60,7 +61,7 @@ class AsyncApiConnection(object):
          logging.error(f'{method_name} not defined in listener')
 
    def _generate_reference_id(self):
-      return str(round(time.time() * 1000000))
+      return str(random.randint(0, 2**32-1))
 
    async def load_deposit_address(self, callback: Callable = None):
       reference = self._generate_reference_id()
