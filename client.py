@@ -144,7 +144,7 @@ class LeverexClient(LeverexBaseClient):
       self.storeOrder(order, eventType)
 
    async def on_deposit_update(self, deposit_info):
-      print (f"** detected deposit: {deposit_info.ouputs}")
+      print (f"** detected deposit: {deposit_info.outputs}")
 
    async def on_dealer_offers(self, offers):
       self.offers = offers
@@ -178,21 +178,38 @@ class LeverexClient(LeverexBaseClient):
          maxBuy, maxSell = lov.getReleasableExposure(bidPrice, askPrice)
          openVolAsk = openVol + maxSell
          openVolBid = openVol + maxBuy
+         matchedBid = None
+         matchedAsk = None
 
          #loop again until releasable exposure fits in offer volume
          #or this is the biggest offer for this side
-         if bid.isValid() and openVolAsk > bid.volume and not bid.isLast:
-            openVolAsk = min(openVolAsk, bid.volume)
-            continue
-         elif ask.isValid() and openVolBid > ask.volume and not ask.isLast:
-            openVolBid = min(openVolBid, ask.volume)
-            continue
-         else:
+         bidIsReady = True
+         if bid.isValid() and openVolAsk > bid.volume:
+            if bid.isLast:
+               openVolAsk = min(openVolAsk, bid.volume)
+            else:
+               bidIsReady = False
+
+         askIsReady = True
+         if ask.isValid() and openVolBid > ask.volume:
+            if ask.isLast:
+               openVolBid = min(openVolBid, ask.volume)
+            else:
+               askIsReady = False
+
+         if bidIsReady and askIsReady:
+            matchedBid = bid
+            matchedAsk = ask
             break
 
       feeRate = lov.session.getSessionIM() / (lov.session.getSessionIM() + self.takerFee)
-      openVolAsk *= feeRate
-      openVolBid *= feeRate
+      if matchedBid and openVolAsk < matchedBid.volume:
+         #only withhold cost of fees from our ask if it's smaller than the bid offer's volume
+         openVolAsk *= feeRate
+
+      if matchedAsk and openVolBid < matchedAsk.volume:
+         #only withhold cost of fees from our bid if it's smaller than the ask offer's volume
+         openVolBid *= feeRate
 
       return {
          'ask' : bid.bid,
