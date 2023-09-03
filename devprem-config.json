@@ -1,0 +1,12 @@
+{
+   "leverex" :
+   {
+      "api_endpoint" : "wss://api-devprem.leverex.io",
+      "login_endpoint" : "wss://login-devprem.leverex.io/ws/v1/websocket",
+      "product" : "xbtusd_rf"
+   },
+   "aeid" :
+   {
+      "endpoint": "https://staging.autheid.com"
+   }
+}

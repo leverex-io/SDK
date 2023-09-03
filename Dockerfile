@@ -5,4 +5,4 @@ WORKDIR /app
 copy . /app/
 
 run pip install -r requirements.txt
-cmd python3 -u -m RefactoredDealer --config refactored_config.json 
+cmd python3 -u -m dealer --config config.json 

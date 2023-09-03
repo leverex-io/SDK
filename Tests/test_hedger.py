@@ -3,8 +3,9 @@ import unittest
 import copy
 
 from .utils import TestTaker, TestMaker, price
-from Factories.Definitions import Order, SIDE_BUY, SIDE_SELL, \
-   Balance, WithdrawInfo
+from leverex_core.utils import Order, SIDE_BUY, SIDE_SELL, \
+   WithdrawInfo
+from Factories.Definitions import Balance
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 

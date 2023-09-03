@@ -5,8 +5,8 @@ from unittest.mock import patch
 from .utils import TestMaker, getOrderBookSnapshot
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
-from Factories.Definitions import AggregationOrderBook, Order, \
-   SIDE_BUY, SIDE_SELL
+from Factories.Definitions import AggregationOrderBook
+from leverex_core.utils import Order, SIDE_BUY, SIDE_SELL
 
 from Providers.Bitfinex import BitfinexProvider, BfxAccounts, \
    productToCcy

@@ -4,65 +4,13 @@ import json
 import time
 
 from Factories.Provider.Factory import Factory
-from Factories.Definitions import ProviderException, Position, \
-   PositionsReport, BalanceReport, SessionInfo, PriceEvent, \
-   DepositWithdrawAddresses, CashOperation, WithdrawInfo, \
-   TheTxTracker, getBalancesFromJson, MaxAmounts
-from .leverex_core.api_connection import AsyncApiConnection, ORDER_ACTION_UPDATED
-from .leverex_core.product_mapping import get_product_info
+from Factories.Definitions import PositionsReport, \
+   BalanceReport, PriceEvent, \
+   CashOperation, TheTxTracker, \
+   checkConfig
 
-################################################################################
-class LeverexException(Exception):
-   pass
-
-################################################################################
-class SessionOrders(object):
-   def __init__(self, sessionId):
-      self.id = sessionId
-      self.orders = {}
-      self.netExposure = 0
-      self.session = None
-
-   def setSessionObj(self, sessionObj):
-      if sessionObj.getSessionId() != self.id:
-         return
-      self.session = sessionObj
-      for order in self.orders:
-         self.orders[order].setSessionIM(self.session)
-
-   def setIndexPrice(self, price):
-      for order in self.orders:
-         self.orders[order].setIndexPrice(price)
-
-   def setOrder(self, order, eventType):
-      #set session IM
-      if self.session != None:
-         order.setSessionIM(self.session)
-
-      self.orders[order.id] = order
-      if order.is_filled() and eventType == ORDER_ACTION_UPDATED:
-         #filled orders do not affect exposure, return false
-         return False
-
-      vol = order.quantity
-      if order.is_sell():
-         vol *= -1
-      self.netExposure += vol
-
-      #return true if setting this order affected net exposure
-      return True
-
-   def getNetExposure(self):
-      return round(self.netExposure, 8)
-
-   def getCount(self):
-      return len(self.orders)
-
-   def __eq__(self, obj):
-      if obj == None:
-         return False
-
-      return self.id == obj.id and self.orders.keys() == obj.orders.keys()
+from leverex_core.utils import WithdrawInfo, LeverexOpenVolume
+from leverex_core.base_client import LeverexBaseClient
 
 ################################################################################
 class LeverexPositionsReport(PositionsReport):
@@ -331,182 +279,35 @@ class OfferToPush(object):
       self.waiting = False
 
 ################################################################################
-class LeverexOpenVolume(object):
-   def __init__(self, provider):
-      #open balance
-      self.openBalance = 0
-      if provider.ccy in provider.balances:
-         self.openBalance = provider.balances[provider.ccy]
-
-      self.margin = 0
-      if provider.margin_ccy in provider.balances:
-         self.margin = provider.balances[provider.margin_ccy]
-
-      #index price
-      self.indexPrice = provider.indexPrice
-
-      #session
-      self.session = provider.currentSession
-
-      #orders
-      self.orders = None
-      if self.session.getSessionId() in provider.orderData:
-         self.orders = provider.orderData[self.session.getSessionId()].orders
-
-   def getReleasableExposure(self):
-      if not self.session.isHealthy() or \
-         not self.indexPrice or \
-         self.orders is None or \
-         len(self.orders) == 0:
-         return 0, 0
-
-      #get the sessionIM
-      sessionIM = self.session.getSessionIM()
-
-      #get boundaries
-      boundaries = set()
-      for orderId in self.orders:
-         orderPrice = self.orders[orderId].price
-         boundaries.add(orderPrice + sessionIM)
-         boundaries.add(orderPrice - sessionIM)
-
-      #inject current index price in boundaries
-      maxSellPrice = self.indexPrice + sessionIM
-      maxBuyPrice = self.indexPrice - sessionIM
-      boundaries.add(maxSellPrice)
-      boundaries.add(maxBuyPrice)
-
-      #order the boundaries
-      boundaries = sorted(boundaries)
-
-      #get values at boundaries
-      values = {}
-      highestValue = 0
-      for price in boundaries:
-         value = 0
-         for orderId in self.orders:
-            order = self.orders[orderId]
-            value += order.getValue(price)
-         values[price] = value
-         highestValue = max(highestValue, value)
-      valuesList = list(values)
-
-      #sell side: find what's to the right of the max loss
-      maxSellLoss = highestValue
-      for i in range(0, len(values)):
-         price = valuesList[i]
-         if price >= maxSellPrice:
-            maxSellLoss = min(maxSellLoss, values[price])
-      maxSellLoss += self.margin
-
-      #buy side: find what's to the left of the max loss
-      maxBuyLoss = highestValue
-      for i in range(0, len(values)):
-         price = valuesList[i]
-         if price > maxBuyPrice:
-            break
-         maxBuyLoss = min(maxBuyLoss, values[price])
-      maxBuyLoss += self.margin
-
-      return round(maxBuyLoss / sessionIM , 8), round(maxSellLoss / sessionIM, 8)
-
-   def get(self, maxVolume, unquoteRatio):
-      #get releasable exposure for both sides
-      releasableBuy, releaseableSell = self.getReleasableExposure()
-
-      #convert free balance to exposure
-      openBal = self.openBalance / self.session.getSessionIM()
-
-      #add releasble exposure
-      maxBuy = openBal + releasableBuy
-      maxSell = openBal + releaseableSell
-
-      #limit by max volume, apply unquote ratio
-      #unquote ratio is the portion of the available exposure
-      #that should be kept unencumbured at all times
-      sellVol = round(min(maxVolume, maxSell) * (1.0 - unquoteRatio), 8)
-      buyVol = round(min(maxVolume, maxBuy) * (1.0 - unquoteRatio), 8)
-
-      return {
-         'ask': sellVol,
-         'bid': buyVol
-      }
-
-
-################################################################################
-class LeverexProvider(Factory):
+class LeverexProvider(Factory, LeverexBaseClient):
    required_settings = {
       'leverex': [
-         'api_endpoint',
-         'login_endpoint',
-         'key_file_path',
-         'product'
+         'key_file_path'
       ]
    }
 
    ## setup ##
    def __init__(self, config):
-      super().__init__("Leverex")
-      self.config = config
-      self.connection = None
-      self.balances = {}
+      LeverexBaseClient.__init__(self, config)
+      Factory.__init__(self, "Leverex")
 
-      self.netExposure = 0
-      self.orderData = {}
-      self.currentSession = None
       self.lastReadyState = False
-      self.indexPrice = None
-      self.withdrawalHistory = None
       self.offerToPush = None
 
       #check for required config entries
-      for k in self.required_settings:
-         if k not in self.config:
-            raise LeverexException(f'Missing \"{k}"\ in config')
-
-         for kk in self.required_settings[k]:
-            if kk not in self.config[k]:
-               raise LeverexException(f'Missing \"{kk}\" in config group \"{k}\"')
-
-      self.product = self.config['leverex']['product']
-      productInfo = get_product_info(self.product)
-      self.ccy = productInfo.cash_ccy
-      self.margin_ccy = productInfo.margin_ccy
+      checkConfig(self.config, self.required_settings)
 
       #leverex leverage is locked at 10x
       self.setLeverage(10)
 
    ##
    def setup(self, callback):
-      super().setup(callback)
-
-      #setup leverex connection
-      leverexConfig = self.config['leverex']
-      self.connection = AsyncApiConnection(
-         api_endpoint=leverexConfig['api_endpoint'],
-         login_endpoint=leverexConfig['login_endpoint'],
-         key_file_path=leverexConfig['key_file_path'],
-         dump_communication=False)
+      Factory.setup(self, callback)
+      LeverexBaseClient.setupConnection(self)
 
    ##
    def getAsyncIOTask(self):
       return asyncio.create_task(self.connection.run(self))
-
-   ##
-   async def loadAddresses(self, callback):
-      async def depositAddressCallback(address):
-         self.chainAddresses.setDepositAddr(address)
-         await callback()
-
-      async def withdrawAddressCallback(addresses):
-         addressList = []
-         for addr in addresses:
-            addressList.append(addr)
-         self.chainAddresses.setWithdrawAddresses(addressList)
-         await callback()
-
-      await self.connection.load_deposit_address(depositAddressCallback)
-      await self.connection.load_whitelisted_addresses(withdrawAddressCallback)
 
    #############################################################################
    #### withdrawals
@@ -557,16 +358,8 @@ class LeverexProvider(Factory):
       pass
 
    async def on_authorized(self):
-      await super().setConnected(True)
-
-      #load existing positions
-      await self.connection.load_open_positions(
-         target_product=self.product, callback=self.on_positions_loaded)
-
-      #setup subscriptions
-      await self.connection.subscribe_session_open(self.product)
-      await self.connection.subscribe_to_product(self.product)
-      await self.connection.subscribe_to_balance_updates(self.product)
+      await Factory.setConnected(self, True)
+      await self.subscribe()
 
    ## balance events ##
    async def on_balance_update(self, balances):
@@ -574,34 +367,23 @@ class LeverexProvider(Factory):
          await self.setInitBalance()
          await self.evaluateReadyState()
 
-      self.balances, self.maxAmounts = getBalancesFromJson(balances)
+      await LeverexBaseClient.on_balance_update(self, balances)
       await self.onBalanceUpdate()
 
    ## position events ##
    async def on_positions_loaded(self, orders):
-      for order in orders:
-         self.storeOrder(order, ORDER_ACTION_UPDATED)
-
-      await super().setInitPosition()
+      await LeverexBaseClient.on_positions_loaded(self, orders)
+      await Factory.setInitPosition(self)
       await self.evaluateReadyState()
 
    async def on_order_event(self, order, eventType):
       if self.storeOrder(order, eventType):
-         await super().onPositionUpdate()
+         await Factory.onPositionUpdate(self)
 
    ## session notifications ##
-   async def on_session_open(self, sessionInfo):
-      await self.setSession(SessionInfo(sessionInfo))
-
-   async def on_session_closed(self, sessionInfo):
-      await self.setSession(SessionInfo(sessionInfo))
 
    async def setSession(self, session):
-      self.currentSession = session
-      sessionId = session.getSessionId()
-      if sessionId not in self.orderData:
-         self.orderData[sessionId] = SessionOrders(sessionId)
-      self.orderData[sessionId].setSessionObj(session)
+      await LeverexBaseClient.setSession(self, session)
       await self.evaluateReadyState()
 
       #notify on new open price
@@ -609,7 +391,7 @@ class LeverexProvider(Factory):
 
    ## index price ##
    async def on_market_data(self, marketData):
-      self.indexPrice = float(marketData['live_cutoff'])
+      await LeverexBaseClient.on_market_data(self, marketData)
       await self.dealerCallback(self, PriceEvent)
 
    ## deposits ##
@@ -631,8 +413,8 @@ class LeverexProvider(Factory):
       return not self.currentSession.isHealthy()
 
    def getStatusStr(self):
-      if not super().isReady():
-         return super().getStatusStr()
+      if not Factory.isReady(self):
+         return Factory.getStatusStr(self)
 
       if self.currentSession == None:
          return "missing session data"
@@ -645,7 +427,7 @@ class LeverexProvider(Factory):
 
    async def evaluateReadyState(self):
       def assessReadyState():
-         if not super(LeverexProvider, self).isReady():
+         if not Factory.isReady(self):
             return False
 
          #check session is opened
@@ -661,7 +443,7 @@ class LeverexProvider(Factory):
          return
 
       self.lastReadyState = currentReadyState
-      await super().onReady()
+      await Factory.onReady(self)
 
    ## offers ##
    def getOpenVolume(self):
@@ -726,37 +508,14 @@ class LeverexProvider(Factory):
          offers=self.offerToPush.offers,
          callback=callback)
 
-   ## orders ##
-   def storeOrder(self, order, eventType):
-      sessionId = order.session_id
-      if sessionId not in self.orderData:
-         #create SessionOrders object
-         self.orderData[sessionId] = SessionOrders(sessionId)
-
-         #set session object if we have one
-         if self.currentSession != None and \
-            self.currentSession.getSessionId() == sessionId:
-            self.orderData[sessionId].setSessionObj(self.currentSession)
-
-      return self.orderData[sessionId].setOrder(order, eventType)
-
+   ## getters ##
    def getPositions(self):
       return LeverexPositionsReport(self)
 
-   ## exposure ##
+   def getBalance(self):
+      return LeverexBalanceReport(self)
+
    def getExposure(self):
       if not self.isReady():
          return None
-
-      if self.currentSession == None or not self.currentSession.isOpen():
-         return None
-
-      sessionId = self.currentSession.getSessionId() 
-      if sessionId not in self.orderData:
-         return None
-
-      return self.orderData[sessionId].getNetExposure()
-
-   ## balance ##
-   def getBalance(self):
-      return LeverexBalanceReport(self)
+      return LeverexBaseClient.getExposure(self)

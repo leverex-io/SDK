@@ -3,8 +3,8 @@ import logging
 import time
 
 from Factories.Hedger.Factory import HedgerFactory
-from Factories.Definitions import PriceOffer, OfferException, \
-   Rebalance, RebalanceReport
+from Factories.Definitions import Rebalance, RebalanceReport
+from leverex_core.utils import PriceOffer, OfferException
 
 CANCEL_PENDING          = 'cancel_pending'
 CANCEL_PENDING_TODO     = 'cancel_pending_todo'
@@ -602,7 +602,7 @@ class SimpleHedger(HedgerFactory):
       #form the price offers
       offers = []
       try:
-         if ask_volume == bid_volume:
+         if ask_volume == bid_volume and ask_volume:
                offer = PriceOffer(volume=ask_volume, ask=ask_price, bid=bid_price)
                offers = [offer]
          else:

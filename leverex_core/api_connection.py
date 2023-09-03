@@ -5,213 +5,28 @@ import websockets
 import websockets.exceptions
 import logging
 import functools
+import random
 from datetime import datetime
 
 from typing import Callable
 
 from .login_connection import LoginServiceClientWS
-from Factories.Definitions import PriceOffer, \
-   SessionCloseInfo, SessionOpenInfo, Order, WithdrawInfo, \
-   DepositInfo
+from .utils import PriceOffer, \
+   SessionCloseInfo, SessionOpenInfo, \
+   Order, WithdrawInfo, DepositInfo, \
+   SIDE_BUY, SIDE_SELL, DealerOffers, LeverexOrder, \
+   DepositInfo, WithdrawInfo, TradeHistory
 
-LOGIN_ENDPOINT = "wss://login-live.leverex.io/ws/v1/websocket"
-API_ENDPOINT = "wss://api-live.leverex.io"
-
-ORDER_ACTION_CREATED = 1
-ORDER_ACTION_UPDATED = 2
-
-ORDER_STATUS_PENDING = 1
-ORDER_STATUS_FILLED  = 2
-
-ORDER_TYPE_TRADE_POSITION                 = 0
-ORDER_TYPE_NORMAL_ROLLOVER_POSITION       = 1
-ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION   = 2
-ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION    = 3
-
-################################################################################
-class TradeHistory():
-   def __init__(self, data):
-      self._loaded = data['loaded']
-      if self._loaded:
-         self._orders = [LeverexOrder(order_data) for order_data in data['orders']]
-         self._start_time = datetime.fromtimestamp(data['start_time'])
-         self._end_time = datetime.fromtimestamp(data['end_time'])
-      else:
-         self._start_time = None
-         self._end_time = None
-         self._orders = None
-
-   @property
-   def loaded(self):
-      return self._loaded
-
-   @property
-   def start_time(self):
-      return self._start_time
-
-   @property
-   def end_time(self):
-      return self._end_time
-
-   @property
-   def orders(self):
-      return self._orders
-
-
-################################################################################
-class LeverexOrder(Order):
-   def __init__(self, data):
-      super().__init__(data['id'],
-         data['timestamp'],
-         float(data['quantity']),
-         float(data['price']),
-         int(data['side'])
-      )
-
-      self._status = int(data['status'])
-      self._product_type = data['product_type']
-      #self._cut_off_price = float(data['cut_off_price'])
-      #self._trade_im = data['trade_im']
-      self._trade_pnl = None
-      self._reference_exposure = float(data['reference_exposure'])
-      self._session_id = int(data['session_id'])
-      self._rollover_type = data['rollover_type']
-      self._fee = data['fee']
-      self._is_taker = data['is_taker']
-
-      self.indexPrice = None
-      self.sessionIM = None
-
-   def is_filled(self):
-      return self._status == ORDER_STATUS_FILLED
-
-   @property
-   def product_type(self):
-      return self._product_type
-
-   @property
-   def is_taker(self):
-      return self._is_taker
-
-   '''
-   @property
-   def cut_off_price(self):
-      return self._cut_off_price
-
-   @property
-   def trade_im(self):
-      return self._trade_im
-   '''
-
-   @property
-   def trade_pnl(self):
-      return self._trade_pnl
-
-   @property
-   def session_id(self):
-      return self._session_id
-
-   def is_trade_position(self):
-      return self._rollover_type == ORDER_TYPE_TRADE_POSITION
-
-   @property
-   def is_rollover_liquidation(self):
-      return self._rollover_type == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION
-
-   @property
-   def is_rollover_default(self):
-      return self._rollover_type == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION
-
-   @property
-   def fee(self):
-      return self._fee
-
-   @staticmethod
-   def tradeTypeStr(tradeType):
-      if tradeType == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION:
-         return "LIQUIDATED"
-      elif tradeType == ORDER_TYPE_DEFAULTED_ROLLOVER_POSITION:
-         return "DEFAULTED"
-      return None
-
-   def __str__(self):
-      text = "<id: {} -- vol: {}, price: {} "
-      tradeType = self.tradeTypeStr(self._rollover_type)
-      if tradeType != None:
-         text += "-- {}: {}".format(tradeType, \
-            abs(self._reference_exposure) - self.quantity)
-      text += ">"
-
-      pl = self.trade_pnl
-      if isinstance(pl, float):
-         pl = round(pl, 6)
-
-      vol = self.quantity
-      if self.is_sell():
-         vol *= -1
-
-      return text.format(self.id, vol, self.price, tradeType)
-
-   def setSessionIM(self, session):
-      if session == None:
-         return
-      if self.session_id != session.getSessionId():
-         return
-
-      self.sessionIM = session.getSessionIM()
-
-   def setIndexPrice(self, price):
-      self.indexPrice = price
-      self.computePnL()
-
-   def computePnL(self):
-      if self.indexPrice == None or self.sessionIM == None:
-         self._trade_pnl = None
-         return
-
-      #calculate difference between entry and index price
-      #cap by max nominal move
-      priceDelta = abs(self.indexPrice - self.price)
-      priceDelta = min(priceDelta, self.sessionIM)
-
-      #apply operation sign
-      if self.price > self.indexPrice:
-         priceDelta = -priceDelta
-
-      #apply side sign
-      if self.is_sell():
-         priceDelta = -priceDelta
-
-      #set pnl
-      self._trade_pnl = self.quantity * priceDelta
-
-   def getMargin(self):
-      if self.sessionIM == None:
-         return None
-
-      return self.sessionIM * self.quantity
-
-   def getValue(self, price):
-      if price > self.price + self.sessionIM:
-         price = self.price + self.sessionIM
-      elif price < self.price - self.sessionIM:
-         price = self.price - self.sessionIM
-
-      sign = 1
-      if self.is_sell():
-         sign = -1
-      return self.quantity * (price - self.price) * sign
-
-
+####
 PriceOffers = list[PriceOffer]
 
 ################################################################################
 class AsyncApiConnection(object):
-   def __init__(self, api_endpoint=API_ENDPOINT,
-      login_endpoint=LOGIN_ENDPOINT,
+   def __init__(self, api_endpoint, login_endpoint,
       key_file_path=None,
       dump_communication=False,
-      email=None):
+      email=None,
+      aeid_endpoint=None):
 
       self._dump_communication = dump_communication
 
@@ -221,12 +36,12 @@ class AsyncApiConnection(object):
       self._api_endpoint = api_endpoint
       self._login_endpoint = login_endpoint
 
-      if key_file_path is not None:
-         self._login_client = LoginServiceClientWS(
-            private_key_path=key_file_path,
-            login_endpoint=login_endpoint,
-            email=email,
-            dump_communication=dump_communication)
+      self._login_client = LoginServiceClientWS(
+         private_key_path=key_file_path,
+         login_endpoint=login_endpoint,
+         email=email,
+         dump_communication=dump_communication,
+         aeid_endpoint=aeid_endpoint)
 
       self.websocket = None
       self.listener = None
@@ -246,7 +61,7 @@ class AsyncApiConnection(object):
          logging.error(f'{method_name} not defined in listener')
 
    def _generate_reference_id(self):
-      return str(round(time.time() * 1000000))
+      return str(random.randint(0, 2**32-1))
 
    async def load_deposit_address(self, callback: Callable = None):
       reference = self._generate_reference_id()
@@ -443,9 +258,49 @@ class AsyncApiConnection(object):
       }}
       await self.websocket.send(json.dumps(subscribe_request))
 
+   async def subscribe_dealer_offers(self, product: str):
+      subscribe_request = {
+         'subscribe_dealer_offers' : {
+            'product_type': product,
+      }}
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def place_order(self, amount: float, side, product: str, price: float):
+      async def handleReply(reply):
+         if reply['success'] == False:
+            print (f"order failed with error: {reply['error_msg']}")
+
+      side_str = "buy" if side == SIDE_BUY else "sell"
+      print (f"placing market {side_str} order for {amount} xbt at price {price}")
+
+      reference = self._generate_reference_id()
+      market_order = {
+         'market_order' : {
+            'amount': str(amount),
+            'side': side,
+            'product_type': product,
+            'reference' : reference
+         }
+      }
+
+      self._requests_cb[reference] = handleReply
+      await self.websocket.send(json.dumps(market_order))
+
+   async def product_fee(self, product: str, cb):
+      reference = self._generate_reference_id()
+      product_fee = {
+         'product_fee' : {
+            'product_type': product,
+            'reference' : reference
+         }
+      }
+      self._requests_cb[reference] = cb
+      await self.websocket.send(json.dumps(product_fee))
+
    async def login(self):
       #get token from login server
-      access_token_info = await self._login_client.get_access_token(self._api_endpoint)
+      print ("logging in...")
+      access_token_info = await self._login_client.logMeIn(self._api_endpoint)
       if access_token_info == None:
          raise Exception("Failed to get access token")
 
@@ -479,13 +334,16 @@ class AsyncApiConnection(object):
             await self._call_listener_method('on_authorized')
 
          # start the loops
-         readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
-         if self._login_client is not None:
-            cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
-         await readTask
+         try:
+            readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
+            if self._login_client is not None:
+               cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
+            await readTask
 
-         if self._login_client is not None:
-            await cycleTask
+            if self._login_client is not None:
+               await cycleTask
+         except:
+            return
 
    async def readLoop(self):
       while True:
@@ -617,6 +475,29 @@ class AsyncApiConnection(object):
 
          elif 'load_balance' in update:
             await self._call_listener_cb(self.listener.on_balance_update, update['load_balance'])
+
+         elif 'subscribe_dealer_offers' in update:
+            sub_reply = update['subscribe_dealer_offers']
+            if sub_reply['success'] != True:
+               logging.warning(f"failed to subcribe to dealer offers with error: {sub_reply['error']}")
+
+         elif 'dealer_offers' in update:
+            dealer_offers = DealerOffers(update['dealer_offers'])
+            await self._call_listener_method('on_dealer_offers', dealer_offers)
+
+         elif 'market_order' in update:
+            order_reply = update['market_order']
+            reference = order_reply['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               await self._call_listener_cb(cb, order_reply)
+
+         elif 'product_fee' in update:
+            fee_reply = update['product_fee']
+            reference = fee_reply['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               await self._call_listener_cb(cb, fee_reply)
 
          elif 'authorize' in update:
             if not update['authorize']['success']:

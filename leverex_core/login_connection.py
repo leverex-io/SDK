@@ -4,21 +4,41 @@ import datetime
 import websockets
 import random
 import logging
+import pyqrcode
+import platform
+import io
 
 from jwcrypto import jwk, jws, jwe
 from jwcrypto.common import json_encode
 
+from PIL import Image, ImageDraw
+
+####
+class LoginException(Exception):
+   def __init__(self, errStr):
+      super().__init__(errStr)
+
+####
 class LoginServiceClientWS():
-   def __init__(self, private_key_path, login_endpoint,
-      email=None, dump_communication=False):
+   def __init__(self,
+      private_key_path,
+      login_endpoint,
+      email=None,
+      dump_communication=False,
+      aeid_endpoint=None):
+
       self._dump_communication = dump_communication
       self._login_endpoint = login_endpoint
       self._email = email
       self._messages = {}
 
-      with open(private_key_path, 'r') as key_file:
-         self._key = jwk.JWK()
-         self._key.import_from_pem(key_file.read().encode())
+      if private_key_path is not None:
+         with open(private_key_path, 'r') as key_file:
+            self._key = jwk.JWK()
+            self._key.import_from_pem(key_file.read().encode())
+      else:
+         self._key = None
+      self._aeid_endpoint = aeid_endpoint
 
    def get_email(self):
       if self._email == None:
@@ -68,9 +88,7 @@ class LoginServiceClientWS():
                logging.warning(f'Unexpected reply: {uploadResult}')
                continue
             else:
-               # for some reason first reply from Login service is not providing
-               # any data. so we just ignore it
-               if uploadResult['data'] is None:
+               if not 'data' in uploadResult:
                   continue
 
                operation_status = uploadResult['data']['status']
@@ -104,12 +122,21 @@ class LoginServiceClientWS():
       return jws_token.serialize(compact=False)
 
    # get_access_token return
-   #  {
+   # {
    #    'access_token': 'token string'
    #    , 'grant': 'basic'
    #    , 'expires_in': 600
    # }
-   async def get_access_token(self, api_enpoint_url):
+   async def logMeIn(self, api_enpoint_url):
+      if self._key != None:
+         return await self.get_access_token_from_key(api_enpoint_url)
+      elif self._aeid_endpoint:
+         return await self.get_access_token_from_request(api_enpoint_url)
+      else:
+         raise LoginException("invalid setup, cannot login!")
+
+   ## generate and sign access token provided private key
+   async def get_access_token_from_key(self, api_enpoint_url):
       token_dict = {
            'thumbprint': self._key.thumbprint(),
            'created': '{}'.format(datetime.datetime.utcnow()),
@@ -148,6 +175,76 @@ class LoginServiceClientWS():
 
          return uploadResult['data']
 
+   ## get request id to generate token from 2FA
+   async def get_access_token_from_request(self, api_enpoint_url):
+      messageId = random.randint(0, 2**32-1)
+      data = {'method': "login_init",
+         'api': "login",
+         'args': {'service_url': api_enpoint_url},
+         #randomize the message id, it will be sent back to us on reply
+         'message_id': messageId}
+
+      async with websockets.connect(self._login_endpoint) as websocket:
+         if self._dump_communication:
+            logging.info('Sending {}'.format(json.dumps(data)))
+         await websocket.send(json.dumps(data))
+
+         while True:
+            resp = await websocket.recv()
+            loginReply = json.loads(resp)
+
+            if self._dump_communication:
+               logging.info('Received {}'.format(resp))
+
+            if loginReply['message_id'] != messageId:
+               logging.warning("Unexpected login reply: {}".format(resp))
+               continue
+
+            # handle login server replies
+            if loginReply['method'] == 'login_init':
+               requestId = loginReply['data']['request_id']
+               requestUrl = f"{self._aeid_endpoint}/app/requests/?request_id={requestId}"
+               qr = pyqrcode.create(requestUrl)
+
+               #display login QR
+               print ("login request has been created, scan this QR with your aeid mobile app to proceed")
+
+               if platform.system() == 'Windows':
+                   buffer = io.BytesIO()
+                   qr.png(buffer, scale=10)
+                   buffer.seek(0)
+                   img = Image.open(buffer)
+                   img.show(title="Scan this QR with your Autheid mobile App")
+               else:
+                   print(qr.terminal())
+
+               #wait on request status update
+               continue
+
+            elif loginReply['method'] == 'login_status':
+               try:
+                  statusBody = loginReply['data']
+                  if 'status' in statusBody:
+                     print(f"login status update: {statusBody['status']}")
+                     continue
+                  elif 'error' in statusBody:
+                     print(f"login error: {statusBody['error']}")
+                     raise LoginException(f"Login attempt failed with error: {statusBody['error']}")
+               except:
+                  logging.warning("failed to parse login status update: {}".format(resp))
+
+            elif loginReply['method'] == 'login_complete':
+               replyBody = loginReply['data']
+               if replyBody['status'] != 'SUCCESS':
+                  raise LoginException(f"Login attempt failed with status: {replyBody['status']}")
+               else:
+                  return replyBody
+
+            else:
+               logging.warning("Unhandled login reply: {}".format(resp))
+               continue
+
+   ## refresh session JWT
    async def update_access_token(self, access_token):
       messageId = random.randint(0, 2**32-1)
       data = {'method': "renew", 'api': "login",
