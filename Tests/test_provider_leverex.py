@@ -128,7 +128,9 @@ class MockedLeverexConnectionClass(object):
          'last_cut_off_price' : open_price,
          'session_id' : session_id,
          'previous_session_id' : session_id - 1,
-         'healthy' : True
+         'healthy' : True,
+         'fee_taker' : 15,
+         'fee_maker' : -5
       }))
 
    async def notifySessionClose(self, session_id):

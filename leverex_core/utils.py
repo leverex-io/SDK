@@ -563,8 +563,8 @@ class LeverexOpenVolume(object):
       #limit by max volume, apply unquote ratio
       #unquote ratio is the portion of the available exposure
       #that should be kept unencumbured at all times
-      sellVol = round(min(maxVolume, maxSell) * (1.0 - unquoteRatio), 8)
-      buyVol = round(min(maxVolume, maxBuy) * (1.0 - unquoteRatio), 8)
+      sellVol = round(min(maxVolume, maxSell * (1.0 - unquoteRatio)), 8)
+      buyVol = round(min(maxVolume, maxBuy * (1.0 - unquoteRatio)), 8)
 
       return {
          'ask': sellVol,
