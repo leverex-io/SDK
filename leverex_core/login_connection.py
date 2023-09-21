@@ -51,7 +51,7 @@ class LoginServiceClientWS():
    def get_service_url(self):
       if self._service_url == None:
          raise Exception("missing service_url")
-      return self._email
+      return self._service_url
 
    def get_login_endpoint(self):
       return self._login_endpoint
