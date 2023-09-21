@@ -34,6 +34,10 @@ if [ "$1" = "dev" ]; then
    login_endpoint="wss://login-dev.leverex.io/ws/v1/websocket"
    api_endpoint="wss://api-dev.leverex.io"
    echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
+elif [ "$1" = "devprem" ]; then
+   login_endpoint="wss://login-devprem.leverex.io/ws/v1/websocket"
+   api_endpoint="wss://api-devprem.leverex.io"
+   echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
 elif [ "$1" = "uat" ]; then
    login_endpoint="wss://login-testnet.leverex.io/ws/v1/websocket"
    api_endpoint="wss://api-testnet.leverex.io"

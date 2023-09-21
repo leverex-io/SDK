@@ -7,7 +7,7 @@ import logging
 
 sys.path.append('..')
 
-from Providers.leverex_core.login_connection import LoginServiceClientWS
+from leverex_core.login_connection import LoginServiceClientWS
 
 
 async def add_container_keys_to_env_autheid(keys_path):
