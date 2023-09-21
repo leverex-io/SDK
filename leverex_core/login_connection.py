@@ -33,7 +33,7 @@ class LoginServiceClientWS():
       self._login_endpoint = login_endpoint
       self._email = email
       self._messages = {}
-      self._service_url = None
+      self._service_url = service_url
 
       if private_key_path is not None:
          with open(private_key_path, 'r') as key_file:
