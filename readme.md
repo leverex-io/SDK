@@ -37,7 +37,7 @@
     The script requires the following parameters:
    - Environment (e.g., `dev`), list of supported environment: dev, uat, prod, devprem
    - API key name (e.g., `api_key_1`), arbitrary key name
-   - Account email (e.g., `my*account@mail.com`), this is about autheid account, it also has to be registered in the system you create dealer key for
+   - Account email (e.g., `my*account@mail.com`), this is about autheid account, it also has to be registered in the system you create dealer key for, e.g. https://dev.leverex.io for `dev` environment, https://testnet.leverex.io for `uat` environment, https://leverex.io for `prod` environment
 
     Here's how you run it:
 
