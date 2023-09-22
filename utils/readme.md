@@ -1,7 +1,7 @@
 # In case we need to recreate virtual env
 
 ## remove old virtual env
-pipenv --python /usr/bin/python3 --rm
+pipenv --python 3.10 --rm
 
 ## remove old Pipfile*
 rm Pipfile*
