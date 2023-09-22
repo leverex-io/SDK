@@ -25,12 +25,15 @@ class LoginServiceClientWS():
       login_endpoint,
       email=None,
       dump_communication=False,
-      aeid_endpoint=None):
+      aeid_endpoint=None,
+      service_url=None
+      ):
 
       self._dump_communication = dump_communication
       self._login_endpoint = login_endpoint
       self._email = email
       self._messages = {}
+      self._service_url = service_url
 
       if private_key_path is not None:
          with open(private_key_path, 'r') as key_file:
@@ -45,8 +48,14 @@ class LoginServiceClientWS():
          raise Exception("missing email")
       return self._email
 
+   def get_service_url(self):
+      if self._service_url == None:
+         raise Exception("missing service_url")
+      return self._service_url
+
    def get_login_endpoint(self):
       return self._login_endpoint
+
 
    async def send_key_to_endpoint(self):
       #print out the key fingerprint
@@ -60,6 +69,7 @@ class LoginServiceClientWS():
       data = {'method': "upload_key_init", 'api': "login",
          'args': {
             'email': self.get_email(),
+            'service_url': self.get_service_url(),
             'user_cert': self._key.export_public(True)
             },
          #randomize the message id, it will be sent back to us on reply

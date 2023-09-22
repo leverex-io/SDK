@@ -33,19 +33,33 @@ public_key_file="$keys_dir/public_key.pem"
 if [ "$1" = "dev" ]; then
    login_endpoint="wss://login-dev.leverex.io/ws/v1/websocket"
    api_endpoint="wss://api-dev.leverex.io"
-   echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
+   service_url="wss://dev.leverex.io"
+   echo "{\"email\":\"$3\",\"login_endpoint\": \"$login_endpoint\",\"api_endpoint\": \"$api_endpoint\",\"service_url\": \"$service_url\"}" >> $config_file
+
+elif [ "$1" = "devprem" ]; then
+   login_endpoint="wss://login-devprem.leverex.io/ws/v1/websocket"
+   api_endpoint="wss://api-devprem.leverex.io"
+   service_url="wss://devprem.leverex.io"
+   echo "{\"email\":\"$3\",\"login_endpoint\": \"$login_endpoint\",\"api_endpoint\": \"$api_endpoint\",\"service_url\": \"$service_url\"}" >> $config_file
+
 elif [ "$1" = "uat" ]; then
    login_endpoint="wss://login-testnet.leverex.io/ws/v1/websocket"
    api_endpoint="wss://api-testnet.leverex.io"
-   echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
+   service_url="wss://testnet.leverex.io"
+   echo "{\"email\":\"$3\",\"login_endpoint\": \"$login_endpoint\",\"api_endpoint\": \"$api_endpoint\",\"service_url\": \"$service_url\"}" >> $config_file
+
 elif [ "$1" = "live" ]; then
    login_endpoint="wss://login-live.leverex.io/ws/v1/websocket"
    api_endpoint="wss://api-live.leverex.io"
-   echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
+   service_url="wss://live.leverex.io"
+   echo "{\"email\":\"$3\",\"login_endpoint\": \"$login_endpoint\",\"api_endpoint\": \"$api_endpoint\",\"service_url\": \"$service_url\"}" >> $config_file
+
 elif [ "$1" = "prod" ]; then
    login_endpoint="wss://login.leverex.io/ws/v1/websocket"
    api_endpoint="wss://api.leverex.io"
-   echo "{\"email\":\"$3\",\"login_endpoint\" : \"$login_endpoint\",\"api_endpoint\" : \"$api_endpoint\"}" >> $config_file
+   service_url="wss://leverex.io"
+   echo "{\"email\":\"$3\",\"login_endpoint\": \"$login_endpoint\",\"api_endpoint\": \"$api_endpoint\",\"service_url\": \"$service_url\"}" >> $config_file
+
 else
    echo "ERROR: undefined environment: $1"
    rm -r $1/$2

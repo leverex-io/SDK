@@ -26,20 +26,23 @@ class WebReporter(Factory):
       super().__init__(config)
 
    async def connect(self):
-      ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-      ssl_context.load_verify_locations(certifi.where())
-      ssl_context.load_cert_chain(self.config["exporter_service"]["client_cert"])
-      async with websockets.connect(self.config["exporter_service"]["url"], ssl=ssl_context) as websocket:
-        self._connection = websocket
-        while True:
-            try:
-                message = await self._connection.recv()
-                logging.info(message)
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.load_verify_locations(certifi.where())
+        ssl_context.load_cert_chain(self.config["exporter_service"]["client_cert"])
 
-            except websockets.exceptions.ConnectionClosed:
-                print('ConnectionClosed')
-                break
-      
+        try:
+            async with websockets.connect(self.config["exporter_service"]["url"], ssl=ssl_context) as websocket:
+                self._connection = websocket
+                while True:
+                    try:
+                        message = await self._connection.recv()
+                        logging.info(message)
+                    except websockets.exceptions.ConnectionClosed:
+                        logging.warning('ConnectionClosed')
+                        break
+
+        except (websockets.exceptions.ConnectionClosedError, OSError) as e:
+            logging.error(f"Failed to connect to web reporter service. Error: {e}")
    
    async def sendMessage(self, data):
       if self._connection:
