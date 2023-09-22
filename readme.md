@@ -28,6 +28,7 @@
     ```
 
 4. Create pip env
+    E.g.
     ```sh
     pipenv install --python 3.10 -r requirements.txt
     ```
