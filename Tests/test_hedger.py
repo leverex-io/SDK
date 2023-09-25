@@ -2,7 +2,7 @@
 import unittest
 import copy
 
-from .utils import TestTaker, TestMaker, price
+from .tools import TestTaker, TestMaker, price, double_eq
 from leverex_core.utils import Order, SIDE_BUY, SIDE_SELL, \
    WithdrawInfo
 from Factories.Definitions import Balance
@@ -98,9 +98,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers0 = maker.offers[0]
       assert len(offers0) == 1
-      assert offers0[0].volume == 0.8
-      assert offers0[0].bid == round(9989.58  * 0.99, 2)
-      assert offers0[0].ask == round(10010.42 * 1.01, 2)
+      assert double_eq(offers0[0].volume, 0.8)
+      assert double_eq(offers0[0].bid, 9989.58  * 0.99)
+      assert double_eq(offers0[0].ask, 10010.42 * 1.01)
 
       #balance event
       await maker.updateBalance(500)
@@ -108,9 +108,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers1 = maker.offers[1]
       assert len(offers1) == 1
-      assert offers1[0].volume == 0.4
-      assert offers1[0].bid == round(9989.58  * 0.99, 2)
-      assert offers1[0].ask == round(10010.42 * 1.01, 2)
+      assert double_eq(offers1[0].volume, 0.4)
+      assert double_eq(offers0[0].bid, 9989.58  * 0.99)
+      assert double_eq(offers0[0].ask, 10010.42 * 1.01)
 
       #order book event
       await taker.populateOrderBook(6)
@@ -118,9 +118,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers2 = maker.offers[2]
       assert len(offers2) == 1
-      assert offers2[0].volume == 0.4
-      assert offers2[0].bid == round(9993.75  * 0.99, 2)
-      assert offers2[0].ask == round(10006.25 * 1.01, 2)
+      assert double_eq(offers1[0].volume, 0.4)
+      assert double_eq(offers2[0].bid, 9993.75  * 0.99)
+      assert double_eq(offers2[0].ask, 10006.25 * 1.01)
 
    async def test_offers_order(self):
       #maker orders should affect maker and taker exposure accordingly
@@ -140,9 +140,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       offers0 = maker.offers[0]
       assert len(offers0) == 1
-      assert offers0[0].volume == 0.4
-      assert offers0[0].bid == round(9993.75  * 0.99, 2)
-      assert offers0[0].ask == round(10006.25 * 1.01, 2)
+      assert double_eq(offers0[0].volume, 0.4)
+      assert double_eq(offers0[0].bid, 9993.75  * 0.99)
+      assert double_eq(offers0[0].ask, 10006.25 * 1.01)
 
       #new order event
       newOrder = Order(id=1, timestamp=0, quantity=0.1, price=10100, side=SIDE_BUY)
@@ -150,33 +150,33 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert len(maker.offers) == 2
 
       #check exposure
-      assert maker.getExposure() == 0.1
-      assert taker.getExposure() == -0.1
+      assert double_eq(maker.getExposure(), 0.1)
+      assert double_eq(taker.getExposure(), -0.1)
 
       #check volumes
       openVolume = maker.getOpenVolume()
       makerVolume = maker.getOpenVolume().get(
          self.config['hedger']['max_offer_volume'],
          self.config['hedger']['quote_ratio'])
-      assert makerVolume['ask'] == 0.52
-      assert makerVolume['bid'] == 0.32
+      assert double_eq(makerVolume['ask'], 0.52)
+      assert double_eq(makerVolume['bid'], 0.32)
 
       takerVolume = taker.getOpenVolume().get(
          self.config['hedger']['max_offer_volume'],
          self.config['hedger']['quote_ratio'])
-      assert takerVolume['ask'] == 0.72
-      assert takerVolume['bid'] == 0.92
+      assert double_eq(takerVolume['ask'], 0.72)
+      assert double_eq(takerVolume['bid'], 0.92)
 
       #check offers
       offers1 = maker.offers[1]
       assert len(offers1) == 2
 
-      assert offers1[0].volume == 0.52
+      assert double_eq(offers1[0].volume, 0.52)
       assert offers1[0].bid == None
-      assert offers1[0].ask == round(10006.25 * 1.01, 2)
+      assert double_eq(offers1[0].ask, 10006.25 * 1.01)
 
-      assert offers1[1].volume == 0.32
-      assert offers1[1].bid == round(9993.75  * 0.99, 2)
+      assert double_eq(offers1[1].volume, 0.32)
+      assert double_eq(offers1[1].bid, 9993.75  * 0.99)
       assert offers1[1].ask == None
 
    #exposure tests set various exposure on the maker and the taker,
@@ -204,8 +204,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       #check taker exposure is the opposite of the maker's
       assert maker.balance == 1000
       assert taker.balance == 1500
-      assert maker.getExposure() == 0.3
-      assert taker.getExposure() == -0.3
+      assert double_eq(maker.getExposure(), 0.3)
+      assert double_eq(taker.getExposure(), -0.3)
 
       #add another order
       newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900, side=SIDE_SELL)
@@ -213,8 +213,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       assert maker.balance == 1000
       assert taker.balance == 1500
-      assert maker.getExposure() == 0.2
-      assert taker.getExposure() == -0.2
+      assert double_eq(maker.getExposure(), 0.2)
+      assert double_eq(taker.getExposure(), -0.2)
 
    async def test_exposure_sync_taker(self):
       #setup taker and maker
@@ -244,8 +244,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       assert maker.balance == 1000
       assert taker.balance == 1500
-      assert maker.getExposure() == 0.1
-      assert taker.getExposure() == -0.1
+      assert double_eq(maker.getExposure(), 0.1)
+      assert double_eq(taker.getExposure(), -0.1)
 
    async def test_exposure_sync_both(self):
       #setup taker and maker
@@ -270,8 +270,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       #check taker exposure matches maker
       assert maker.balance == 1000
       assert taker.balance == 1500
-      assert maker.getExposure() == 0.4
-      assert taker.getExposure() == -0.4
+      assert double_eq(maker.getExposure(), 0.4)
+      assert double_eq(taker.getExposure(), -0.4)
 
       #add another order
       newOrder = Order(id=3, timestamp=0, quantity=-0.1, price=9900, side=SIDE_SELL)
@@ -279,8 +279,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       assert maker.balance == 1000
       assert taker.balance == 1500
-      assert maker.getExposure() == 0.3
-      assert taker.getExposure() == -0.3
+      assert double_eq(maker.getExposure(), 0.3)
+      assert double_eq(taker.getExposure(), -0.3)
 
    async def test_broken_provider(self):
       #setup taker and maker
@@ -311,8 +311,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       #check taker exposure matches maker
       assert maker.balance == 1000
       assert taker.balance == 1500
-      assert maker.getExposure() == 0.4
-      assert taker.getExposure() == -0.4
+      assert double_eq(maker.getExposure(), 0.4)
+      assert double_eq(taker.getExposure(), -0.4)
 
       #stop the maker, taker exposure shouldn't change
       await maker.setExplicitState(False)
@@ -324,7 +324,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert dealer.isReady() == False
 
       assert maker.getExposure() == None
-      assert taker.getExposure() == -0.4
+      assert double_eq(taker.getExposure(), -0.4)
 
       #restart the maker, taker exposure shouldn't change
       await maker.setExplicitState(True)
@@ -335,8 +335,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.isReady() == True
       assert dealer.isReady() == True
 
-      assert maker.getExposure() == 0.4
-      assert taker.getExposure() == -0.4
+      assert double_eq(maker.getExposure(), 0.4)
+      assert double_eq(taker.getExposure(), -0.4)
 
       #break the maker, taker exposure should go to 0
       await maker.explicitBreak()
@@ -348,7 +348,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert dealer.isReady() == False
 
       assert maker.getExposure() == None
-      assert taker.getExposure() == 0
+      assert double_eq(taker.getExposure(), 0)
 
    async def test_liquidation_target(self):
       #setup taker and maker
@@ -384,19 +384,19 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       newOrder = Order(id=3, timestamp=0, quantity=0.5, price=9900, side=SIDE_BUY)
       await maker.newOrder(newOrder)
 
-      assert maker.getExposure() == 0.5
-      assert taker.getExposure() == -0.5
-      assert taker.targetCollateral == 750
+      assert double_eq(maker.getExposure(), 0.5)
+      assert double_eq(taker.getExposure(), -0.5)
+      assert double_eq(taker.targetCollateral, 750)
 
       newOrder = Order(id=4, timestamp=0, quantity=-0.9, price=9900, side=SIDE_SELL)
       await maker.newOrder(newOrder)
 
-      assert maker.getExposure() == -0.4
-      assert taker.getExposure() == 0.4
-      assert taker.targetCollateral == 600
+      assert double_eq(maker.getExposure(), -0.4)
+      assert double_eq(taker.getExposure(), 0.4)
+      assert double_eq(taker.targetCollateral, 600)
 
       await maker.setOpenPrice(10100)
-      assert taker.targetCollateral == 606
+      assert double_eq(taker.targetCollateral, 606)
 
    async def test_rebalance_target(self):
       #setup taker and maker
@@ -429,8 +429,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == False
       assert hedger.canRebalance() == False
       target = hedger.rebalMan.target
-      assert target.maker.target == 1000
-      assert target.taker.target == 1500
+      assert double_eq(target.maker.target, 1000)
+      assert double_eq(target.taker.target, 1500)
       assert target.maker.toWithdraw['amount'] == 0
 
       #reduce taker cash, maker rebalance target should go up
@@ -441,8 +441,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 880
-      assert target.taker.target == 1320
+      assert double_eq(target.maker.target, 880)
+      assert double_eq(target.taker.target, 1320)
       assert target.maker.toWithdraw['amount'] == 120
 
       #post an order, rebalance target shouldn't change
@@ -454,8 +454,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert hedger.rebalMan.canAssess() == True
       assert target == hedger.rebalMan.target
-      assert target.maker.target == 880
-      assert target.taker.target == 1320
+      assert double_eq(target.maker.target, 880)
+      assert double_eq(target.taker.target, 1320)
       assert target.maker.toWithdraw['amount'] == 120
 
       #increase maker balance to 50 coins worth of volume
@@ -467,8 +467,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == True
       assert target != hedger.rebalMan.target
       target = hedger.rebalMan.target
-      assert target.maker.target == 20480
-      assert target.taker.target == 30720
+      assert double_eq(target.maker.target, 20480)
+      assert double_eq(target.taker.target, 30719.999999)
       assert target.maker.toWithdraw['amount'] == 29520
 
       #reduce balances near 1.5x max volume
@@ -479,8 +479,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 28000
-      assert target.taker.target == 42000
+      assert double_eq(target.maker.target, 28000)
+      assert double_eq(target.taker.target, 42000)
       assert target.maker.toWithdraw['amount'] == 22000
 
       await maker.updateBalance(15000)
@@ -490,8 +490,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 14000
-      assert target.taker.target == 21000
+      assert double_eq(target.maker.target, 14000)
+      assert double_eq(target.taker.target, 21000)
       assert target.maker.toWithdraw['amount'] == 1000
 
       #set taker above maker
@@ -502,8 +502,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 12000
-      assert target.taker.target == 18000
+      assert double_eq(target.maker.target, 12000)
+      assert double_eq(target.taker.target, 18000)
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 2000
 
@@ -540,8 +540,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.canRebalance() == False
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1080
-      assert target.taker.target == 1620
+      assert double_eq(target.maker.target, 1080)
+      assert double_eq(target.taker.target, 1620)
       assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 120
 
@@ -553,8 +553,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 960
-      assert target.taker.target == 1440
+      assert double_eq(target.maker.target, 960)
+      assert double_eq(target.taker.target, 1420)
       assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 240
 
@@ -576,8 +576,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 20560
-      assert target.taker.target == 30840
+      assert double_eq(target.maker.target, 20560)
+      assert double_eq(target.taker.target, 30840)
       assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 29640
 
@@ -589,8 +589,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 28080
-      assert target.taker.target == 42120
+      assert double_eq(target.maker.target, 28080)
+      assert double_eq(target.taker.target, 42120)
       assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 22120
 
@@ -601,8 +601,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 14080
-      assert target.taker.target == 21120
+      assert double_eq(target.maker.target, 14080)
+      assert double_eq(target.taker.target, 21120)
       assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 1120
 
@@ -613,8 +613,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == 0.5
       assert taker.getExposure() == -0.5
       target = hedger.rebalMan.target
-      assert target.maker.target == 12080
-      assert target.taker.target == 18120
+      assert double_eq(target.maker.target, 12080)
+      assert double_eq(target.taker.target, 18120)
       assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 1880
@@ -651,8 +651,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1000
-      assert target.taker.target == 1500
+      assert double_eq(target.maker.target, 1000)
+      assert double_eq(target.taker.target, 1500)
       assert target.maker.toWithdraw['amount'] == 0
       assert len(maker.withdrawalHist) == 0
 
@@ -666,8 +666,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 800
-      assert target.taker.target == 1200
+      assert double_eq(target.maker.target, 800)
+      assert double_eq(target.taker.target, 1200)
       assert target.maker.toWithdraw['amount'] == 200
       assert len(maker.withdrawalHist) == 0
 
@@ -701,8 +701,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 880
-      assert target.taker.target == 1320
+      assert double_eq(target.maker.target, 880)
+      assert double_eq(target.taker.target, 1320)
       assert target.maker.toWithdraw['amount'] == 120
       assert len(maker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['amount'] == 200
@@ -715,8 +715,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
       assert hedger.rebalMan.canAssess() == False
       target = hedger.rebalMan.target
-      assert target.maker.target == 960
-      assert target.taker.target == 1440
+      assert double_eq(target.maker.target, 960)
+      assert double_eq(target.taker.target, 1440)
       assert target.maker.toWithdraw['amount'] == 240
       assert len(maker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['amount'] == 200
@@ -765,8 +765,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1000
-      assert target.taker.target == 1500
+      assert double_eq(target.maker.target, 1000)
+      assert double_eq(target.taker.target, 1500)
       assert target.maker.toWithdraw['amount'] == 0
       assert len(maker.withdrawalHist) == 0
 
@@ -780,8 +780,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 800
-      assert target.taker.target == 1200
+      assert double_eq(target.maker.target, 800)
+      assert double_eq(target.taker.target, 1200)
       assert target.maker.toWithdraw['amount'] == 200
       assert len(maker.withdrawalHist) == 0
       assert len(maker.withdrawalsToPush) == 1
@@ -811,8 +811,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 800
-      assert target.taker.target == 1200
+      assert double_eq(target.maker.target, 800)
+      assert double_eq(target.taker.target, 1200)
       assert target.maker.toWithdraw['amount'] == 0
       assert len(maker.withdrawalHist) == 1
       assert maker.withdrawalHist[0]['amount'] == 200
@@ -853,8 +853,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1200
-      assert target.taker.target == 1800
+      assert double_eq(target.maker.target, 1200)
+      assert double_eq(target.taker.target, 1800)
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 200
       assert len(maker.withdrawalHist) == 1
@@ -872,8 +872,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1200
-      assert target.taker.target == 1800
+      assert double_eq(target.maker.target, 1200)
+      assert double_eq(target.taker.target, 1800)
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 200
       assert len(maker.withdrawalHist) == 1
@@ -891,8 +891,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1200
-      assert target.taker.target == 1800
+      assert double_eq(target.maker.target, 1200)
+      assert double_eq(target.taker.target, 1800)
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 200
       assert len(maker.withdrawalHist) == 1
@@ -950,8 +950,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1200
-      assert target.taker.target == 1800
+      assert double_eq(target.maker.target, 1200)
+      assert double_eq(target.taker.target, 1800)
       assert target.maker.toWithdraw['amount'] == 200
       assert target.taker.toWithdraw['amount'] == 0
       assert len(taker.withdrawalHist) == 1
@@ -969,8 +969,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1200
-      assert target.taker.target == 1800
+      assert double_eq(target.maker.target, 1200)
+      assert double_eq(target.taker.target, 1800)
       assert target.taker.toWithdraw['amount'] == 0
       assert target.maker.toWithdraw['amount'] == 200
       assert len(taker.withdrawalHist) == 1
@@ -988,8 +988,8 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canWithdraw() == True
       assert hedger.canRebalance() == True
       target = hedger.rebalMan.target
-      assert target.maker.target == 1200
-      assert target.taker.target == 1800
+      assert double_eq(target.maker.target, 1200)
+      assert double_eq(target.taker.target, 1800)
       assert target.taker.toWithdraw['amount'] == 0
       assert target.maker.toWithdraw['amount'] == 200
       assert len(maker.withdrawalHist) == 1

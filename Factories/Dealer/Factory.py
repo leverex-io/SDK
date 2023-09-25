@@ -17,30 +17,36 @@ class DealerFactory(object):
 
    async def run(self):
       #sanity checks
-      if self.hedger == None:
-         raise DealerException("[DealerFactory::run] missing hedging strat")
+      try:
+         if self.hedger == None:
+            raise DealerException("[DealerFactory::run] missing hedging strat")
 
-      ## maker setup ##
-      self.maker.setup(self.onEvent)
-      tasks = [self.maker.getAsyncIOTask()]
+         ## maker setup ##
+         self.maker.setup(self.onEvent)
+         tasks = [self.maker.getAsyncIOTask()]
 
-      ## taker setup ##
-      self.taker.setLeverage(self.maker.leverage)
-      self.taker.setup(self.onEvent)
-      tasks.append(self.taker.getAsyncIOTask())
+         ## taker setup ##
+         self.taker.setLeverage(self.maker.leverage)
+         self.taker.setup(self.onEvent)
+         tasks.append(self.taker.getAsyncIOTask())
 
-      ## hedger setup ##
-      self.hedger.setup(self.onEvent)
+         ## hedger setup ##
+         self.hedger.setup(self.onEvent)
 
-      ## status reporters setup ##
-      for reporter in self.statusReporters:
-         reporterTask = reporter.getAsyncIOTask()
-         if reporterTask == None:
-            continue
-         tasks.append(reporterTask)
+         ## status reporters setup ##
+         for reporter in self.statusReporters:
+            reporterTask = reporter.getAsyncIOTask()
+            if reporterTask == None:
+               continue
+            tasks.append(reporterTask)
 
-      #start asyncio tasks
-      done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+         #start asyncio tasks
+         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+      except Exception as e:
+         print (f"dealer loop exception: {e}")
+         loop = asyncio.get_running_loop()
+         loop.stop()
+         return
 
    def stop(self):
       pass

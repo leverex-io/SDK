@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import Factories.Definitions as Definitions
-
+from decimal import Decimal
 
 ################################################################################
 class CashOpsManager(object):
@@ -117,8 +117,8 @@ class Factory(object):
    def getCollateralRatio(self):
       #use leverage if collateral_pct is not explicit
       if self.collateral_pct != None:
-         return self.collateral_pct / 100
-      return 1 / self.leverage
+         return Decimal(self.collateral_pct / 100)
+      return Decimal(1 / self.leverage)
 
    ## initialization events ##
    async def setConnected(self, value):

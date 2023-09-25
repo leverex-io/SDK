@@ -1,5 +1,6 @@
 from datetime import datetime
 import time
+from decimal import Decimal
 
 ## dealer events ##
 Position = 'position'
@@ -10,7 +11,8 @@ Collateral = 'collateral'
 PriceEvent = 'index_price'
 Rebalance = 'rebalance'
 Transaction = 'transaction'
-##
+
+from leverex_core.utils import round_down
 
 ################################################################################
 class ProviderException(Exception):
@@ -356,13 +358,13 @@ class CashOperation(object):
 ################################################################################
 class SideVolume(object):
    def __init__(self, balance, margin, price):
-      self.freeBalance = balance
-      self.freeMargin = margin
-      self.priceFactor = price
+      self.freeBalance = round_down(balance, 6)
+      self.freeMargin = round_down(margin, 6)
+      self.priceFactor = round_down(price, 2)
 
    def getOpenVolume(self, maxVolume, unquoteRatio):
       #this is the max balance the dealer is allowed to quote
-      maxBalance = maxVolume * self.priceFactor
+      maxBalance = round_down(maxVolume, 8) * self.priceFactor
 
       #this is the balance the provider has avaible to quote,
       #capped by max dealer volume
@@ -371,7 +373,7 @@ class SideVolume(object):
       #this is the balance the provider is allowed to quote, as
       #defined by the portion of balance it has to keep unemcumbered
       #for rebalancing purposes
-      quotableBalance = self.freeBalance * (1-unquoteRatio)
+      quotableBalance = self.freeBalance * Decimal(1-unquoteRatio)
 
       #keep the smallest of the 2 as our balance to quote
       balanceToQuote = min(openBalance, quotableBalance)

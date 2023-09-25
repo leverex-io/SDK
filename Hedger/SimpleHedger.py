@@ -1,10 +1,11 @@
 import asyncio
 import logging
 import time
+from decimal import Decimal
 
 from Factories.Hedger.Factory import HedgerFactory
 from Factories.Definitions import Rebalance, RebalanceReport
-from leverex_core.utils import PriceOffer, OfferException
+from leverex_core.utils import PriceOffer, OfferException, round_down
 
 CANCEL_PENDING          = 'cancel_pending'
 CANCEL_PENDING_TODO     = 'cancel_pending_todo'
@@ -27,7 +28,7 @@ class ProviderTarget(object):
    def __init__(self, name, cashMetrics, target):
       self.name = name
       self.cash = cashMetrics
-      self.target = target
+      self.target = Decimal(target)
 
       '''
       Compute the amount to move across providers. If there
@@ -45,7 +46,7 @@ class ProviderTarget(object):
          'task' : None
       }
 
-      allCash = self.cash['total'] + self.cash['pending']
+      allCash = Decimal(self.cash['total'] + self.cash['pending'])
       if allCash > self.target:
          #provider has more cash than it needs
          self.toWithdraw['status'] = WITHDRAW_TODO
@@ -81,10 +82,6 @@ class RebalanceTarget(object):
       self.taker = ProviderTarget('taker', takerCash, takerTarget)
 
    def needsRebalance(self):
-      #if self.maker.cancelPending['status'] != CANCEL_PENDING_DONE or \
-      #   self.taker.cancelPending['status'] != CANCEL_PENDING_DONE:
-      #   return True
-
       amount = max(
          self.maker.toWithdraw['amount'],
          self.taker.toWithdraw['amount'])
@@ -93,7 +90,7 @@ class RebalanceTarget(object):
 
       allCash = self.maker.cash['total'] + self.maker.cash['pending'] + \
          self.taker.cash['total'] + self.taker.cash['pending']
-      return (amount / allCash) >= self.threshold
+      return float(amount / allCash) >= self.threshold
 
    def inTransit(self):
       return self.state != self.STATE_NO_REBALANCE and \
@@ -296,8 +293,8 @@ class RebalanceManager(object):
          return
 
       #1.b: get total cash per provider
-      makerTotal = makerCash['total'] + makerCash['pending']
-      takerTotal = takerCash['total'] + takerCash['pending']
+      makerTotal = Decimal(makerCash['total'] + makerCash['pending'])
+      takerTotal = Decimal(takerCash['total'] + takerCash['pending'])
 
       #1.c: check values have changed vs existing target
       if self.target != None and not self.target.inTransit():
@@ -312,8 +309,8 @@ class RebalanceManager(object):
       totalCash = makerTotal + takerTotal
 
       #2.b: distribute along collateral ratios
-      makerRatio = makerCash['ratio'] / \
-         (makerCash['ratio'] + takerCash['ratio'])
+      makerRatio = Decimal(makerCash['ratio'] / \
+         (makerCash['ratio'] + takerCash['ratio']))
       makerTarget = totalCash * makerRatio
       takerTarget = totalCash - makerTarget
 
@@ -677,7 +674,6 @@ class SimpleHedger(HedgerFactory):
       #ignore differences that are less than 100 satoshis
       if abs(exposureDiff) >= self.min_exposure:
          #we need to adjust the taker position by the opposite of the difference
-         exposureUpdate = exposureDiff * -1.0
 
          #TODO: check we have the cash in the taker to enter this position,
          #if not, we need to trigger a rebalance event and reduce our offers
@@ -685,7 +681,7 @@ class SimpleHedger(HedgerFactory):
          #with the taker's capacity
 
          #update taker position
-         await taker.updateExposure(exposureUpdate)
+         await taker.updateExposure(round_down(-exposureDiff, 8))
 
       #report ready state to hedger factory. On first exposure sync, this will
       #set the hedger ready flag. Further calls will have no effect

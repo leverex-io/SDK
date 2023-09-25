@@ -20,7 +20,7 @@ if __name__ == '__main__':
    )
    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
-   parser = argparse.ArgumentParser(description='Leverex Bitfinix Dealer') 
+   parser = argparse.ArgumentParser(description='Leverex Dealer - hedging on Bfx') 
 
    parser.add_argument('--config', type=str, help='Config file to use')
    parser.add_argument('--local', default=False, action='store_true',

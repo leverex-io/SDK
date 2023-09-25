@@ -270,9 +270,6 @@ class AsyncApiConnection(object):
          if reply['success'] == False:
             print (f"order failed with error: {reply['error_msg']}")
 
-      side_str = "buy" if side == SIDE_BUY else "sell"
-      print (f"placing market {side_str} order for {amount} xbt at price {price}")
-
       reference = self._generate_reference_id()
       market_order = {
          'market_order' : {
@@ -342,7 +339,10 @@ class AsyncApiConnection(object):
 
             if self._login_client is not None:
                await cycleTask
-         except:
+         except Exception as e:
+            print(f"leverex_core/api_connection failed with error: {e}")
+            loop = asyncio.get_running_loop()
+            loop.stop()
             return
 
    async def readLoop(self):

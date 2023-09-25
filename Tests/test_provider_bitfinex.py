@@ -1,8 +1,9 @@
 #import pdb; pdb.set_trace()
 import unittest
 from unittest.mock import patch
+from decimal import Decimal
 
-from .utils import TestMaker, getOrderBookSnapshot
+from .tools import TestMaker, getOrderBookSnapshot, double_eq
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 from Factories.Definitions import AggregationOrderBook
@@ -63,7 +64,7 @@ class FakeBfxWsInterface(object):
    @staticmethod
    def getCollateral(amount, price, leverage):
       #we assume leverage is collateral ratio
-      swing = price / leverage
+      swing = Decimal(price / leverage)
       return abs(swing * amount)
 
    def setLiquidationPrice(self, symbol):
@@ -73,7 +74,7 @@ class FakeBfxWsInterface(object):
          return
 
       price = self.positions[symbol][PRICE]
-      collateral = self.positions[symbol][COLLATERAL]
+      collateral = Decimal(self.positions[symbol][COLLATERAL])
       if collateral == 0 or collateral == None:
          self.positions[symbol][LIQ_PRICE] = None
          return
@@ -395,8 +396,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       volume = taker.getOpenVolume().get(
          self.config['hedger']['max_offer_volume'],
          self.config['hedger']['quote_ratio'])
-      assert round(volume['ask'], 4) == 0.7944
-      assert round(volume['bid'], 4) == 0.8057
+      assert double_eq(volume['ask'], 0.7944)
+      assert double_eq(volume['bid'], 0.8057)
 
       ## check price offers ##
       '''
@@ -411,12 +412,12 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers0 = maker.offers[0]
       assert len(offers0) == 2
 
-      assert offers0[0].volume == 0.8
+      assert double_eq(offers0[0].volume, 0.8)
       assert offers0[0].bid == None
-      assert offers0[0].ask == round(10020.83 * 1.01, 2)
+      assert double_eq(offers0[0].ask , 10020.83 * 1.01)
 
-      assert round(offers0[1].volume, 4) == 0.7944
-      assert offers0[1].bid == round(9979.17  * 0.99, 2)
+      assert double_eq(offers0[1].volume, 0.7944)
+      assert double_eq(offers0[1].bid, 9979.17  * 0.99)
       assert offers0[1].ask == None
 
    @patch('Providers.Bitfinex.Client')
@@ -482,8 +483,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       volume = taker.getOpenVolume().get(
          self.config['hedger']['max_offer_volume'],
          self.config['hedger']['quote_ratio'])
-      assert round(volume['ask'], 4) == 0.7944
-      assert round(volume['bid'], 4) == 0.8057
+      assert double_eq(volume['ask'], 0.7944)
+      assert double_eq(volume['bid'], 0.8057)
 
       ## check price offers ##
       '''
@@ -498,12 +499,12 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers0 = maker.offers[0]
       assert len(offers0) == 2
 
-      assert offers0[0].volume == 0.8
+      assert double_eq(offers0[0].volume, 0.8)
       assert offers0[0].bid == None
-      assert offers0[0].ask == round(10020.83 * 1.01, 2)
+      assert double_eq(offers0[0].ask ,10020.83 * 1.01)
 
-      assert round(offers0[1].volume, 4) == 0.7944
-      assert offers0[1].bid == round(9979.17  * 0.99, 2)
+      assert double_eq(offers0[1].volume, 0.7944)
+      assert double_eq(offers0[1].bid ,9979.17  * 0.99)
       assert offers0[1].ask == None
 
    @patch('Providers.Bitfinex.Client')
@@ -558,10 +559,10 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0.2
+      assert double_eq(taker.getExposure(), 0.2)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
-      assert mockedConnection.getPositionExposure() == 0.2
+      assert double_eq(mockedConnection.getPositionExposure(), 0.2)
 
    @patch('Providers.Bitfinex.Client')
    async def test_exposure_sync(self, MockedBfxClientObj):
@@ -615,19 +616,19 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0
+      assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
 
       #notify maker of new order, taker exposure should be updated accordingly
       await maker.newOrder(Order(1, 1, 1, 10200, SIDE_BUY))
-      assert round(maker.getExposure(), 8) == 1
-      assert round(taker.getExposure(), 8) == -1
+      assert double_eq(maker.getExposure(), 1)
+      assert double_eq(taker.getExposure(), -1)
 
       #another one
       await maker.newOrder(Order(2, 2, -0.6, 9900, SIDE_SELL))
-      assert round(maker.getExposure(), 8) == 0.4
-      assert round(taker.getExposure(), 8) == -0.4
+      assert double_eq(maker.getExposure(), 0.4)
+      assert double_eq(taker.getExposure(), -0.4)
 
    @patch('Providers.Bitfinex.Client')
    async def test_adjust_collateral(self, MockedBfxClientObj):
@@ -680,22 +681,22 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0
+      assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
 
       #notify maker of new order, taker exposure should be updated accordingly
       await maker.newOrder(Order(1, 1, 1, 10200, SIDE_BUY))
-      assert round(maker.getExposure(), 8) == 1
-      assert round(taker.getExposure(), 8) == -1
+      assert double_eq(maker.getExposure(), 1)
+      assert double_eq(taker.getExposure(), -1)
 
       #check collateral and liquidation price
       assert mockedConnection.getPositionLiquidationPrice() == 11500
 
       #another one
       await maker.newOrder(Order(2, 2, -0.6, 9900, SIDE_SELL))
-      assert round(maker.getExposure(), 8) == 0.4
-      assert round(taker.getExposure(), 8) == -0.4
+      assert double_eq(maker.getExposure(), 0.4)
+      assert double_eq(taker.getExposure(), -0.4)
 
       #check collateral and liquidation price
       assert mockedConnection.getPositionLiquidationPrice() == 11500
@@ -769,7 +770,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0
+      assert double_eq(taker.getExposure(), 0)
       assert hedger.isReady() == True
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
@@ -777,32 +778,32 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #check open volume
       vol = taker.getOpenVolume().get(5, 0)
-      assert vol['ask'] == 1500 / (0.15 * 10400)
-      assert vol['bid'] == 1500 / (0.15 * 9600)
+      assert double_eq(vol['ask'], 1500 / (0.15 * 10400))
+      assert double_eq(vol['bid'], 1500 / (0.15 * 9600))
 
       ## push an order ##
       await maker.newOrder(Order(1, 1, 0.3, 10000, SIDE_BUY))
 
       #check exposure
-      assert maker.getExposure() == 0.3
-      assert taker.getExposure() == -0.3
+      assert double_eq(maker.getExposure(), 0.3)
+      assert double_eq(taker.getExposure(), -0.3)
 
       #check open volume, should reflect effect of exposure
       vol = taker.getOpenVolume().get(5, 0)
-      assert vol['ask'] == 1050 / (0.15 * 10400)
-      assert vol['bid'] == 1950 / (0.15 * 9600)
+      assert double_eq(vol['ask'], 1050 / (0.15 * 10400))
+      assert double_eq(vol['bid'], 1950 / (0.15 * 9600))
 
       ## push order on opposite side ##
       await maker.newOrder(Order(2, 1, -0.5, 10000, SIDE_SELL))
 
       #check exposure
-      assert maker.getExposure() == -0.2
-      assert taker.getExposure() == 0.2
+      assert double_eq(maker.getExposure(), -0.2)
+      assert double_eq(taker.getExposure(),  0.2)
 
       #check open volume, should reflect effect of exposure
       vol = taker.getOpenVolume().get(5, 0)
-      assert vol['ask'] == 1800 / (0.15 * 10400)
-      assert vol['bid'] == 1200 / (0.15 * 9600)
+      assert double_eq(vol['ask'], 1800 / (0.15 * 10400))
+      assert double_eq(vol['bid'], 1200 / (0.15 * 9600))
 
       ## go flat at a higher price ##
       await maker.newOrder(Order(3, 1, 0.2, 10100, SIDE_BUY))
@@ -812,8 +813,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == 0
 
       vol = taker.getOpenVolume().get(5, 0)
-      assert vol['ask'] == 1500 / (0.15 * 10400)
-      assert vol['bid'] == 1500 / (0.15 * 9600)
+      assert double_eq(vol['ask'], 1500 / (0.15 * 10400))
+      assert double_eq(vol['bid'], 1500 / (0.15 * 9600))
 
    @patch('Providers.Bitfinex.Client')
    async def test_rebalance_withdrawals(self, MockedBfxClientObj):
@@ -867,7 +868,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0
+      assert double_eq(taker.getExposure(), 0)
       assert hedger.isReady() == True
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
@@ -892,8 +893,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert cashMetrics['pending'] == 0
 
       target = hedger.rebalMan.target
-      assert target.maker.target == 2000
-      assert target.taker.target == 3000
+      assert double_eq(target.maker.target, 2000)
+      assert double_eq(target.taker.target, 3000)
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 1000
       assert target.taker.toWithdraw['status'] == 'withdraw_ongoing'
@@ -905,8 +906,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #add exposure, shouldnt affect cash metrics
       await maker.newOrder(Order(1, 1, 0.3, 10000, SIDE_BUY))
-      assert maker.getExposure() == 0.3
-      assert taker.getExposure() == -0.3
+      assert double_eq(maker.getExposure(), 0.3)
+      assert double_eq(taker.getExposure(), -0.3)
       assert target == hedger.rebalMan.target
 
       cashMetrics = taker.getCashMetrics()
@@ -921,8 +922,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert cashMetrics['pending'] == 1000
 
       target = hedger.rebalMan.target
-      assert target.maker.target == 2000
-      assert target.taker.target == 3000
+      assert double_eq(target.maker.target, 2000)
+      assert double_eq(target.taker.target, 3000)
       assert target.maker.toWithdraw['amount'] == 0
       assert target.taker.toWithdraw['amount'] == 1000
       assert target.taker.toWithdraw['status'] == 'withdraw_ongoing'
@@ -1003,7 +1004,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0
+      assert double_eq(taker.getExposure(), 0)
       assert hedger.isReady() == True
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
@@ -1028,8 +1029,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == False
 
       target = hedger.rebalMan.target
-      assert target.taker.target == 2100
-      assert target.maker.target == 1400
+      assert double_eq(target.taker.target, 2100)
+      assert double_eq(target.maker.target, 1400)
       assert target.state == 'target_state_cancelling_withdrawal'
       assert target.taker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.taker.toWithdraw['amount'] == 400
@@ -1050,8 +1051,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == False
 
       target = hedger.rebalMan.target
-      assert target.taker.target == 2100
-      assert target.maker.target == 1400
+      assert double_eq(target.taker.target, 2100)
+      assert double_eq(target.maker.target, 1400)
       assert target.state == 'target_state_withdrawing'
       assert target.taker.cancelPending['status'] == 'cancel_pending_done'
       assert target.taker.toWithdraw['amount'] == 400
@@ -1070,8 +1071,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == False
 
       target = hedger.rebalMan.target
-      assert target.taker.target == 2100
-      assert target.maker.target == 1400
+      assert double_eq(target.taker.target, 2100)
+      assert double_eq(target.maker.target, 1400)
       assert target.state == 'target_state_withdrawing'
       assert target.taker.toWithdraw['amount'] == 400
       assert target.taker.toWithdraw['status'] == 'withdraw_ongoing'
@@ -1154,7 +1155,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1400)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0
+      assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1400
       assert hedger.canRebalance() == True
@@ -1253,7 +1254,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
       assert taker._balanceInitialized == True
-      assert round(taker.getExposure(), 8) == 0
+      assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
       assert hedger.canRebalance() == True

@@ -1,12 +1,14 @@
 import logging
 import asyncio
 import time
+from decimal import Decimal
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook, PositionsReport, BalanceReport, \
    PriceEvent, CashOperation, OpenVolume, TheTxTracker, \
    checkConfig
+from leverex_core.utils import round_down
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -655,7 +657,7 @@ class BitfinexProvider(Factory):
 
       bfx_balance = self.balances[BfxAccounts.DERIVATIVES][self.ccy]
 
-      return min(target, bfx_balance[BfxBalances.TOTAL])
+      return min(target, Decimal(bfx_balance[BfxBalances.TOTAL]))
 
    ## volume ##
    def getOpenVolume(self):
@@ -698,13 +700,13 @@ class BitfinexProvider(Factory):
       askMargin = 0
       bidMargin = 0
       if self.getExposure() > 0:
-         bidMargin = freeMargin
+         bidMargin = round_down(freeMargin, 6)
       else:
-         askMargin = freeMargin
+         askMargin = round_down(freeMargin, 6)
 
       return OpenVolume(balance[balanceKey],
-         askMargin, collateralPct * priceAsk.price,
-         bidMargin, collateralPct * priceBid.price
+         askMargin, collateralPct * round_down(priceAsk.price, 2),
+         bidMargin, collateralPct * round_down(priceBid.price, 2)
       )
 
    ## cash metrics
@@ -723,8 +725,8 @@ class BitfinexProvider(Factory):
             pending += pendingDict[acc][ccy]
 
       return {
-         'total' : balance[BfxBalances.TOTAL],
-         'pending' : pending,
+         'total' : Decimal(balance[BfxBalances.TOTAL]),
+         'pending' : Decimal(pending),
          'ratio' : self.getCollateralRatio()
       }
 
@@ -764,11 +766,11 @@ class BitfinexProvider(Factory):
          return None
 
       if self.product not in self.positions:
-         return 0
+         return Decimal(0)
       exposure = 0
       for id in self.positions[self.product]:
          exposure += self.positions[self.product][id].amount
-      return exposure
+      return Decimal(exposure)
 
    async def updateExposure(self, quantity):
       await self.connection.ws.submit_order(symbol=self.product,
@@ -849,7 +851,7 @@ class BitfinexProvider(Factory):
 
       #We want to cover a X% price swing from the open price. Check that
       #the liquidation price on our position is within that margin
-      liqPct = abs(position.liquidation_price - openPrice) / openPrice
+      liqPct = abs(round_down(position.liquidation_price, 2) - openPrice) / openPrice
       collateralPct = self.getCollateralRatio()
       if abs(liqPct - collateralPct) * 100 < self.max_collateral_deviation:
          return None
@@ -868,17 +870,21 @@ class BitfinexProvider(Factory):
       collateralTarget = position.collateral_min
 
       if totalSwing > 0:
-         collateralTarget = max(collateralTarget, totalSwing * abs(position.amount))
+         collateralTarget = max(collateralTarget, \
+            totalSwing * abs(round_down(position.amount, 8)))
 
       #if the collateralTarget is within 10% of the minimum allowed
       #collateral value, we ignore it
-      collateral_diff = position.collateral - position.collateral_min
       if position.collateral / position.collateral_min <= 1.1:
          return
 
       collateralTarget = self.getMinTargetBalance(collateralTarget)
+      if collateralTarget is None:
+         return
+
       await self.connection.rest.set_derivative_collateral(
-         symbol=self.product, collateral=collateralTarget)
+         symbol=self.product,
+         collateral=float(round_down(collateralTarget, 6)))
 
    ## balance notif
    async def onBalanceUpdate(self):

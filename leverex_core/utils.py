@@ -1,5 +1,7 @@
 import time
+import copy
 from datetime import datetime
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 
 ### order enums ###
 ORDER_ACTION_CREATED = 1
@@ -31,12 +33,23 @@ class OfferException(Exception):
 class LeverexException(Exception):
    pass
 
+### rounding ###
+def round_down(val, precision):
+   num = Decimal(val)
+   return num.quantize(\
+      Decimal('0.' + '0' * precision), rounding=ROUND_DOWN)
+
+def round_up(val, precision):
+   num = Decimal(val)
+   return num.quantize(\
+      Decimal('0.' + '0' * precision), rounding=ROUND_UP)
+
 ### session info ###
 class SessionOpenInfo():
    def __init__(self, data):
       self.product_type = data['product_type']
       self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
-      self.last_cut_off_price = float(data['last_cut_off_price'])
+      self.last_cut_off_price = round_down(data['last_cut_off_price'], 2)
       self.session_id = int(data['session_id'])
       self.previous_session_id = data['previous_session_id']
       self._healthy = data['healthy']
@@ -80,7 +93,7 @@ class SessionInfo():
       return self.open.last_cut_off_price
 
    def getSessionIM(self):
-      return self.getOpenPrice() / 10
+      return round_down(self.getOpenPrice() / 10, 2)
 
    def getSessionId(self):
       if self.open != None:
@@ -121,12 +134,11 @@ class SessionInfo():
 
       return result
 
-
 ### offers ###
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None, isLast=False):
       if volume:
-         self._volume = round(volume, 8)
+         self._volume = round_down(volume, 8)
       else:
          self._volume = None
 
@@ -204,11 +216,11 @@ class DealerOffers(object):
                float(offer['volume']), ask=float(offer['price'])))
 
       #sort the offers
-      self.bids.sort(key=lambda b : b.bid)
+      self.bids.sort(reverse=True, key=lambda b : b.bid)
       if len(self.bids) > 0:
          self.bids[-1]._isLast = True
 
-      self.asks.sort(reverse=True, key=lambda a : a.ask)
+      self.asks.sort(key=lambda a : a.ask)
       if len(self.asks) > 0:
          self.asks[-1]._isLast = True
 
@@ -263,15 +275,15 @@ class LeverexOrder(Order):
    def __init__(self, data):
       super().__init__(data['id'],
          data['timestamp'],
-         float(data['quantity']),
-         float(data['price']),
+         round_down(data['quantity'], 8),
+         round_down(data['price'], 2),
          int(data['side'])
       )
 
       self._status = int(data['status'])
       self._product_type = data['product_type']
       self._trade_pnl = None
-      self._reference_exposure = float(data['reference_exposure'])
+      self._reference_exposure = round_down(data['reference_exposure'], 8)
       self._session_id = int(data['session_id'])
       self._rollover_type = data['rollover_type']
       self._fee = data['fee']
@@ -290,16 +302,6 @@ class LeverexOrder(Order):
    @property
    def is_taker(self):
       return self._is_taker
-
-   '''
-   @property
-   def cut_off_price(self):
-      return self._cut_off_price
-
-   @property
-   def trade_im(self):
-      return self._trade_im
-   '''
 
    @property
    def trade_pnl(self):
@@ -324,6 +326,11 @@ class LeverexOrder(Order):
    def fee(self):
       return self._fee
 
+   def getEffectiveFee(self):
+      if self.is_trade_position() and self.is_taker:
+         return abs(self.fee)
+      return 0
+
    @staticmethod
    def tradeTypeStr(tradeType):
       if tradeType == ORDER_TYPE_LIQUIDATED_ROLLOVER_POSITION:
@@ -335,7 +342,7 @@ class LeverexOrder(Order):
    def __str__(self):
       pl = self.trade_pnl
       if isinstance(pl, float):
-         pl = round(pl, 6)
+         pl = round_down(pl, 6)
 
       vol = self.quantity
       if self.is_sell():
@@ -358,10 +365,10 @@ class LeverexOrder(Order):
       if self.session_id != session.getSessionId():
          return
 
-      self.sessionIM = session.getSessionIM()
+      self.sessionIM = round_down(session.getSessionIM(), 2)
 
    def setIndexPrice(self, price):
-      self.indexPrice = price
+      self.indexPrice = round_down(price, 2)
       self.computePnL()
 
    def computePnL(self):
@@ -391,16 +398,19 @@ class LeverexOrder(Order):
 
       return self.sessionIM * self.quantity
 
-   def getValue(self, price):
-      if price > self.price + self.sessionIM:
-         price = self.price + self.sessionIM
-      elif price < self.price - self.sessionIM:
-         price = self.price - self.sessionIM
+   def getBounds(self):
+      return self.price - self.sessionIM, self.price + self.sessionIM
 
-      sign = 1
-      if self.is_sell():
-         sign = -1
-      return self.quantity * (price - self.price) * sign
+   def getValue(self, price):
+      price = round_down(price, 2)
+      lowBound, topBound = self.getBounds()
+      if price > topBound:
+         price = topBound
+      elif price < lowBound:
+         price = lowBound
+
+      sign = Decimal(-1) if self.is_sell() else Decimal(1)
+      return round_down(self.quantity * (price - self.price) * sign, 6)
 
 ####
 class SessionOrders(object):
@@ -418,6 +428,9 @@ class SessionOrders(object):
          self.orders[order].setSessionIM(self.session)
 
    def setIndexPrice(self, price):
+      if price is None:
+         return
+
       for order in self.orders:
          self.orders[order].setIndexPrice(price)
 
@@ -440,7 +453,7 @@ class SessionOrders(object):
       return True
 
    def getNetExposure(self):
-      return round(self.netExposure, 8)
+      return round_down(self.netExposure, 8)
 
    def getCount(self):
       return len(self.orders)
@@ -451,20 +464,24 @@ class SessionOrders(object):
 
       return self.id == obj.id and self.orders.keys() == obj.orders.keys()
 
+   def getEffectiveFee(self):
+      fee = Decimal(0)
+      for orderId in self.orders:
+         fee += round_down(self.orders[orderId].getEffectiveFee(), 6)
+      return fee
+
 ### max calcs ###
 class LeverexOpenVolume(object):
    def __init__(self, provider):
       #open balance
       self.openBalance = 0
       if provider.ccy in provider.balances:
-         self.openBalance = provider.balances[provider.ccy]
-
-      self.margin = 0
-      if provider.margin_ccy in provider.balances:
-         self.margin = provider.balances[provider.margin_ccy]
+         self.openBalance = round_down(provider.balances[provider.ccy], 6)
 
       #index price
-      self.indexPrice = provider.indexPrice
+      self.indexPrice = None
+      if provider.indexPrice != None:
+         self.indexPrice = round_down(provider.indexPrice, 2)
 
       #session
       self.session = provider.currentSession
@@ -473,40 +490,34 @@ class LeverexOpenVolume(object):
       self.orders = None
       if self.session.getSessionId() in provider.orderData:
          self.orders = provider.orderData[self.session.getSessionId()].orders
-
-      #remove fee from margin
-      totalFee = 0
-      for orderId in self.orders:
-         order = self.orders[orderId]
-         if not (order.is_trade_position() and order.is_taker):
-            continue
-         totalFee += abs(order.fee)
-      self.margin -= totalFee
+      self.margin = self.getMargin()
 
    def getReleasableExposure(self, askPrice, bidPrice):
-      if not self.session.isHealthy() or \
-         self.orders is None or \
-         len(self.orders) == 0:
+      if not self.session.isHealthy():
          return 0, 0
 
-      #get the sessionIM
-      sessionIM = self.session.getSessionIM()
+      marginNoFee = self.getMargin(withFees=False)
+      sessionIM = round_down(self.session.getSessionIM(), 2)
 
       #get boundaries
       boundaries = set()
-      for orderId in self.orders:
-         orderPrice = self.orders[orderId].price
-         boundaries.add(orderPrice + sessionIM)
-         boundaries.add(orderPrice - sessionIM)
+      if self.orders:
+         for orderId in self.orders:
+            order = self.orders[orderId]
+            lowBound, topBound = order.getBounds()
+            boundaries.add(lowBound)
+            boundaries.add(topBound)
 
       #inject current index price in boundaries
       maxSellPrice = None
-      if askPrice != 0:
+      if askPrice != None and askPrice != 0:
+         askPrice = round_down(askPrice, 2)
          maxSellPrice = askPrice + sessionIM
          boundaries.add(maxSellPrice)
 
       maxBuyPrice = None
-      if bidPrice != 0:
+      if bidPrice != None and bidPrice != 0:
+         bidPrice = round_down(bidPrice, 2)
          maxBuyPrice = bidPrice - sessionIM
          boundaries.add(maxBuyPrice)
 
@@ -515,61 +526,152 @@ class LeverexOpenVolume(object):
 
       #get values at boundaries
       values = {}
-      highestValue = 0
       for price in boundaries:
-         value = 0
+         value = Decimal(0)
          for orderId in self.orders:
             order = self.orders[orderId]
             value += order.getValue(price)
          values[price] = value
-         highestValue = max(highestValue, value)
       valuesList = list(values)
 
       #sell side: find what's to the right of the max loss
+      allCash = (2 * marginNoFee) + self.openBalance
+
       maxSellLoss = 0
       if maxSellPrice:
-         maxSellLoss = highestValue
+         maxSellLoss = allCash / sessionIM
          for i in range(0, len(values)):
             price = valuesList[i]
-            if price >= maxSellPrice:
-               maxSellLoss = min(maxSellLoss, values[price])
-         maxSellLoss += self.margin
+            if price > askPrice:
+               priceDiff = -1 * min(abs(askPrice - price), sessionIM)
+               relExp = (-marginNoFee - values[price] - self.openBalance) / priceDiff
+               maxSellLoss = min(maxSellLoss, relExp)
 
       #buy side: find what's to the left of the max loss
       maxBuyLoss = 0
       if maxBuyPrice:
-         maxBuyLoss = highestValue
+         maxBuyLoss = allCash / sessionIM
          for i in range(0, len(values)):
             price = valuesList[i]
-            if price > maxBuyPrice:
+            if price >= bidPrice:
                break
-            maxBuyLoss = min(maxBuyLoss, values[price])
-         maxBuyLoss += self.margin
+            priceDiff = -1 * min(abs(bidPrice - price), sessionIM)
+            relExp = (-marginNoFee - values[price] - self.openBalance) / priceDiff
+            maxBuyLoss = min(maxBuyLoss, relExp)
 
-      return round(maxBuyLoss / sessionIM , 8), round(maxSellLoss / sessionIM, 8)
+      return round_down(maxBuyLoss, 8), round_down(maxSellLoss, 8)
 
    def get(self, maxVolume, unquoteRatio):
       #get releasable exposure for both sides
-      releasableBuy, releaseableSell = self.getReleasableExposure(
+      maxBuy, maxSell = self.getReleasableExposure(
          self.indexPrice, self.indexPrice)
-
-      #convert free balance to exposure
-      openBal = self.openBalance / self.session.getSessionIM()
-
-      #add releasble exposure
-      maxBuy = openBal + releasableBuy
-      maxSell = openBal + releaseableSell
 
       #limit by max volume, apply unquote ratio
       #unquote ratio is the portion of the available exposure
       #that should be kept unencumbured at all times
-      sellVol = round(min(maxVolume, maxSell) * (1.0 - unquoteRatio), 8)
-      buyVol = round(min(maxVolume, maxBuy) * (1.0 - unquoteRatio), 8)
+      unqRatio = Decimal(1.0-unquoteRatio)
+      sellVol = round_down(min(maxVolume, maxSell) * unqRatio, 8)
+      buyVol = round_down(min(maxVolume, maxBuy) * unqRatio, 8)
 
       return {
          'ask': sellVol,
          'bid': buyVol
       }
+
+   def getMargin(self, orderMap=None, withFees=True):
+      if not orderMap:
+         orderMap = self.orders
+
+      #find all price boundaries for our orders
+      boundaries = set()
+      totalFees = Decimal(0)
+      for orderId in orderMap:
+         order = orderMap[orderId]
+         lowBound, topBound = order.getBounds()
+         boundaries.add(lowBound)
+         boundaries.add(topBound)
+
+         if not (order.is_trade_position() and order.is_taker):
+            continue
+
+         if withFees:
+            totalFees += round_down(abs(order.fee), 6)
+
+      #look for maximum loss among our orders
+      lowestValue = 0
+      for bound in boundaries:
+         value = 0
+         for orderId in orderMap:
+            value += orderMap[orderId].getValue(bound)
+         lowestValue = min(value, lowestValue)
+
+      #add fees
+      return round_down(abs(lowestValue) + totalFees, 6)
+
+   def projectMargin(self, qty, price, withFees=True):
+      newOrder = LeverexOrder({
+         'id': -1,
+         'timestamp': 0,
+         'quantity': str(abs(qty)),
+         'price': str(price),
+         'side': SIDE_BUY if qty > 0 else SIDE_SELL,
+         'status': ORDER_STATUS_FILLED,
+         'product_type': "",
+         'reference_exposure': "0",
+         'session_id': self.session.getSessionId(),
+         'rollover_type': ORDER_TYPE_TRADE_POSITION,
+         'fee': -round_down(qty*self.session.getTakerFee(), 6),
+         'is_taker': True
+      })
+      newOrder.setSessionIM(self.session)
+
+      orders = copy.deepcopy(self.orders)
+      orders[-1] = newOrder
+      return self.getMargin(orders, withFees)
+
+   def printPriceValueTable(self, theTable=None):
+      if not theTable:
+         boundaries = set()
+         for orderId in self.orders:
+            lowBound, topBound = self.orders[orderId].getBounds()
+            boundaries.add(lowBound)
+            boundaries.add(topBound)
+         boundaries = sorted(boundaries)
+
+         #get values at boundaries
+         theTable = {}
+         highestValue = Decimal(0)
+         for price in boundaries:
+            value = Decimal(0)
+            for orderId in self.orders:
+               order = self.orders[orderId]
+               value += order.getValue(price)
+            theTable[price] = value
+
+      tabSize = 8
+      def getLineLength(line):
+         length = 0
+         for c in line:
+            if c == '\t':
+               length = (int(length / tabSize) + 1) * tabSize
+            else:
+               length += 1
+         return length
+
+      outputP = "prices:\t"
+      outputV = "values:\t"
+      for prc in theTable:
+         outputP += f"{prc}\t"
+         outputV += f"{theTable[prc]}\t"
+         lenP = getLineLength(outputP)
+         lenV = getLineLength(outputV)
+         if lenP < lenV:
+            outputP += "\t"
+         elif lenV < lenP:
+            outputV += "\t"
+
+      print(outputP)
+      print(outputV + "\n")
 
 ### balance ###
 def getBalancesFromJson(jsonDict):
@@ -714,7 +816,6 @@ class DepositInfo():
    @property
    def recv_address(self):
       return self._recv_address
-
 
 ### history ###
 class TradeHistory():

@@ -2,6 +2,7 @@ import logging
 import asyncio
 import json
 import time
+from decimal import Decimal
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import PositionsReport, \
@@ -9,7 +10,8 @@ from Factories.Definitions import PositionsReport, \
    CashOperation, TheTxTracker, \
    checkConfig
 
-from leverex_core.utils import WithdrawInfo, LeverexOpenVolume
+from leverex_core.utils import WithdrawInfo, LeverexOpenVolume, \
+   round_down
 from leverex_core.base_client import LeverexBaseClient
 
 ################################################################################
@@ -106,7 +108,7 @@ class LeverexPositionsReport(PositionsReport):
          if orderPL == None:
             return "N/A"
          pnl += orderPL
-      return round(pnl, 6)
+      return round_down(pnl, 6)
 
 ################################################################################
 class LeverexBalanceReport(BalanceReport):
@@ -121,7 +123,7 @@ class LeverexBalanceReport(BalanceReport):
 
       #breakdown
       for ccy in self.balances:
-         result += " +  <{}: {}".format(ccy, round(self.balances[ccy], 2))
+         result += " +  <{}: {}".format(ccy, round_down(self.balances[ccy], 2))
          if ccy == self.ccy:
             result += " (total)"
          result += ">\n"
@@ -473,8 +475,8 @@ class LeverexProvider(Factory, LeverexBaseClient):
                pending += float(withdrawal.amount)
 
       return {
-         'total' : balance,
-         'pending' : pending,
+         'total' : Decimal(balance),
+         'pending' : Decimal(pending),
          'ratio' : self.getCollateralRatio(),
          'price' : self.currentSession.getOpenPrice()
       }

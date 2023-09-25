@@ -1,5 +1,5 @@
 from .utils import LeverexException, SessionInfo, get_product_info, \
-   SessionOrders, getBalancesFromJson, ORDER_ACTION_UPDATED
+   SessionOrders, getBalancesFromJson, ORDER_ACTION_UPDATED, round_down
 from .api_connection import AsyncApiConnection
 from Factories.Definitions import checkConfig
 
@@ -33,6 +33,7 @@ class LeverexBaseClient(object):
       self.indexPrice = None
       self.withdrawalHistory = None
       self.netExposure = 0
+      self.bands = {}
 
    def setupConnection(self):
       leverexConfig = self.config['leverex']
@@ -120,11 +121,12 @@ class LeverexBaseClient(object):
          order.setIndexPrice(self.indexPrice)
          order.computePnL()
          totalPnl += order.trade_pnl
-      return round(totalPnl, 6)
+      return round_down(totalPnl, 6)
 
    ## orders ##
    def storeOrder(self, order, eventType):
       sessionId = order.session_id
+
       if sessionId not in self.orderData:
          #create SessionOrders object
          self.orderData[sessionId] = SessionOrders(sessionId)
@@ -136,6 +138,7 @@ class LeverexBaseClient(object):
 
       return self.orderData[sessionId].setOrder(order, eventType)
 
+   ## getters ##
    def getSessionOrders(self):
       currentSessionId = None
       if self.currentSession:
