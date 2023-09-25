@@ -323,15 +323,15 @@ class AsyncApiConnection(object):
          self.write_queue.put_nowait(json.dumps(data))
       self.listener.send = send_data
 
-      async with websockets.connect(self._api_endpoint) as self.websocket:
-         await self._call_listener_method('on_connected')
+      try:
+         async with websockets.connect(self._api_endpoint) as self.websocket:
+            await self._call_listener_method('on_connected')
 
-         if self._login_client is not None:
-            await self.login()
-            await self._call_listener_method('on_authorized')
+            if self._login_client is not None:
+               await self.login()
+               await self._call_listener_method('on_authorized')
 
-         # start the loops
-         try:
+            # start the loops
             readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
             if self._login_client is not None:
                cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
@@ -339,11 +339,11 @@ class AsyncApiConnection(object):
 
             if self._login_client is not None:
                await cycleTask
-         except Exception as e:
-            print(f"leverex_core/api_connection failed with error: {e}")
-            loop = asyncio.get_running_loop()
-            loop.stop()
-            return
+      except Exception as e:
+         print(f"leverex_core/api_connection failed with error: {e}")
+         loop = asyncio.get_running_loop()
+         loop.stop()
+         return
 
    async def readLoop(self):
       while True:
