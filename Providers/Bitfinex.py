@@ -520,6 +520,7 @@ class BitfinexProvider(Factory):
    ##
    async def on_authenticated(self, auth_message):
       await super().setConnected(True)
+      await super().fetchInitialData()
 
       # subscribe to order book
       await self.connection.ws.subscribe('book', self.product,

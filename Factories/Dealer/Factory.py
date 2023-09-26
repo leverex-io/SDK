@@ -121,6 +121,7 @@ class DealerFactory(object):
    ## status ##
    async def onReadyEvent(self):
       await self.hedger.onReadyEvent(self.maker, self.taker)
+      await self.taker.checkCollateral(self.maker.getOpenPrice())
       for reporter in self.statusReporters:
          await reporter.onReadyEvent(self)
 

@@ -52,13 +52,15 @@ class LeverexBaseClient(object):
          dump_communication=False,
          aeid_endpoint=aeid_endpoint)
 
-   async def subscribe(self):
-      await self.connection.subscribe_to_product(self.product)
-      await self.connection.subscribe_session_open(self.product)
+   async def subscribeToInitialData(self):
       await self.connection.subscribe_to_balance_updates(self.product)
       await self.connection.load_open_positions(
          target_product=self.product,
          callback=self.on_positions_loaded)
+
+   async def subscribe(self):
+      await self.connection.subscribe_session_open(self.product)
+      await self.connection.subscribe_to_product(self.product)
 
    ####
    async def loadAddresses(self, callback=None):

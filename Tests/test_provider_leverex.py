@@ -300,96 +300,9 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          the hedger handling of the same events.
    '''
 
-   #session notification last
-   @patch('leverex_core.base_client.AsyncApiConnection')
-   async def test_bootstrap_1(self, MockedLeverexConnObj):
-      #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
-      mockedConnection = MockedLeverexConnectionClass(1000)
-      MockedLeverexConnObj.return_value = mockedConnection
-
-      #setup dealer
-      maker = LeverexProvider(self.config)
-      taker = TestTaker()
-      hedger = SimpleHedger(self.config)
-      dealer = DealerFactory(maker, taker, hedger)
-      await dealer.run()
-
-      #sanity check on mocked connection
-      assert maker.connection is mockedConnection
-      assert maker.connection.listener is maker
-      assert maker.isReady() == False
-      assert taker.isReady() == True
-      assert dealer.isReady() == False
-
-      #setup taker, we shouldn't generate offers until maker is ready
-      await taker.updateBalance(1500)
-      assert len(mockedConnection.offers) == 0
-
-      await taker.populateOrderBook(10)
-      assert len(mockedConnection.offers) == 0
-
-      #Leverex authorized event (login successful)
-      await maker.on_authorized()
-      assert maker.isReady() == False
-      assert dealer.isReady() == False
-      assert maker._connected == True
-      assert len(mockedConnection.offers) == 0
-
-      #provider shouldn't be able to return exposure until it's ready
-      assert maker.getExposure() == None
-
-      #reply to load positions
-      assert mockedConnection.positions_callback != None
-      await mockedConnection.replyLoadPositions([])
-      assert mockedConnection.positions_callback == None
-      assert maker.isReady() == False
-      assert dealer.isReady() == False
-      assert maker._positionInitialized == True
-      assert len(mockedConnection.offers) == 0
-
-      #provider shouldn't be able to return exposure until it's ready
-      assert maker.getExposure() == None
-
-      #reply to load balances request
-      assert len(maker.balances) == 0
-      await mockedConnection.pushBalanceUpdate()
-      assert maker.balances['USDT'] == 1000
-      assert maker.isReady() == False
-      assert dealer.isReady() == False
-      assert maker._balanceInitialized == True
-      assert len(mockedConnection.offers) == 0
-
-      #provider shouldn't be able to return exposure until it's ready
-      assert maker.getExposure() == None
-
-      #reply to session sub
-      await mockedConnection.push_market_data(10000)
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         2, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
-      assert maker.isReady() == True
-      assert dealer.isReady() == True
-      assert maker.getExposure() == 0
-
-      assert len(mockedConnection.offers) == 1
-      offers0 = mockedConnection.offers[0]
-      assert len(offers0) == 1
-      assert double_eq(offers0[0].volume, 0.8)
-      assert double_eq(offers0[0].bid, 9989.58  * 0.99)
-      assert double_eq(offers0[0].ask, 10010.42 * 1.01)
-
-      #close session, should pull offers
-      await mockedConnection.notifySessionClose(2) #session_id
-      assert len(mockedConnection.offers) == 2
-      assert len(mockedConnection.offers[1]) == 0
-
    #load position reply last
    @patch('leverex_core.base_client.AsyncApiConnection')
-   async def test_bootstrap_2(self, MockedLeverexConnObj):
+   async def test_bootstrap_1(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
@@ -447,7 +360,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
-      assert maker._balanceInitialized == True
+      assert maker._balanceInitialized == 2
       assert len(mockedConnection.offers) == 0
 
       #provider shouldn't be able to return exposure until it's ready
@@ -459,7 +372,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.replyLoadPositions([])
       assert maker.isReady() == True
       assert dealer.isReady() == True
-      assert maker._positionInitialized == True
+      assert maker._positionsInitialized == 2
       assert mockedConnection.positions_callback == None
       assert maker.getExposure() == 0
 
@@ -477,7 +390,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
    #load balances reply last
    @patch('leverex_core.base_client.AsyncApiConnection')
-   async def test_bootstrap_3(self, MockedLeverexConnObj):
+   async def test_bootstrap_2(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
       #of leverex_core.api_connection.AsyncApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
@@ -529,7 +442,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback == None
       assert maker.isReady() == False
       assert dealer.isReady() == False
-      assert maker._positionInitialized == True
+      assert maker._positionsInitialized == 2
       assert len(mockedConnection.offers) == 0
 
       #provider shouldn't be able to return exposure until it's ready
@@ -542,7 +455,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await dealer.waitOnReady()
       assert maker.isReady() == True
       assert dealer.isReady() == True
-      assert maker._balanceInitialized == True
+      assert maker._balanceInitialized == 2
       assert maker.balances['USDT'] == 1000
       assert maker.getExposure() == 0
 
@@ -588,6 +501,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       posrep = maker.getPositions()
       assert posrep.getOrderCount() == 0
 
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -599,13 +520,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
       assert maker.isReady() == True
       assert dealer.isReady() == True
 
@@ -701,13 +615,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
-      #reply to load balances request
-      assert len(maker.balances) == 0
-      await mockedConnection.pushBalanceUpdate()
-      assert maker.balances['USDT'] == 1000
-      assert maker.isReady() == False
-      assert dealer.isReady() == False
-
       #reply to session sub
       assert mockedConnection.session_product != None
       await mockedConnection.notifySessionOpen(
@@ -715,6 +622,13 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          10000, #open price
          0 #open timestamp
       )
+      assert maker.isReady() == False
+      assert dealer.isReady() == False
+
+      #reply to load balances request
+      assert len(maker.balances) == 0
+      await mockedConnection.pushBalanceUpdate()
+      assert maker.balances['USDT'] == 1000
       assert maker.isReady() == False
       assert dealer.isReady() == False
 
@@ -844,6 +758,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -855,13 +777,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
       assert maker.isReady() == True
       assert dealer.isReady() == True
 
@@ -969,6 +884,11 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          1, #timestamp, ignored
       )
 
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+      await mockedConnection.pushBalanceUpdate()
+
       assert maker.isReady() == True
       assert taker.isReady() == True
       assert dealer.isReady() == True
@@ -1014,6 +934,18 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.push_market_data(10000)
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+      assert maker.isReady() == False
+      assert maker.isBroken() == False
+      assert dealer.isReady() == False
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -1025,18 +957,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
+      #maker should be ready
       assert maker.isReady() == True
       assert maker.isBroken() == False
       assert dealer.isReady() == True
-
-      await mockedConnection.push_market_data(10000)
 
       #push new order for 1btc
       assert maker.getExposure() == 0
@@ -1078,6 +1002,21 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          1 #open timestamp
       )
 
+      assert maker.isReady() == False
+      assert maker._balanceInitialized == 1
+      assert maker._positionsInitialized == 1
+      assert maker.isBroken() == False
+      assert dealer.isReady() == False
+
+      #reply to load positions
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([])
+      assert mockedConnection.positions_callback == None
+
+      #reply to load balances request
+      await mockedConnection.pushBalanceUpdate()
+      assert double_eq(maker.balances['USDT'], 0)
+
       assert maker.isReady() == True
       assert maker.isBroken() == False
       assert dealer.isReady() == True
@@ -1113,6 +1052,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -1124,13 +1071,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
 
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
       assert maker.isReady() == True
       assert maker.isBroken() == False
       assert dealer.isReady() == True
@@ -1171,8 +1111,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -1
       assert taker.targetCollateral == None
 
-      #push rolled over trade
-      await mockedConnection.push_new_order({
+      order1 = {
          'id' : 3,
          'timestamp' : 1,
          'quantity' : 1,
@@ -1182,7 +1121,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          'session_id' : 6,
          'rollover_type' : ORDER_TYPE_NORMAL_ROLLOVER_POSITION,
          'fee' : 0
-      })
+      }
+
+      #push rolled over trade
+      await mockedConnection.push_new_order(order1)
 
       #start new session
       await mockedConnection.notifySessionOpen(
@@ -1190,6 +1132,11 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          10200, #price
          1, #timestamp, ignored
       )
+
+      assert mockedConnection.positions_callback != None
+      await mockedConnection.replyLoadPositions([order1])
+      assert mockedConnection.positions_callback == None
+      await mockedConnection.pushBalanceUpdate()
 
       assert maker.isReady() == True
       assert maker.isBroken() == False
@@ -1241,6 +1188,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -1251,14 +1206,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(maker.balances) == 0
       await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
-
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
 
       #check providers and hedger are ready
       assert maker.isReady() == True
@@ -1391,6 +1338,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -1401,14 +1356,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(maker.balances) == 0
       await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
-
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
 
       #check providers and hedger are ready
       assert maker.isReady() == True
@@ -1504,6 +1451,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert maker._connected == True
 
+      #reply to session sub
+      assert mockedConnection.session_product != None
+      await mockedConnection.notifySessionOpen(
+         5, #session_id
+         10000, #open price
+         0 #open timestamp
+      )
+
       #reply to load positions
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
@@ -1514,14 +1469,6 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(maker.balances) == 0
       await mockedConnection.pushBalanceUpdate()
       assert maker.balances['USDT'] == 1000
-
-      #reply to session sub
-      assert mockedConnection.session_product != None
-      await mockedConnection.notifySessionOpen(
-         5, #session_id
-         10000, #open price
-         0 #open timestamp
-      )
 
       #check providers and hedger are ready
       assert maker.isReady() == True

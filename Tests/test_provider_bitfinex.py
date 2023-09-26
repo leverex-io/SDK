@@ -374,7 +374,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
 
       #get exposure should fail if the provider is not ready
@@ -385,7 +385,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.isReady() == True
       assert hedger.isReady() == True
       assert dealer.isReady() == True
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert taker.getExposure() == 0
       assert taker.getOpenVolume() == None
 
@@ -462,7 +462,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
 
       #get exposure should fail if the provider is not ready
       assert taker.getExposure() == None
@@ -470,7 +470,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert taker.getExposure() == 0
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
@@ -549,7 +549,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(1, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.getPositionExposure() == 1
 
       #get exposure should fail if the provider is not ready
@@ -558,7 +558,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0.2)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
@@ -606,7 +606,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.ws.tracked_exposure == 0
 
       #get exposure should fail if the provider is not ready
@@ -615,7 +615,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
@@ -671,7 +671,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.ws.tracked_exposure == 0
 
       #get exposure should fail if the provider is not ready
@@ -680,7 +680,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
@@ -760,7 +760,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.ws.tracked_exposure == 0
 
       #get exposure should fail if the provider is not ready
@@ -769,7 +769,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0)
       assert hedger.isReady() == True
       assert dealer.isReady() == True
@@ -858,7 +858,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.ws.tracked_exposure == 0
 
       #get exposure should fail if the provider is not ready
@@ -867,7 +867,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0)
       assert hedger.isReady() == True
       assert dealer.isReady() == True
@@ -994,7 +994,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.ws.tracked_exposure == 0
 
       #get exposure should fail if the provider is not ready
@@ -1003,7 +1003,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0)
       assert hedger.isReady() == True
       assert dealer.isReady() == True
@@ -1145,7 +1145,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.ws.tracked_exposure == 0
 
       #get exposure should fail if the provider is not ready
@@ -1154,7 +1154,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1400)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1400
@@ -1244,7 +1244,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.push_position_snapshot(0, taker.leverage)
       assert taker.isReady() == False
       assert dealer.isReady() == False
-      assert taker._positionInitialized == True
+      assert taker._positionsInitialized == 2
       assert mockedConnection.ws.tracked_exposure == 0
 
       #get exposure should fail if the provider is not ready
@@ -1253,7 +1253,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       #emit wallet snapshot notification
       await mockedConnection.push_wallet_snapshot(1500)
       assert taker.isReady() == True
-      assert taker._balanceInitialized == True
+      assert taker._balanceInitialized == 2
       assert double_eq(taker.getExposure(), 0)
       assert dealer.isReady() == True
       assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1500
