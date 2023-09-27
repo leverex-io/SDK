@@ -862,13 +862,13 @@ class BitfinexProvider(Factory):
       #compute the target liquidation price based on openPrice
       swing = openPrice * collateralPct
       if position.amount > 0:
-         swing *= -1
+         swing *= Decimal(-1)
       targetLiqPrice = openPrice + swing
 
       #figure out the swing vs our position's price
-      totalSwing = position.base_price - targetLiqPrice
+      totalSwing = Decimal(position.base_price) - targetLiqPrice
       if position.amount < 0:
-         totalSwing *= -1
+         totalSwing *= Decimal(-1)
 
       collateralTarget = position.collateral_min
 
