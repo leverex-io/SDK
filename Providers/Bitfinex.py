@@ -266,7 +266,8 @@ class BfxBalanceSwap(CashOperation):
             self.amount
          )
          return True
-      except Exception:
+      except Exception as e:
+         print (f"failed bfx balance swap with error: \"{e}\"")
          #bfx command failed, reset task state so we can retry later
          return False
 
@@ -774,6 +775,7 @@ class BitfinexProvider(Factory):
       return Decimal(exposure)
 
    async def updateExposure(self, quantity):
+      quantity = round_down(quantity, 8)
       await self.connection.ws.submit_order(symbol=self.product,
          leverage=self.leverage,
          price=None, # this is a market order, price is ignored
@@ -909,6 +911,11 @@ class BitfinexProvider(Factory):
             to queue a swap, likely the final swap will have no effect
              as the rebalance withdrawal wiped the pending balance clean
             '''
+
+            #ignore shrapnel
+            if pendingBal[acc][ccy] < 1:
+               continue
+
             moveTasks.append(BfxBalanceSwap(
                acc, BfxAccounts.DERIVATIVES, ccy, self.ccy,
                caller="onBalanceUpdate"))

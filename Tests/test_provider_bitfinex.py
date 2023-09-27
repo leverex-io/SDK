@@ -203,6 +203,9 @@ class FakeBfxRestInterface(object):
 
    async def submit_wallet_transfer(self, from_wallet, to_wallet,
       from_currency, to_currency, amount):
+      if amount < 1:
+         raise Exception("not gonna move that little cash")
+
       self.cash_movements.append({
          'from': from_wallet,
          'to': to_wallet,
@@ -1198,6 +1201,96 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await mockedConnection.completeCashMovement()
       cash = taker.getCashMetrics()
       assert cash['total'] == 2000
+      assert cash['pending'] == 0
+      assert len(mockedConnection.rest.withdrawals) == 0
+      assert len(mockedConnection.rest.cash_movements) == 0
+
+   @patch('Providers.Bitfinex.Client')
+   async def test_cash_swap_shrapnel(self, MockedBfxClientObj):
+      #return mocked finex connection object instead of an instance
+      #of bfxapi.Client
+      mockedConnection = MockedBfxClientClass()
+      MockedBfxClientObj.return_value = mockedConnection
+
+      #setup dealer
+      maker = TestMaker(1000)
+      taker = BitfinexProvider(self.config)
+      hedger = SimpleHedger(self.config)
+      dealer = DealerFactory(maker, taker, hedger)
+      await dealer.run()
+
+      #sanity check on mocked connection
+      assert taker.connection is mockedConnection
+      assert taker.leverage == 10
+
+      #sanity check on ready states
+      assert maker.isReady() == True
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert hedger.isReady() == False
+      assert taker._connected == False
+      assert taker._balanceInitialized == False
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit authorize notification
+      await mockedConnection.push_authorize()
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._connected == True
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit position notification
+      await mockedConnection.push_position_snapshot(0, taker.leverage)
+      assert taker.isReady() == False
+      assert dealer.isReady() == False
+      assert taker._positionsInitialized == 2
+      assert mockedConnection.ws.tracked_exposure == 0
+
+      #get exposure should fail if the provider is not ready
+      assert taker.getExposure() == None
+
+      #emit wallet snapshot notification
+      await mockedConnection.push_wallet_snapshot(1400)
+      assert taker.isReady() == True
+      assert taker._balanceInitialized == 2
+      assert double_eq(taker.getExposure(), 0)
+      assert dealer.isReady() == True
+      assert taker.balances[BfxAccounts.DERIVATIVES]['USDTF0']['total'] == 1400
+      assert hedger.canRebalance() == True
+      assert hedger.needsRebalance() == False
+      assert hedger.rebalMan.canAssess() == True
+
+      #deposit 0.1 usdt to exchange account, should trigger balance
+      #swap but no rebalance
+      await mockedConnection.ws.push_wallet_update('USDT', 0.1, BfxAccounts.EXCHANGE)
+      cash = taker.getCashMetrics()
+      assert cash['total'] == 1400
+      assert cash['pending'] == 0.1
+      assert len(mockedConnection.rest.withdrawals) == 0
+      assert len(mockedConnection.rest.cash_movements) == 0
+      assert hedger.needsRebalance() == False
+      assert hedger.rebalMan.canAssess() == True
+
+      #deposit 500 usdt to exchange account, should trigger balance
+      #swap but no rebalance
+      await mockedConnection.ws.push_wallet_update('USDT', 500, BfxAccounts.EXCHANGE)
+      cash = taker.getCashMetrics()
+      assert cash['total'] == 1400
+      assert cash['pending'] == 500
+      assert len(mockedConnection.rest.withdrawals) == 0
+      assert len(mockedConnection.rest.cash_movements) == 1
+      assert mockedConnection.rest.cash_movements[0]['amount'] == 500
+      assert hedger.needsRebalance() == False
+      assert hedger.rebalMan.canAssess() == True
+
+      #complete cash transfer
+      await mockedConnection.completeCashMovement()
+      cash = taker.getCashMetrics()
+      assert cash['total'] == 1900
       assert cash['pending'] == 0
       assert len(mockedConnection.rest.withdrawals) == 0
       assert len(mockedConnection.rest.cash_movements) == 0
