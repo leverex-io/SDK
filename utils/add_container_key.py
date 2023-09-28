@@ -7,7 +7,7 @@ import logging
 
 sys.path.append('..')
 
-from Providers.leverex_core.login_connection import LoginServiceClientWS
+from leverex_core.login_connection import LoginServiceClientWS
 
 
 async def add_container_keys_to_env_autheid(keys_path):
@@ -19,7 +19,8 @@ async def add_container_keys_to_env_autheid(keys_path):
    login_client = LoginServiceClientWS(email=settings['email'],
                                      login_endpoint=settings['login_endpoint'],
                                      private_key_path=os.path.join(keys_path, 'key.pem'),
-                                     dump_communication=False)
+                                     dump_communication=False,
+                                     service_url=settings['service_url'])
 
    await login_client.send_key_to_endpoint()
 

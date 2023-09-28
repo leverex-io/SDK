@@ -52,7 +52,7 @@ class ProviderTarget(object):
          self.toWithdraw['status'] = WITHDRAW_TODO
          self.toWithdraw['amount'] = allCash - self.target
 
-         if self.cash['pending'] > 0:
+         if self.cash['pending'] > 1:
             #avoid multiple withdrawals when possible
             self.cancelPending['status'] = CANCEL_PENDING_TODO
 
@@ -296,17 +296,17 @@ class RebalanceManager(object):
       makerTotal = Decimal(makerCash['total'] + makerCash['pending'])
       takerTotal = Decimal(takerCash['total'] + takerCash['pending'])
 
-      #1.c: check values have changed vs existing target
-      if self.target != None and not self.target.inTransit():
-         if makerTotal == self.target.maker.cash['total'] + self.target.maker.cash['pending'] and \
-            takerTotal == self.target.taker.cash['total'] + self.target.taker.cash['pending']:
-            #total cash has not changed, nothing to do
-            return
+         #1.c: check values have changed vs existing target
+         if self.target != None and not self.target.inTransit():
+            if makerTotal == self.target.maker.cash['total'] + self.target.maker.cash['pending'] and \
+               takerTotal == self.target.taker.cash['total'] + self.target.taker.cash['pending']:
+               #total cash has not changed, nothing to do
+               return
 
-      ## 2. find point of equilibrium between providers ##
+         ## 2. find point of equilibrium between providers ##
 
-      #2.a: get total cash across providers
-      totalCash = makerTotal + takerTotal
+         #2.a: get total cash across providers
+         totalCash = makerTotal + takerTotal
 
       #2.b: distribute along collateral ratios
       makerRatio = Decimal(makerCash['ratio'] / \
@@ -314,13 +314,16 @@ class RebalanceManager(object):
       makerTarget = totalCash * makerRatio
       takerTarget = totalCash - makerTarget
 
-      ## 3. assess the need for withdrawals ##
+         ## 3. assess the need for withdrawals ##
 
-      #3.a: apply results
-      self.target = RebalanceTarget(self.config,
-         makerCash, makerTarget,
-         takerCash, takerTarget
-      )
+         #3.a: apply results
+         self.target = RebalanceTarget(self.config,
+            makerCash, makerTarget,
+            takerCash, takerTarget
+         )
+      except:
+         print(f"failed to figure out providers cash, skipping for now")
+         return
 
       #3.b: progress rebalance target
       await self.processRebalance()
