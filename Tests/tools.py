@@ -267,6 +267,7 @@ class TestTaker(TestProvider):
       self.order_book = AggregationOrderBook()
       self.exposure = Decimal(0)
       self.collateral_pct = 15
+      self.setLeverage(100/self.collateral_pct)
       self.addr = addr
 
    async def bootstrap(self):

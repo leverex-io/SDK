@@ -96,7 +96,10 @@ class AggregationOrderBook():
       else:
          target_book = self._bids
 
-      target_book.pop(entry.price)
+      try:
+         target_book.pop(entry.price)
+      except:
+         pass
 
    def get_aggregated_ask_price(self, target_volume):
       offers = sorted(self._asks.items())

@@ -417,7 +417,6 @@ class SessionOrders(object):
    def __init__(self, sessionId):
       self.id = sessionId
       self.orders = {}
-      self.netExposure = 0
       self.session = None
 
    def setSessionObj(self, sessionObj):
@@ -438,22 +437,22 @@ class SessionOrders(object):
       #set session IM
       if self.session != None:
          order.setSessionIM(self.session)
-
       self.orders[order.id] = order
-      if order.is_filled() and eventType == ORDER_ACTION_UPDATED:
-         #filled orders do not affect exposure, return false
-         return False
 
-      vol = order.quantity
-      if order.is_sell():
-         vol *= -1
-      self.netExposure += vol
 
       #return true if setting this order affected net exposure
       return True
 
    def getNetExposure(self):
-      return round_down(self.netExposure, 8)
+      netExposure = 0
+      for orderId in self.orders:
+         order = self.orders[orderId]
+         vol = order.quantity
+         if order.is_sell():
+            vol *= -1
+         netExposure += vol
+
+      return round_down(netExposure, 8)
 
    def getCount(self):
       return len(self.orders)
@@ -570,8 +569,9 @@ class LeverexOpenVolume(object):
       #unquote ratio is the portion of the available exposure
       #that should be kept unencumbured at all times
       unqRatio = Decimal(1.0-unquoteRatio)
-      sellVol = round_down(min(maxVolume, maxSell) * unqRatio, 8)
-      buyVol = round_down(min(maxVolume, maxBuy) * unqRatio, 8)
+      maxVol = Decimal(maxVolume)
+      sellVol = round_down(min(maxVol, maxSell) * unqRatio, 8)
+      buyVol = round_down(min(maxVol, maxBuy) * unqRatio, 8)
 
       return {
          'ask': sellVol,

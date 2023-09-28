@@ -351,7 +351,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
-      assert taker.leverage == 10
+      assert double_eq(taker.leverage, 100/15)
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -439,7 +439,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
-      assert taker.leverage == 10
+      assert double_eq(taker.leverage, 100/15)
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -526,7 +526,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
-      assert taker.leverage == 10
+      assert double_eq(taker.leverage, 100/15)
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -583,7 +583,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
-      assert taker.leverage == 10
+      assert double_eq(taker.leverage, 100/15)
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -1122,7 +1122,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
-      assert taker.leverage == 10
+      assert double_eq(taker.leverage, 100/15)
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -1221,7 +1221,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
-      assert taker.leverage == 10
+      assert double_eq(taker.leverage, 100/15)
 
       #sanity check on ready states
       assert maker.isReady() == True
@@ -1311,7 +1311,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #sanity check on mocked connection
       assert taker.connection is mockedConnection
-      assert taker.leverage == 10
+      assert double_eq(taker.leverage, 100/15)
 
       #sanity check on ready states
       assert maker.isReady() == True

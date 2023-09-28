@@ -466,6 +466,7 @@ class LeverexProvider(Factory, LeverexBaseClient):
          if sessionState == False:
             #session isn't ready, reset init flags
             self.resetInitFlags()
+            self.orderData = {}
          else:
             #session is ready, get initial data
             await self.fetchInitialData()

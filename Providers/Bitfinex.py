@@ -253,7 +253,7 @@ class BfxBalanceSwap(CashOperation):
          bal = bfx.balances[self.accFrom][self.ccyFrom]
          self.amount = bal[BfxBalances.TOTAL]
 
-      if self.amount == 0:
+      if self.amount < 1:
          return None
 
       return True
@@ -449,6 +449,7 @@ class BitfinexProvider(Factory):
       self.ccy = productToCcy(self.product)
       self.ccy_base = ccyToBase(self.ccy)
       self.collateral_pct = self.config['collateral_pct']
+      self.setLeverage(100/self.collateral_pct)
       self.max_collateral_deviation = self.config['max_collateral_deviation']
       self.max_offer_volume = config['hedger']['max_offer_volume']
       self.deposit_method = self.config['deposit_method']
@@ -555,8 +556,11 @@ class BitfinexProvider(Factory):
 
       for wallet in wallets_snapshot:
          await self.on_wallet_update(wallet)
-      await super().setInitBalance()
-      await self.evaluateReadyState()
+      try:
+         await super().setInitBalance()
+         await self.evaluateReadyState()
+      except:
+         pass
 
    ##
    async def on_wallet_update(self, wallet):
@@ -604,8 +608,12 @@ class BitfinexProvider(Factory):
       for data in raw_data[2]:
          position = bfx_models.Position.from_raw_rest_position(data)
          await self.update_position(position)
-      await super().setInitPosition()
-      await self.evaluateReadyState()
+
+      try:
+         await super().setInitPosition()
+         await self.evaluateReadyState()
+      except:
+         pass
 
    async def on_position_new(self, data):
       position = bfx_models.Position.from_raw_rest_position(data[2])

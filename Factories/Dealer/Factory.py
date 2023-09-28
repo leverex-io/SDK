@@ -26,7 +26,6 @@ class DealerFactory(object):
          tasks = [self.maker.getAsyncIOTask()]
 
          ## taker setup ##
-         self.taker.setLeverage(self.maker.leverage)
          self.taker.setup(self.onEvent)
          tasks.append(self.taker.getAsyncIOTask())
 

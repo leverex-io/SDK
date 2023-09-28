@@ -865,7 +865,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -0.5
 
       #push rolled over trade
-      await mockedConnection.push_new_order({
+      orderRoll = {
          'id' : 3,
          'timestamp' : 1,
          'quantity' : 0.5,
@@ -875,7 +875,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          'session_id' : 6,
          'rollover_type' : ORDER_TYPE_NORMAL_ROLLOVER_POSITION,
          'fee' : 0
-      })
+      }
+      await mockedConnection.push_new_order(orderRoll)
 
       #start new session
       await mockedConnection.notifySessionOpen(
@@ -885,7 +886,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       )
 
       assert mockedConnection.positions_callback != None
-      await mockedConnection.replyLoadPositions([])
+      await mockedConnection.replyLoadPositions([orderRoll])
       assert mockedConnection.positions_callback == None
       await mockedConnection.pushBalanceUpdate()
 
@@ -1111,7 +1112,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert taker.getExposure() == -1
       assert taker.targetCollateral == None
 
-      order1 = {
+      orderRoll = {
          'id' : 3,
          'timestamp' : 1,
          'quantity' : 1,
@@ -1124,7 +1125,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       }
 
       #push rolled over trade
-      await mockedConnection.push_new_order(order1)
+      await mockedConnection.push_new_order(orderRoll)
 
       #start new session
       await mockedConnection.notifySessionOpen(
@@ -1134,7 +1135,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       )
 
       assert mockedConnection.positions_callback != None
-      await mockedConnection.replyLoadPositions([order1])
+      await mockedConnection.replyLoadPositions([orderRoll])
       assert mockedConnection.positions_callback == None
       await mockedConnection.pushBalanceUpdate()
 
