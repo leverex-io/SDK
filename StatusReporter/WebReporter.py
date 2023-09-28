@@ -14,10 +14,15 @@ class DataProxyObject:
       self.positions = None
    
 from json import JSONEncoder
+from decimal import Decimal
 
 class DataEncoder(JSONEncoder):
     def default(self, obj):
-       return "{}".format(obj) if isinstance(obj, datetime.datetime) else obj.__dict__  
+        if isinstance(obj, datetime.datetime):
+            return "{}".format(obj)
+        elif isinstance(obj, Decimal):
+            return str(obj)  
+        return obj.__dict__ 
 
 class WebReporter(Factory):
    def __init__(self, config):
