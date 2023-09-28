@@ -765,7 +765,7 @@ class WithdrawInfo(object):
       return self._unblinded_link
 
    @property
-   def transacion_id(self):
+   def transaction_id(self):
       return self._tx_id
 
    def isPending(self):
@@ -794,7 +794,7 @@ class DepositInfo():
       self._recv_address = data['recv_address']
 
    @property
-   def transacion_id(self):
+   def transaction_id(self):
       return self._tx_id
 
    @property
