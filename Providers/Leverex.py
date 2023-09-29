@@ -2,6 +2,7 @@ import logging
 import asyncio
 import json
 import time
+from decimal import Decimal
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import PositionsReport, \
@@ -9,7 +10,8 @@ from Factories.Definitions import PositionsReport, \
    CashOperation, TheTxTracker, \
    checkConfig
 
-from leverex_core.utils import WithdrawInfo, LeverexOpenVolume
+from leverex_core.utils import WithdrawInfo, LeverexOpenVolume, \
+   round_down
 from leverex_core.base_client import LeverexBaseClient
 
 ################################################################################
@@ -106,7 +108,7 @@ class LeverexPositionsReport(PositionsReport):
          if orderPL == None:
             return "N/A"
          pnl += orderPL
-      return round(pnl, 6)
+      return round_down(pnl, 6)
 
 ################################################################################
 class LeverexBalanceReport(BalanceReport):
@@ -121,7 +123,7 @@ class LeverexBalanceReport(BalanceReport):
 
       #breakdown
       for ccy in self.balances:
-         result += " +  <{}: {}".format(ccy, round(self.balances[ccy], 2))
+         result += " +  <{}: {}".format(ccy, round_down(self.balances[ccy], 2))
          if ccy == self.ccy:
             result += " (total)"
          result += ">\n"
@@ -363,7 +365,7 @@ class LeverexProvider(Factory, LeverexBaseClient):
 
    ## balance events ##
    async def on_balance_update(self, balances):
-      if not self._balanceInitialized:
+      if not self.balanceInitialized():
          await self.setInitBalance()
          await self.evaluateReadyState()
 
@@ -425,24 +427,50 @@ class LeverexProvider(Factory, LeverexBaseClient):
 
       return "N/A"
 
+   async def getInitialData(self):
+      await LeverexBaseClient.subscribeToInitialData(self)
+
    async def evaluateReadyState(self):
-      def assessReadyState():
+      def assessFactoryState():
          if not Factory.isReady(self):
             return False
+         return True
 
-         #check session is opened
+      def assessSessionState():
          if self.currentSession == None or \
             not self.currentSession.isOpen() or \
             not self.currentSession.isHealthy():
             return False
-
          return True
 
-      currentReadyState = assessReadyState()
-      if self.lastReadyState == currentReadyState:
-         return
+      #assess current state
+      factoryState = assessFactoryState()
+      sessionState = assessSessionState()
+      currentReadyState = factoryState and sessionState
 
-      self.lastReadyState = currentReadyState
+      #has state changed?
+      if self.lastReadyState == currentReadyState:
+         if currentReadyState == True:
+            #provider is ready, nothing to do
+            return
+
+         '''
+         provider isn't ready but session state may have changed,
+         we need to check for this and initialize state accordingly
+         '''
+      else:
+         self.lastReadyState = currentReadyState
+
+      if currentReadyState == False:
+         #provider isn't ready
+         if sessionState == False:
+            #session isn't ready, reset init flags
+            self.resetInitFlags()
+            self.orderData = {}
+         else:
+            #session is ready, get initial data
+            await self.fetchInitialData()
+
       await Factory.onReady(self)
 
    ## offers ##
@@ -473,8 +501,8 @@ class LeverexProvider(Factory, LeverexBaseClient):
                pending += float(withdrawal.amount)
 
       return {
-         'total' : balance,
-         'pending' : pending,
+         'total' : Decimal(balance),
+         'pending' : Decimal(pending),
          'ratio' : self.getCollateralRatio(),
          'price' : self.currentSession.getOpenPrice()
       }

@@ -5,8 +5,11 @@ import argparse
 import time
 import sys
 
+#import pdb; pdb.set_trace()
+
 from leverex_core.utils import LeverexOpenVolume, SessionOrders, \
-   SessionInfo, SIDE_BUY, SIDE_SELL, ORDER_ACTION_CREATED
+   SessionInfo, SIDE_BUY, SIDE_SELL, ORDER_ACTION_CREATED, \
+   round_down
 from leverex_core.base_client import LeverexBaseClient
 
 ################################################################################
@@ -156,7 +159,7 @@ class LeverexClient(LeverexBaseClient):
    def getMaxVolume(self):
       lov = LeverexOpenVolume(self)
 
-      openVol = lov.openBalance / lov.session.getSessionIM()
+      openVol = round_down(lov.openBalance / lov.session.getSessionIM(), 8)
       openVolAsk = openVolBid = openVol
 
       while (True):
@@ -174,9 +177,7 @@ class LeverexClient(LeverexBaseClient):
             askPrice = ask.ask
 
          #get releasble exposure
-         maxBuy, maxSell = lov.getReleasableExposure(bidPrice, askPrice)
-         openVolAsk = openVol + maxSell
-         openVolBid = openVol + maxBuy
+         openVolBid, openVolAsk = lov.getReleasableExposure(bidPrice, askPrice)
          matchedBid = None
          matchedAsk = None
 
@@ -201,8 +202,7 @@ class LeverexClient(LeverexBaseClient):
             matchedAsk = ask
             break
 
-      feeRate = lov.session.getSessionIM() /\
-         (lov.session.getSessionIM() + lov.session.getTakerFee())
+      feeRate = lov.session.getSessionIM() / (lov.session.getSessionIM() + lov.session.getTakerFee())
       if matchedBid and openVolAsk < matchedBid.volume:
          #only withhold cost of fees from our ask if it's smaller than the bid offer's volume
          openVolAsk *= feeRate
@@ -213,15 +213,15 @@ class LeverexClient(LeverexBaseClient):
 
       return {
          'ask' : bid.bid,
-         'maxAsk' : round(openVolAsk, 8),
+         'maxAsk' : round_down(openVolAsk, 8),
          'bid' : ask.ask,
-         'maxBid' : round(openVolBid, 8)
+         'maxBid' : round_down(openVolBid, 8)
       }
 
    async def placeOrder(self, amount, price):
       side = SIDE_BUY if amount > 0 else SIDE_SELL
       await self.connection.place_order(
-         abs(round(amount, 8)),
+         abs(round_down(amount, 8)),
          side,
          self.product, price
       )
@@ -233,8 +233,12 @@ class LeverexClient(LeverexBaseClient):
       if self.balances == None:
          balanceStr += (" - N/A")
       else:
+         total = 0
          for account in self.balances:
+            total += self.balances[account]
             balanceStr += f" - account: {account}, amount: {self.balances[account]}\n"
+         balanceStr += f" - total: {total}\n"
+
       print (balanceStr)
 
    def printPrice(self):
@@ -283,7 +287,7 @@ if __name__ == '__main__':
    )
    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
-   parser = argparse.ArgumentParser(description='Leverex Bitfinix Dealer') 
+   parser = argparse.ArgumentParser(description='Leverex Client')
 
    parser.add_argument('--config', type=str, help='Config file to use')
 

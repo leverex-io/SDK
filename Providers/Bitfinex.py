@@ -1,12 +1,14 @@
 import logging
 import asyncio
 import time
+from decimal import Decimal
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook, PositionsReport, BalanceReport, \
    PriceEvent, CashOperation, OpenVolume, TheTxTracker, \
    checkConfig
+from leverex_core.utils import round_down
 
 from Providers.bfxapi.bfxapi import Client
 from Providers.bfxapi.bfxapi import Order
@@ -251,7 +253,7 @@ class BfxBalanceSwap(CashOperation):
          bal = bfx.balances[self.accFrom][self.ccyFrom]
          self.amount = bal[BfxBalances.TOTAL]
 
-      if self.amount == 0:
+      if self.amount < 1:
          return None
 
       return True
@@ -264,7 +266,8 @@ class BfxBalanceSwap(CashOperation):
             self.amount
          )
          return True
-      except Exception:
+      except Exception as e:
+         print (f"failed bfx balance swap with error: \"{e}\"")
          #bfx command failed, reset task state so we can retry later
          return False
 
@@ -446,6 +449,7 @@ class BitfinexProvider(Factory):
       self.ccy = productToCcy(self.product)
       self.ccy_base = ccyToBase(self.ccy)
       self.collateral_pct = self.config['collateral_pct']
+      self.setLeverage(100/self.collateral_pct)
       self.max_collateral_deviation = self.config['max_collateral_deviation']
       self.max_offer_volume = config['hedger']['max_offer_volume']
       self.deposit_method = self.config['deposit_method']
@@ -518,6 +522,7 @@ class BitfinexProvider(Factory):
    ##
    async def on_authenticated(self, auth_message):
       await super().setConnected(True)
+      await super().fetchInitialData()
 
       # subscribe to order book
       await self.connection.ws.subscribe('book', self.product,
@@ -551,8 +556,11 @@ class BitfinexProvider(Factory):
 
       for wallet in wallets_snapshot:
          await self.on_wallet_update(wallet)
-      await super().setInitBalance()
-      await self.evaluateReadyState()
+      try:
+         await super().setInitBalance()
+         await self.evaluateReadyState()
+      except:
+         pass
 
    ##
    async def on_wallet_update(self, wallet):
@@ -600,8 +608,12 @@ class BitfinexProvider(Factory):
       for data in raw_data[2]:
          position = bfx_models.Position.from_raw_rest_position(data)
          await self.update_position(position)
-      await super().setInitPosition()
-      await self.evaluateReadyState()
+
+      try:
+         await super().setInitPosition()
+         await self.evaluateReadyState()
+      except:
+         pass
 
    async def on_position_new(self, data):
       position = bfx_models.Position.from_raw_rest_position(data[2])
@@ -655,7 +667,7 @@ class BitfinexProvider(Factory):
 
       bfx_balance = self.balances[BfxAccounts.DERIVATIVES][self.ccy]
 
-      return min(target, bfx_balance[BfxBalances.TOTAL])
+      return min(target, Decimal(bfx_balance[BfxBalances.TOTAL]))
 
    ## volume ##
    def getOpenVolume(self):
@@ -698,13 +710,13 @@ class BitfinexProvider(Factory):
       askMargin = 0
       bidMargin = 0
       if self.getExposure() > 0:
-         bidMargin = freeMargin
+         bidMargin = round_down(freeMargin, 6)
       else:
-         askMargin = freeMargin
+         askMargin = round_down(freeMargin, 6)
 
       return OpenVolume(balance[balanceKey],
-         askMargin, collateralPct * priceAsk.price,
-         bidMargin, collateralPct * priceBid.price
+         askMargin, collateralPct * round_down(priceAsk.price, 2),
+         bidMargin, collateralPct * round_down(priceBid.price, 2)
       )
 
    ## cash metrics
@@ -723,8 +735,8 @@ class BitfinexProvider(Factory):
             pending += pendingDict[acc][ccy]
 
       return {
-         'total' : balance[BfxBalances.TOTAL],
-         'pending' : pending,
+         'total' : Decimal(balance[BfxBalances.TOTAL]),
+         'pending' : Decimal(pending),
          'ratio' : self.getCollateralRatio()
       }
 
@@ -764,13 +776,14 @@ class BitfinexProvider(Factory):
          return None
 
       if self.product not in self.positions:
-         return 0
+         return Decimal(0)
       exposure = 0
       for id in self.positions[self.product]:
          exposure += self.positions[self.product][id].amount
-      return exposure
+      return Decimal(exposure)
 
    async def updateExposure(self, quantity):
+      quantity = round_down(quantity, 8)
       await self.connection.ws.submit_order(symbol=self.product,
          leverage=self.leverage,
          price=None, # this is a market order, price is ignored
@@ -849,7 +862,7 @@ class BitfinexProvider(Factory):
 
       #We want to cover a X% price swing from the open price. Check that
       #the liquidation price on our position is within that margin
-      liqPct = abs(position.liquidation_price - openPrice) / openPrice
+      liqPct = abs(round_down(position.liquidation_price, 2) - openPrice) / openPrice
       collateralPct = self.getCollateralRatio()
       if abs(liqPct - collateralPct) * 100 < self.max_collateral_deviation:
          return None
@@ -857,28 +870,32 @@ class BitfinexProvider(Factory):
       #compute the target liquidation price based on openPrice
       swing = openPrice * collateralPct
       if position.amount > 0:
-         swing *= -1
+         swing *= Decimal(-1)
       targetLiqPrice = openPrice + swing
 
       #figure out the swing vs our position's price
-      totalSwing = position.base_price - targetLiqPrice
+      totalSwing = Decimal(position.base_price) - targetLiqPrice
       if position.amount < 0:
-         totalSwing *= -1
+         totalSwing *= Decimal(-1)
 
       collateralTarget = position.collateral_min
 
       if totalSwing > 0:
-         collateralTarget = max(collateralTarget, totalSwing * abs(position.amount))
+         collateralTarget = max(collateralTarget, \
+            totalSwing * abs(round_down(position.amount, 8)))
 
       #if the collateralTarget is within 10% of the minimum allowed
       #collateral value, we ignore it
-      collateral_diff = position.collateral - position.collateral_min
       if position.collateral / position.collateral_min <= 1.1:
          return
 
       collateralTarget = self.getMinTargetBalance(collateralTarget)
+      if collateralTarget is None:
+         return
+
       await self.connection.rest.set_derivative_collateral(
-         symbol=self.product, collateral=collateralTarget)
+         symbol=self.product,
+         collateral=float(round_down(collateralTarget, 6)))
 
    ## balance notif
    async def onBalanceUpdate(self):
@@ -902,6 +919,11 @@ class BitfinexProvider(Factory):
             to queue a swap, likely the final swap will have no effect
              as the rebalance withdrawal wiped the pending balance clean
             '''
+
+            #ignore shrapnel
+            if pendingBal[acc][ccy] < 1:
+               continue
+
             moveTasks.append(BfxBalanceSwap(
                acc, BfxAccounts.DERIVATIVES, ccy, self.ccy,
                caller="onBalanceUpdate"))

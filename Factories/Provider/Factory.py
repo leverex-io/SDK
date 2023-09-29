@@ -1,7 +1,11 @@
 import logging
 import asyncio
 import Factories.Definitions as Definitions
+from decimal import Decimal
 
+NOT_INITIALIZED = 0
+FETCHING = 1
+INITIALIZED = 2
 
 ################################################################################
 class CashOpsManager(object):
@@ -84,8 +88,8 @@ class Factory(object):
       self._name = name
       self.dealerCallback = None
       self._connected = False
-      self._balanceInitialized = False
-      self._positionInitialized = False
+      self._balanceInitialized = NOT_INITIALIZED
+      self._positionsInitialized = NOT_INITIALIZED
 
       self._leverage      = None #in multiples
       self.collateral_pct = None #in pct
@@ -117,30 +121,50 @@ class Factory(object):
    def getCollateralRatio(self):
       #use leverage if collateral_pct is not explicit
       if self.collateral_pct != None:
-         return self.collateral_pct / 100
-      return 1 / self.leverage
+         return Decimal(self.collateral_pct / 100)
+      return Decimal(1 / self.leverage)
 
    ## initialization events ##
    async def setConnected(self, value):
       self._connected = value
       await self.onReady()
 
+   def resetInitFlags(self):
+      self._balanceInitialized = NOT_INITIALIZED
+      self._positionsInitialized = NOT_INITIALIZED
+
+   async def getInitialData(self):
+      pass
+
+   def balanceInitialized(self):
+      return self._balanceInitialized == INITIALIZED
+
+   async def fetchInitialData(self):
+      if self._balanceInitialized != NOT_INITIALIZED or \
+         self._positionsInitialized != NOT_INITIALIZED:
+         return
+
+      self._balanceInitialized = FETCHING
+      self._positionsInitialized = FETCHING
+
+      await self.getInitialData()
+
    async def setInitBalance(self):
-      if self._balanceInitialized:
+      if self._balanceInitialized == INITIALIZED:
          raise Definitions.ProviderException("init failure")
-      self._balanceInitialized = True
+      self._balanceInitialized = INITIALIZED
 
    async def setInitPosition(self):
-      if self._positionInitialized:
+      if self._positionsInitialized == INITIALIZED:
          raise Definitions.ProviderException("init failure")
-      self._positionInitialized = True
+      self._positionsInitialized = INITIALIZED
       await self.onPositionUpdate()
 
    ## ready state ##
    def isReady(self):
       return self._connected and \
-         self._balanceInitialized and \
-         self._positionInitialized
+         self.balanceInitialized() and \
+         self._positionsInitialized == INITIALIZED
 
    def isBroken(self):
       #by default, we assume we cannot detect a broken state
@@ -154,7 +178,7 @@ class Factory(object):
 
    def printReadyState(self):
       print (f"----- Provider: {self._name}, ready: {self.isReady()} -----\n"
-         f"  connected: {self._connected}, balance init: {self._balanceInitialized}, position init: {self._positionInitialized}")
+         f"  connected: {self._connected}, balance init: {self._balanceInitialized}, position init: {self._positionsInitialized}")
 
    ## notifications ##
    async def onReady(self):
@@ -231,7 +255,7 @@ class Factory(object):
             return "awaiting login..."
          if not self._balanceInitialized:
             return "awaiting balance snapshot..."
-         if not self._positionInitialized:
+         if not self._positionsInitialized:
             return "awaiting orders snapshot..."
 
       return "N/A"

@@ -1,21 +1,36 @@
 import asyncio
 import random
 import string
+from decimal import Decimal
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import AggregationOrderBook, \
    CashOperation, OpenVolume, TheTxTracker
-from leverex_core.utils import WithdrawInfo
+from leverex_core.utils import WithdrawInfo, round_down
 
 price = 10000
+
+#######
+def double_eq(a, b):
+   #edge case
+   if a == 0 or b == 0:
+      return Decimal(abs(a)) + Decimal(abs(b)) < Decimal(0.00000001)
+
+   #returns true if a and b are within 0.01% of each other
+   diff = Decimal(1) - abs(Decimal(a) / Decimal(b))
+   result = diff <= Decimal(0.0001)
+
+   if not result:
+      print (f"double_eq error: {str(a)}, {str(b)}")
+   return result
 
 ####### test providers
 class TestProvider(Factory):
    def __init__(self, name, startBalance=0, pendingWithdrawals=None):
       super().__init__(name)
 
-      self.startBalance = startBalance
-      self.balance = 0
+      self.startBalance = Decimal(startBalance)
+      self.balance = Decimal(0)
       self.explicitState = True
       self.withdrawalsToPush = []
       self.withdrawalHist = None
@@ -40,7 +55,7 @@ class TestProvider(Factory):
       await super().setInitBalance()
 
    async def updateBalance(self, balance):
-      self.balance = balance
+      self.balance = Decimal(balance)
       await super().onBalanceUpdate()
 
    async def initPositions(self):
@@ -101,7 +116,9 @@ class TestProvider(Factory):
       if exposure == None or exposure == 0:
          return
 
-      self.targetCollateral = exposure * self.getCollateralRatio() * openPrice
+      self.targetCollateral = exposure \
+         * self.getCollateralRatio() \
+         * openPrice
 
    async def loadAddresses(self, callback):
       self.chainAddresses.setDepositAddr("abcd")
@@ -221,7 +238,7 @@ class TestMaker(TestProvider):
             orderQ *= -1
          exposure += orderQ
 
-      return round(exposure, 8)
+      return round_down(exposure, 8)
 
    async def explicitBreak(self):
       self.brokenState = True
@@ -248,8 +265,9 @@ class TestTaker(TestProvider):
 
       self.startExposure = startExposure
       self.order_book = AggregationOrderBook()
-      self.exposure = 0
+      self.exposure = Decimal(0)
       self.collateral_pct = 15
+      self.setLeverage(100/self.collateral_pct)
       self.addr = addr
 
    async def bootstrap(self):
@@ -257,7 +275,7 @@ class TestTaker(TestProvider):
       await self.initExposure(self.startExposure)
 
    async def initExposure(self, startExposure):
-      self.exposure = startExposure
+      self.exposure = Decimal(startExposure)
       await super().initPositions()
 
    async def populateOrderBook(self, volume):
@@ -272,7 +290,7 @@ class TestTaker(TestProvider):
       return self.exposure
 
    async def updateExposure(self, exposure):
-      self.exposure += exposure
+      self.exposure += Decimal(exposure)
       await super().onPositionUpdate()
 
    async def loadAddresses(self, callback):
