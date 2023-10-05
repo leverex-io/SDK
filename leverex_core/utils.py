@@ -179,10 +179,6 @@ class PriceOffer():
       return result
 
    def compare(self, offer, delay_ms):
-      if offer._timestamp <= self._timestamp + delay_ms:
-         #return false if delay is met
-         return False
-
       if self._volume != offer._volume:
          return False
       if self._ask != offer._ask or self._bid != offer._bid:
@@ -191,7 +187,7 @@ class PriceOffer():
       return True
 
    def __str__(self):
-      return f"vol: {self.volume} - ask: {self.ask}, bid: {self.bid}"
+      return f"vol: {self.volume} - ask: {self.ask}, \tbid: {self.bid}"
 
    def isValid(self):
       return self._volume != None and self._volume > 0

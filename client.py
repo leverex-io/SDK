@@ -20,6 +20,7 @@ class LeverexClient(LeverexBaseClient):
       self.takerFee = None
 
    async def subscribe(self):
+      await super().subscribeToInitialData()
       await super().subscribe()
       await self.connection.subscribe_dealer_offers(self.product)
 

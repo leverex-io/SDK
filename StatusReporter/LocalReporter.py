@@ -72,6 +72,7 @@ class LocalReporter(Factory):
 
          elif notification == Rebalance:
             self.printRebalance()
+
       except Exception as e:
          print (f"failed to print report of type \"{notification}\""
             f" with error:\n   \"{e}\"")

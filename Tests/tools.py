@@ -10,20 +10,6 @@ from leverex_core.utils import WithdrawInfo, round_down
 
 price = 10000
 
-#######
-def double_eq(a, b):
-   #edge case
-   if a == 0 or b == 0:
-      return Decimal(abs(a)) + Decimal(abs(b)) < Decimal(0.00000001)
-
-   #returns true if a and b are within 0.01% of each other
-   diff = Decimal(1) - abs(Decimal(a) / Decimal(b))
-   result = diff <= Decimal(0.0001)
-
-   if not result:
-      print (f"double_eq error: {str(a)}, {str(b)}")
-   return result
-
 ####### test providers
 class TestProvider(Factory):
    def __init__(self, name, startBalance=0, pendingWithdrawals=None):
@@ -220,7 +206,7 @@ class TestMaker(TestProvider):
       self.orders.extend(startPositions)
       await super().initPositions()
 
-   async def submitOffers(self, offers):
+   async def submitPrices(self, offers):
       self.offers.append(offers)
 
    async def newOrder(self, order):
@@ -259,6 +245,18 @@ def getOrderBookSnapshot(volume):
    return orders
 
 ########
+class FakeBfxWSConnection(object):
+   def __init__(self, provider):
+      self.provider = provider
+
+   async def submit_order(self, symbol, leverage, price, amount, market_type):
+      self.provider.exposure += amount
+
+class FakeBfxConnection(object):
+   def __init__(self, provider):
+      self.provider = provider
+      self.ws = FakeBfxWSConnection(self.provider)
+
 class TestTaker(TestProvider):
    def __init__(self, startBalance=0, startExposure=0, pendingWithdrawals=None, addr=None):
       super().__init__("TestTaker", startBalance, pendingWithdrawals)
@@ -269,6 +267,8 @@ class TestTaker(TestProvider):
       self.collateral_pct = 15
       self.setLeverage(100/self.collateral_pct)
       self.addr = addr
+      self.connection = FakeBfxConnection(self)
+      self.product = "product"
 
    async def bootstrap(self):
       await super().bootstrap()
@@ -290,7 +290,7 @@ class TestTaker(TestProvider):
       return self.exposure
 
    async def updateExposure(self, exposure):
-      self.exposure += Decimal(exposure)
+      self.exposure = Decimal(exposure)
       await super().onPositionUpdate()
 
    async def loadAddresses(self, callback):

@@ -213,7 +213,7 @@ class AsyncApiConnection(object):
 
       await self.websocket.send(json.dumps(load_positions_request))
 
-   async def submit_offers(self, target_product: str, offers: PriceOffers, callback: Callable = None):
+   async def submit_prices(self, target_product: str, offers: PriceOffers, callback: Callable = None):
       price_offers = [offer.to_map() for offer in offers if offer.to_map() is not None]
 
       reference = self._generate_reference_id()

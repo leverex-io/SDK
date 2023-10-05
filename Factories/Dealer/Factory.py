@@ -30,7 +30,8 @@ class DealerFactory(object):
          tasks.append(self.taker.getAsyncIOTask())
 
          ## hedger setup ##
-         self.hedger.setup(self.onEvent)
+         self.hedger.setup(self.onEvent, self.maker)
+         tasks.append(self.hedger.getAsyncIOTask())
 
          ## status reporters setup ##
          for reporter in self.statusReporters:

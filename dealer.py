@@ -16,9 +16,19 @@ from StatusReporter.WebReporter import WebReporter
 ################################################################################
 if __name__ == '__main__':
    LOG_FORMAT = (
-      "%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s"
+      "[%(asctime)s,%(msecs)d] [%(levelname)-8s] [%(filename)s:%(lineno)d] %(message)s"
    )
-   logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+   logging.basicConfig(filename="dealer_debug.log", level=logging.INFO, format=LOG_FORMAT)
+   root_logger = logging.getLogger()
+
+   stream_logger = logging.StreamHandler()
+   stream_logger.setFormatter(logging.Formatter(LOG_FORMAT))
+   stream_logger.setLevel(logging.WARN)
+   root_logger.addHandler(stream_logger)
+
+   logging.warning("--------------------------------------")
+   logging.warning("---- starting new dealer instance ----")
+   logging.warning("--------------------------------------")
 
    parser = argparse.ArgumentParser(description='Leverex Dealer - hedging on Bfx') 
 
@@ -46,5 +56,5 @@ if __name__ == '__main__':
 
       except Exception as e:
          logging.error(f"!! Main loop broke with error: {str(e)} !!")
-         logging.warning("!! Restarting in 20 seconds !!")
-         time.sleep(20)
+         logging.warning("!! Restarting in 10 seconds !!")
+         time.sleep(10)

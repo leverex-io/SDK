@@ -1,11 +1,11 @@
-#import pdb; pdb.set_trace()
+import pdb; pdb.set_trace()
 import unittest
 import copy
 
-from .tools import TestTaker, TestMaker, price, double_eq
+from .tools import TestTaker, TestMaker, price
 from leverex_core.utils import Order, SIDE_BUY, SIDE_SELL, \
    WithdrawInfo
-from Factories.Definitions import Balance
+from Factories.Definitions import Balance, double_eq
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
 
@@ -39,46 +39,47 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       #set taker order book, we shouldn't generate offers until maker is ready
       await taker.updateBalance(15000)
-      assert len(maker.offers) == 0
+      assert len(maker.offers) == 1
+      assert maker.offers[0] == []
 
       await taker.populateOrderBook(10)
-      assert len(maker.offers) == 0
+      assert len(maker.offers) == 1
 
       #setup maker
       await maker.updateBalance(10000)
-      assert len(maker.offers) == 1
+      assert len(maker.offers) == 2
 
       #check the offers
-      offers0 = maker.offers[0]
+      offers0 = maker.offers[1]
       assert len(offers0) == 1
 
       #shutdown maker, offers should be pulled
       await maker.setConnected(False)
-      assert len(maker.offers) == 2
+      assert len(maker.offers) == 3
 
       #check the offers
-      offers1 = maker.offers[1]
+      offers1 = maker.offers[2]
       assert len(offers1) == 0
 
       #restart maker, we should get offers once again
       await maker.setConnected(True)
-      assert len(maker.offers) == 3
+      assert len(maker.offers) == 4
 
       #check the offers
-      offers2 = maker.offers[2]
+      offers2 = maker.offers[3]
       assert len(offers2) == 1
 
       #shutdown taker, offers should be pulled
       await taker.setConnected(False)
-      assert len(maker.offers) == 4
+      assert len(maker.offers) == 5
 
       #check the offers
-      offers3 = maker.offers[3]
+      offers3 = maker.offers[4]
       assert len(offers3) == 0
 
       #shutdown maker, no offers should be added
       await maker.setConnected(False)
-      assert len(maker.offers) == 4
+      assert len(maker.offers) == 5
 
    async def test_offers_volume(self):
       taker = TestTaker(startBalance=1500)
@@ -89,14 +90,15 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       await dealer.run()
       await dealer.waitOnReady()
 
-      #we should have offers yet
-      assert len(maker.offers) == 0
+      #we shouldn't have offers yet
+      assert len(maker.offers) == 1
+      assert maker.offers[0] == []
 
       #quote and check price & volumes of offers
       await taker.populateOrderBook(10)
-      assert len(maker.offers) == 1
+      assert len(maker.offers) == 2
 
-      offers0 = maker.offers[0]
+      offers0 = maker.offers[1]
       assert len(offers0) == 1
       assert double_eq(offers0[0].volume, 0.8)
       assert double_eq(offers0[0].bid, 9989.58  * 0.99)
@@ -104,9 +106,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       #balance event
       await maker.updateBalance(500)
-      assert len(maker.offers) == 2
+      assert len(maker.offers) == 3
 
-      offers1 = maker.offers[1]
+      offers1 = maker.offers[2]
       assert len(offers1) == 1
       assert double_eq(offers1[0].volume, 0.4)
       assert double_eq(offers0[0].bid, 9989.58  * 0.99)
@@ -114,9 +116,9 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
 
       #order book event
       await taker.populateOrderBook(6)
-      assert len(maker.offers) == 3
+      assert len(maker.offers) == 4
 
-      offers2 = maker.offers[2]
+      offers2 = maker.offers[3]
       assert len(offers2) == 1
       assert double_eq(offers1[0].volume, 0.4)
       assert double_eq(offers2[0].bid, 9993.75  * 0.99)
@@ -132,13 +134,14 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       dealer = DealerFactory(maker, taker, hedger)
       await dealer.run()
       await dealer.waitOnReady()
-      assert len(maker.offers) == 0
+      assert len(maker.offers) == 1
+      assert maker.offers[0] == []
 
       #order book event
       await taker.populateOrderBook(6)
-      assert len(maker.offers) == 1
+      assert len(maker.offers) == 2
 
-      offers0 = maker.offers[0]
+      offers0 = maker.offers[1]
       assert len(offers0) == 1
       assert double_eq(offers0[0].volume, 0.4)
       assert double_eq(offers0[0].bid, 9993.75  * 0.99)
@@ -147,7 +150,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       #new order event
       newOrder = Order(id=1, timestamp=0, quantity=0.1, price=10100, side=SIDE_BUY)
       await maker.newOrder(newOrder)
-      assert len(maker.offers) == 2
+      assert len(maker.offers) == 3
 
       #check exposure
       assert double_eq(maker.getExposure(), 0.1)
@@ -168,7 +171,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert double_eq(takerVolume['bid'], 0.92)
 
       #check offers
-      offers1 = maker.offers[1]
+      offers1 = maker.offers[2]
       assert len(offers1) == 2
 
       assert double_eq(offers1[0].volume, 0.52)
@@ -554,7 +557,7 @@ class TestHedger(unittest.IsolatedAsyncioTestCase):
       assert hedger.rebalMan.canAssess() == True
       target = hedger.rebalMan.target
       assert double_eq(target.maker.target, 960)
-      assert double_eq(target.taker.target, 1420)
+      assert double_eq(target.taker.target, 1440)
       assert target.maker.cancelPending['status'] == 'cancel_pending_ongoing'
       assert target.maker.toWithdraw['amount'] == 240
 

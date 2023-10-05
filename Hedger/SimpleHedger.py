@@ -4,7 +4,7 @@ import time
 from decimal import Decimal
 
 from Factories.Hedger.Factory import HedgerFactory
-from Factories.Definitions import Rebalance, RebalanceReport
+from Factories.Definitions import Rebalance, RebalanceReport, double_eq
 from leverex_core.utils import PriceOffer, OfferException, round_down
 
 CANCEL_PENDING          = 'cancel_pending'
@@ -523,46 +523,77 @@ class SimpleHedger(HedgerFactory):
          self.offer_refresh_delay = config['hedger']['offer_refresh_delay_ms']
 
       self.offers = []
-      self.offersTimestamp = time.time()
       self.rebalMan = None
+      self.lastOffersPushTime = 0
+
+   def getAsyncIOTask(self):
+      return asyncio.create_task(self.offersLoop())
 
    #############################################################################
    ## price offers methods
    #############################################################################
-   async def clearOffers(self, maker):
-      if len(self.offers) == 0:
-         return
-
-      self.offers = []
-      self.offersTimestamp = time.time()
-      await maker.submitOffers(self.offers)
-
-   ####
-   def compareOffers(self, offers):
-      if time.time() - self.offersTimestamp >= 5:
-         #force an offer update if it's more than 5seconds old
+   def compareOffers(self, o1, o2):
+      if len(o1) != len(o2):
          return False
 
-      if len(offers) != len(self.offers):
-         return False
-
-      for i in range(0, len(offers)):
-         if self.offers[i].compare(offers[i], self.offer_refresh_delay) == False:
+      for i in range(0, len(o1)):
+         offer1 = o1[i]
+         offer2 = o2[i]
+         if offer1.volume != offer2.volume:
             return False
+
+         if offer1.ask != offer2.ask:
+            if offer1.ask == None or offer2.ask == None:
+               return False
+
+            if double_eq(offer1.ask, offer2.ask, 0.01) == False:
+               return False
+
+         if offer1.bid != offer2.bid:
+            if offer1.bid == None or offer2.bid == None:
+               return False
+
+            if double_eq(offer1.bid, offer2.bid, 0.1) == False:
+               return False
 
       return True
 
+   async def queueOffers(self, newOffers):
+      oldOffers = self.offers
+      self.offers = newOffers
+      if not self.compareOffers(oldOffers, newOffers):
+         await self.pushOffers(newOffers)
+
+   async def pushOffers(self, offers):
+      self.lastOffersPushTime = time.time_ns() / 1000000
+      await self.maker.submitPrices(offers)
+
+   async def offersLoop(self):
+      while True:
+         lastPushTimeDiff = (time.time_ns() / 1000000) - self.lastOffersPushTime
+         if lastPushTimeDiff >= 5000:
+            try:
+               await self.pushOffers(self.offers)
+            except:
+               self.lastOffersPushTime = time.time_ns() / 1000000
+               continue
+         else:
+            await asyncio.sleep(lastPushTimeDiff / 1000)
+
+   async def clearOffers(self):
+      await self.queueOffers([])
+
    ####
-   async def submitOffers(self, maker, taker, force=False):
+   async def submitPrices(self, maker, taker, force=False):
       if not self.isReady():
-         await self.clearOffers(maker)
+         await self.clearOffers()
          return
 
       #figure out long and short buying power for the taker and the maker
       makerOpenVolume = maker.getOpenVolume()
       takerOpenVolume = taker.getOpenVolume()
       if makerOpenVolume is None or takerOpenVolume is None:
-         await self.clearOffers(maker)
+         await self.clearOffers()
          return
 
       '''
@@ -612,15 +643,8 @@ class SimpleHedger(HedgerFactory):
             f"  ask vol: {ask_volume}, price: {ask_price}\n"
             f"  bid vol: {bid_volume}, price: {bid_price}")
 
-      if not force:
-         #do not push offers if they didn't change, unless we force it
-         if self.compareOffers(offers) == True:
-            return
-
       #submit offers to maker
-      self.offers = offers
-      self.offersTimestamp = time.time()
-      await maker.submitOffers(self.offers)
+      await self.queueOffers(offers)
 
    ####
    def getOffersReport(self):
@@ -681,7 +705,7 @@ class SimpleHedger(HedgerFactory):
          #with the taker's capacity
 
          #update taker position
-         await taker.updateExposure(round_down(-exposureDiff, 8))
+         await taker.updateExposure(-makerExposure)
 
       #report ready state to hedger factory. On first exposure sync, this will
       #set the hedger ready flag. Further calls will have no effect
@@ -713,7 +737,7 @@ class SimpleHedger(HedgerFactory):
    ## taker events
    #############################################################################
    async def onTakerOrderBookEvent(self, maker, taker):
-      await self.submitOffers(maker, taker)
+      await self.submitPrices(maker, taker)
 
    ####
    async def onTakerPositionEvent(self, maker, taker):
@@ -734,7 +758,7 @@ class SimpleHedger(HedgerFactory):
       await self.checkExposureSync(maker, taker)
 
       # update offers
-      await self.submitOffers(maker, taker, True)
+      await self.submitPrices(maker, taker, True)
 
    #############################################################################
    ## balance events
@@ -744,7 +768,7 @@ class SimpleHedger(HedgerFactory):
       await self.checkBalanceDistribution()
 
       # update offers
-      await self.submitOffers(maker, taker)
+      await self.submitPrices(maker, taker)
 
    ####
    async def checkBalanceDistribution(self):
@@ -758,7 +782,7 @@ class SimpleHedger(HedgerFactory):
       # update offers
       await self.checkExposureSync(maker, taker)
       await self.checkBalanceDistribution()
-      await self.submitOffers(maker, taker)
+      await self.submitPrices(maker, taker)
 
    #############################################################################
    ## rebalance status

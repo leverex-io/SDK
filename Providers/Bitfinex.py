@@ -2,12 +2,14 @@ import logging
 import asyncio
 import time
 from decimal import Decimal
+from datetime import datetime
+import traceback
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import ProviderException, \
    AggregationOrderBook, PositionsReport, BalanceReport, \
    PriceEvent, CashOperation, OpenVolume, TheTxTracker, \
-   checkConfig
+   checkConfig, double_eq
 from leverex_core.utils import round_down
 
 from Providers.bfxapi.bfxapi import Client
@@ -101,8 +103,9 @@ class BfxPositionsReport(PositionsReport):
 
    def __str__(self):
       #header
+      exp = round_down(self.netExposure, 8) if self.netExposure else "N/A"
       result = " ** {} -- exp: {} -- product: {}\n".format(
-         self.name, self.netExposure, self.product)
+         self.name, exp, self.product)
 
       #positions
       if not self.product in self.positions:
@@ -229,7 +232,7 @@ class BfxBalanceReport(BalanceReport):
 
 ################################################################################
 ##
-#### cash operations
+#### Cash operations
 ##
 ################################################################################
 class BfxBalanceSwap(CashOperation):
@@ -413,6 +416,89 @@ class BfxCancelWithdrawals(CashOperation):
 
 ################################################################################
 ##
+#### Expoure update management
+##
+################################################################################
+class BfxExposureManagement(object):
+   def __init__(self, provider, cooldown):
+      self.provider = provider
+
+      #time to wait between each exposure update operations, in milliseconds
+      self.cooldown_ = cooldown
+      self.lastUpdate_ = 0
+      self.targetExposure = None
+      self.callCount = 0
+      self.pushCount = 0
+
+   def log(self, msg):
+      logging.info(f"[updateExposureTo] {msg}")
+
+   async def sleepFor(self, cd):
+      await asyncio.sleep(cd / 1000.0)
+      await self.updateExposureTo(None)
+
+   async def updateExposureTo(self, targetQty):
+      if targetQty != None:
+         self.callCount += 1
+         targetQty = Decimal(targetQty)
+         if double_eq(targetQty, self.provider.getExposure()):
+            self.log(f"exposure is already {targetQty}, skipping")
+            #traceback.print_stack()
+            return
+
+      firstCaller = False
+      if self.targetExposure == None:
+         #if no target is set, we're the first caller
+         self.targetExposure = targetQty
+         firstCaller = True
+
+      while True:
+         now = time.time_ns() / 1000000
+         remainingCooldown = self.lastUpdate_ + self.cooldown_ - now
+
+         if remainingCooldown > 0:
+            #update target exposure
+            self.targetExposure = targetQty
+            if not firstCaller:
+               self.log(f"queue {targetQty}, remaining cd: {remainingCooldown}")
+               #return if we are not the first caller
+               return
+            else:
+               #sleep until cooldown is up if we are the first caller
+               self.log(f"wait for {targetQty}, remaining cd: {remainingCooldown}")
+               task = asyncio.create_task(self.sleepFor(remainingCooldown))
+               asyncio.gather(task)
+               return
+
+         else:
+            #reset target exposure and trigger cooldown
+            target = self.targetExposure
+            self.targetExposure = None
+            self.lastUpdate_ = now
+
+            currentExposure = self.provider.getExposure()
+            exposureDiff = round_down(target - currentExposure, 8)
+
+            self.log(f"push {target} (diff: {exposureDiff})")
+            if abs(exposureDiff) < Decimal(0.000001):
+               self.log(f"expDiff too low ({exposureDiff}), skipping")
+               return
+
+            self.pushCount += 1
+            self.log(f"push count: {self.pushCount}, call count: {self.callCount}")
+
+            #update exposure and return
+            await self.provider.connection.ws.submit_order(
+               symbol=self.provider.product,
+               leverage=self.provider.leverage,
+               price=None, # this is a market order, price is ignored
+               amount=exposureDiff,
+               market_type=bfx_models.order.OrderType.MARKET)
+            return
+
+
+################################################################################
+##
 #### Provider
 ##
 ################################################################################
@@ -423,7 +509,8 @@ class BitfinexProvider(Factory):
          'product',
          'collateral_pct',
          'max_collateral_deviation',
-         'deposit_method'
+         'deposit_method',
+         'exposure_cooldown'
       ],
       'hedger': [
          'max_offer_volume'
@@ -464,6 +551,8 @@ class BitfinexProvider(Factory):
 
       # setup Bitfinex connection
       self.order_book = AggregationOrderBook()
+      self.expManager = BfxExposureManagement(
+         self, self.config['exposure_cooldown'])
 
    def setup(self, callback):
       super().setup(callback)
@@ -474,7 +563,7 @@ class BitfinexProvider(Factory):
       self.connection = Client(API_KEY=self.config['api_key'],
          API_SECRET=self.config['api_secret'], logLevel=log_level)
 
-      self.connection.ws.on('error', self.on_error)
+      #self.connection.ws.on('error', self.on_error)
       self.connection.ws.on('authenticated', self.on_authenticated)
       self.connection.ws.on('balance_update', self.on_balance_updated)
       self.connection.ws.on('wallet_snapshot', self.on_wallet_snapshot)
@@ -521,6 +610,7 @@ class BitfinexProvider(Factory):
 
    ##
    async def on_authenticated(self, auth_message):
+      logging.info("[ -- BfxProvider.on_authenticated -- ]")
       await super().setConnected(True)
       await super().fetchInitialData()
 
@@ -783,12 +873,7 @@ class BitfinexProvider(Factory):
       return Decimal(exposure)
 
    async def updateExposure(self, quantity):
-      quantity = round_down(quantity, 8)
-      await self.connection.ws.submit_order(symbol=self.product,
-         leverage=self.leverage,
-         price=None, # this is a market order, price is ignored
-         amount=quantity,
-         market_type=bfx_models.order.OrderType.MARKET)
+      await self.expManager.updateExposureTo(quantity)
 
    def getPositions(self):
       return BfxPositionsReport(self)
@@ -893,6 +978,7 @@ class BitfinexProvider(Factory):
       if collateralTarget is None:
          return
 
+      logging.warning(f"setting collateral to {collateralTarget}")
       await self.connection.rest.set_derivative_collateral(
          symbol=self.product,
          collateral=float(round_down(collateralTarget, 6)))

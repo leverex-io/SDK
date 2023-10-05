@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 from decimal import Decimal
+from datetime import datetime
 
 from Factories.Provider.Factory import Factory
 from Factories.Definitions import PositionsReport, \
@@ -249,38 +250,6 @@ class LeverexCancelWithdrawal(CashOperation):
       return self.ids == other.ids
 
 ################################################################################
-class OfferToPush(object):
-   def __init__(self, offers):
-      self.offers = offers
-      self.timestamp = self.getTimeMs() #time in milliseconds
-      self.waiting = False
-
-   def getTimeMs(self):
-      return time.time_ns() / 1000000
-
-   def updateOffers(self, offers):
-      #update offers but not the timestamp
-      self.offers = offers
-
-   def updateTimestamp(self):
-      self.timestamp = self.getTimeMs()
-
-   def ready(self):
-      if self.waiting:
-         return False
-      return self.getTimeMs() >= self.timestamp + 200
-
-   async def wait(self):
-      if self.waiting:
-         return
-      self.waiting = True
-      diff = self.timestamp + 200 - self.getTimeMs()
-      if diff <= 0:
-         return
-      await asyncio.sleep(diff/1000)
-      self.waiting = False
-
-################################################################################
 class LeverexProvider(Factory, LeverexBaseClient):
    required_settings = {
       'leverex': [
@@ -292,9 +261,7 @@ class LeverexProvider(Factory, LeverexBaseClient):
    def __init__(self, config):
       LeverexBaseClient.__init__(self, config)
       Factory.__init__(self, "Leverex")
-
       self.lastReadyState = False
-      self.offerToPush = None
 
       #check for required config entries
       checkConfig(self.config, self.required_settings)
@@ -415,15 +382,14 @@ class LeverexProvider(Factory, LeverexBaseClient):
       return not self.currentSession.isHealthy()
 
    def getStatusStr(self):
+      if self.currentSession:
+         if not self.currentSession.isHealthy():
+            return "session is damaged"
+         if not self.currentSession.isOpen():
+            return "session is closed"
+
       if not Factory.isReady(self):
          return Factory.getStatusStr(self)
-
-      if self.currentSession == None:
-         return "missing session data"
-      if not self.currentSession.isOpen():
-         return "session is closed"
-      if not self.currentSession.isHealthy():
-         return "session is damaged"
 
       return "N/A"
 
@@ -507,33 +473,25 @@ class LeverexProvider(Factory, LeverexBaseClient):
          'price' : self.currentSession.getOpenPrice()
       }
 
-   async def submitOffers(self, offers):
+   async def submitPrices(self, offers):
       def callback(reply):
-         if 'submit_offer' not in reply:
-            return
-         if 'result' not in reply['submit_offer']:
+         if 'submit_prices' not in reply or 'result' not in reply['submit_prices']:
+            logging.error(f"submit_offers reply mismatch: {str(reply)}")
             return
 
-         if reply['submit_offer']['result'] != 1:
+         if reply['submit_prices']['result'] != 1:
             logging.error(f"Failed to submit offers with error: {str(reply)}")
 
-      #do not push offers more than once every 200ms
-      if self.offerToPush != None:
-         if (self.offerToPush.ready()):
-            self.offerToPush = None
-         else:
-            self.offerToPush.updateOffers(offers)
-            await self.offerToPush.wait()
-            if not self.offerToPush.ready():
-               return
+      pricesStr = ""
+      for offer in offers:
+         pricesStr += (f"  . {str(offer)}\n")
+      if not offers:
+         pricesStr = "  . N/A\n"
 
-      if self.offerToPush == None:
-         self.offerToPush = OfferToPush(offers)
-      self.offerToPush.updateTimestamp()
-
-      await self.connection.submit_offers(
+      logging.debug(f" .. submitting prices ..\n{pricesStr}")
+      await self.connection.submit_prices(
          target_product=self.product,
-         offers=self.offerToPush.offers,
+         offers=offers,
          callback=callback)
 
    ## getters ##

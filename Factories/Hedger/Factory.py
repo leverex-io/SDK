@@ -6,10 +6,12 @@ class HedgerFactory(object):
       self._name = name
       self._ready = False
       self.onEventFunc = None
+      self.maker = None
 
    ## setup ##
-   def setup(self, onEventFunc):
+   def setup(self, onEventFunc, maker):
       self.onEventFunc = onEventFunc
+      self.maker = maker
 
    ## ready ##
    async def onReadyEvent(self, maker, taker):

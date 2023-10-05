@@ -2,15 +2,16 @@
 import unittest
 from unittest.mock import patch
 from decimal import Decimal
+import asyncio
 
-from .tools import TestMaker, getOrderBookSnapshot, double_eq
+from .tools import TestMaker, TestTaker, getOrderBookSnapshot
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
-from Factories.Definitions import AggregationOrderBook
+from Factories.Definitions import AggregationOrderBook, double_eq
 from leverex_core.utils import Order, SIDE_BUY, SIDE_SELL
 
 from Providers.Bitfinex import BitfinexProvider, BfxAccounts, \
-   productToCcy
+   productToCcy, BfxExposureManagement
 from Providers.bfxapi.bfxapi.models.wallet import Wallet
 
 AMOUNT = 2
@@ -320,7 +321,8 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       'product' : 'BTCF0:USDTF0',
       'collateral_pct' : 15,
       'max_collateral_deviation' : 2,
-      'deposit_method' : 'TETHERUSL'
+      'deposit_method' : 'TETHERUSL',
+      'exposure_cooldown' : 1000
    }
    config['hedger'] = {
       'max_offer_volume' : 5,
@@ -407,12 +409,13 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers should be empty as push_ordebook_snapshot is not
       async, so it cannot trigger the orderbook update notification
       '''
-      assert len(maker.offers) == 0
+      assert len(maker.offers) == 1
+      assert maker.offers[0] == []
 
       #order book update will correctly notify the hedger
       await mockedConnection.update_order_book(-20, 10400)
-      assert len(maker.offers) == 1
-      offers0 = maker.offers[0]
+      assert len(maker.offers) == 2
+      offers0 = maker.offers[1]
       assert len(offers0) == 2
 
       assert double_eq(offers0[0].volume, 0.8)
@@ -494,12 +497,13 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       offers should be empty as push_ordebook_snapshot is not
       async, so it cannot trigger the orderbook update notification
       '''
-      assert len(maker.offers) == 0
+      assert len(maker.offers) == 1
+      assert maker.offers[0] == []
 
       #order book update will correctly notify the hedger
       await mockedConnection.update_order_book(20, 9600)
-      assert len(maker.offers) == 1
-      offers0 = maker.offers[0]
+      assert len(maker.offers) == 2
+      offers0 = maker.offers[1]
       assert len(offers0) == 2
 
       assert double_eq(offers0[0].volume, 0.8)
@@ -630,6 +634,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #another one
       await maker.newOrder(Order(2, 2, -0.6, 9900, SIDE_SELL))
+      await asyncio.sleep(1)
       assert double_eq(maker.getExposure(), 0.4)
       assert double_eq(taker.getExposure(), -0.4)
 
@@ -698,6 +703,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       #another one
       await maker.newOrder(Order(2, 2, -0.6, 9900, SIDE_SELL))
+      await asyncio.sleep(1)
       assert double_eq(maker.getExposure(), 0.4)
       assert double_eq(taker.getExposure(), -0.4)
 
@@ -798,6 +804,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       ## push order on opposite side ##
       await maker.newOrder(Order(2, 1, -0.5, 10000, SIDE_SELL))
+      await asyncio.sleep(1)
 
       #check exposure
       assert double_eq(maker.getExposure(), -0.2)
@@ -810,6 +817,7 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
 
       ## go flat at a higher price ##
       await maker.newOrder(Order(3, 1, 0.2, 10100, SIDE_BUY))
+      await asyncio.sleep(1)
 
       #check exposure
       assert maker.getExposure() == 0
@@ -1409,3 +1417,33 @@ class TestBitfinexProvider(unittest.IsolatedAsyncioTestCase):
       await maker.completeTransaction(400)
       assert len(mockedConnection.rest.cash_movements) == 1
       assert mockedConnection.rest.cash_movements[0]['amount'] == 100
+
+   async def test_exposure_management(self):
+      mockProvider = TestTaker(startBalance=1000)
+      expMan = BfxExposureManagement(mockProvider, 2000)
+
+      async def onEvent(provider, eventType):
+         pass
+
+      mockProvider.setup(onEvent)
+      await mockProvider.bootstrap()
+      assert mockProvider.isReady() == True
+      assert mockProvider.getExposure() == 0
+
+      await expMan.updateExposureTo(1)
+      assert mockProvider.getExposure() == 1
+
+      async def expThread():
+         await expMan.updateExposureTo(3)
+         await expMan.updateExposureTo(3.5)
+         await expMan.updateExposureTo(4)
+      task = asyncio.create_task(expThread())
+      asyncio.gather(task)
+
+      assert mockProvider.getExposure() == 1
+      await asyncio.sleep(1)
+      await expMan.updateExposureTo(10)
+      assert mockProvider.getExposure() == 1
+
+      await asyncio.sleep(1)
+      assert mockProvider.getExposure() == 10
