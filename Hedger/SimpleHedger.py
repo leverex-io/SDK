@@ -558,10 +558,10 @@ class SimpleHedger(HedgerFactory):
 
       return True
 
-   async def queueOffers(self, newOffers):
+   async def queueOffers(self, newOffers, force=False):
       oldOffers = self.offers
       self.offers = newOffers
-      if not self.compareOffers(oldOffers, newOffers):
+      if force or not self.compareOffers(oldOffers, newOffers):
          await self.pushOffers(newOffers)
 
    async def pushOffers(self, offers):
@@ -644,7 +644,7 @@ class SimpleHedger(HedgerFactory):
             f"  bid vol: {bid_volume}, price: {bid_price}")
 
       #submit offers to maker
-      await self.queueOffers(offers)
+      await self.queueOffers(offers, force)
 
    ####
    def getOffersReport(self):
