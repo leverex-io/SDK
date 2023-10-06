@@ -302,10 +302,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
    '''
 
    #load position reply last
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_bootstrap_1(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -394,10 +394,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers[2]) == 0
 
    #load balances reply last
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_bootstrap_2(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -481,10 +481,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.offers[2]) == 0
 
    #cover new order handling and exposure signals
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_exposure_sync(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -600,7 +600,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos2.trade_pnl == 25
 
    #cover exposure sync at startup with existing maker orders
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_exposure_sync_startup(self, MockedLeverexConnObj):
       #setup mocked leverex connections
       mockedConnection = MockedLeverexConnectionClass(1000)
@@ -743,10 +743,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos12.trade_pnl == -50
 
    #cover session end and roll overs
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_session_roll(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -921,10 +921,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos3.trade_pnl == -50
 
    #break session, taker exposure should go to 0
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_unhealthy_session(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1040,10 +1040,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
    #counterparty provider collateral should adjust to expected value
    #even though positions are opened at a different leverage
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_adjust_collateral(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1177,10 +1177,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert double_eq(taker.targetCollateral, 765)
 
    #cover open volume asymetry
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_open_volume(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1328,10 +1328,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert double_eq(vol['bid'], 0.98)
 
    #cover withdrawal code, triggered by hedger rebalancing
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_rebalance_withdrawals(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1442,10 +1442,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.pendingWtdr) == 0
 
    #cover withdrawal code, triggered by hedger rebalancing
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_rebalance_withdrawals_with_cancel(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 

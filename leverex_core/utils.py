@@ -1,5 +1,6 @@
 import time
 import copy
+import logging
 from datetime import datetime
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 
@@ -888,3 +889,76 @@ def get_product_info(product_name):
 ###
 def get_platform_products():
    return ['xbtusd_rf', 'ethusd_rf']
+
+### announcements ###
+class Chyron(object):
+   def __init__(self, jsonDict):
+      if not 'id' in jsonDict or not 'message' in jsonDict:
+         raise Exception("invalid chryon")
+
+      self.id = int(jsonDict['id'])
+      self.message = jsonDict['message']
+
+      self.priority = 0
+      if 'priority' in jsonDict:
+         self.priority = jsonDict['priority']
+
+      self.endTime = 0
+      if 'end_time' in jsonDict:
+         self.endTime = jsonDict['end_time']
+
+      self.seen = False
+
+   def __str__(self):
+      statusStr = 'Active' if self.endTime < time.time() else 'Expired'
+      return f"[{statusStr}] - \"{self.message}\""
+
+class Announcements(object):
+   def __init__(self):
+      self.chyrons = {}
+
+   def processUpdate(self, chyronsJson):
+      if not 'items' in chyronsJson:
+         return
+
+      for chyronJson in chyronsJson['items']:
+         try:
+            newChyron = Chyron(chyronJson)
+         except:
+            logging.warning(f'invalid chyron: {chyronJson}')
+            continue
+         self.chyrons[newChyron.id] = newChyron
+
+   def toString(self, displayAll):
+      if len(self.chyrons) == 0:
+         return "N/A"
+
+      #sort announcements by priority
+      priorityMap = {}
+      for id in self.chyrons:
+         chyron = self.chyrons[id]
+
+         #skip seen chyrons if we only want new/updated ones
+         if chyron.seen and not displayAll:
+            continue
+
+         #flag it
+         chyron.seen = True
+
+         if chyron.priority not in priorityMap:
+            priorityMap[chyron.priority] = {}
+         priorityMap[chyron.priority][chyron.id] = chyron
+
+      #skip if we have no new/updated chyrons
+      if len(priorityMap) == 0:
+         return "no new/updated announcements"
+
+      result = ""
+      descendingPrio = sorted(list(priorityMap.keys()), reverse=True)
+      for prio in descendingPrio:
+         chyrons = priorityMap[prio]
+         for id in chyrons:
+            result += f"   {str(chyrons[id])}\n"
+
+      return result
+

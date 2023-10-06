@@ -328,7 +328,7 @@ class LeverexProvider(Factory, LeverexBaseClient):
 
    async def on_authorized(self):
       await Factory.setConnected(self, True)
-      await self.subscribe()
+      await self.subscribeToProductData()
 
    ## balance events ##
    async def on_balance_update(self, balances):

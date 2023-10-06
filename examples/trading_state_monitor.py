@@ -6,12 +6,12 @@ import sys
 
 sys.path.append('..')
 
-from trader_core.api_connection import AsyncApiConnection
+from trader_core.api_connection import AuthApiConnection
 
 
 class SessionMonitor():
    def __init__(self):
-      self._api_connection = AsyncApiConnection(api_endpoint='wss://api-dev.leverex.io')
+      self._api_connection = AuthApiConnection(api_endpoint='wss://api-dev.leverex.io')
 
    async def run(self):
       await self._api_connection.run(self)

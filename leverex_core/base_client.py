@@ -1,6 +1,6 @@
 from .utils import LeverexException, SessionInfo, get_product_info, \
    SessionOrders, getBalancesFromJson, ORDER_ACTION_UPDATED, round_down
-from .api_connection import AsyncApiConnection
+from .api_connection import AuthApiConnection
 from Factories.Definitions import checkConfig
 
 ################################################################################
@@ -45,7 +45,7 @@ class LeverexBaseClient(object):
       if 'aeid' in self.config and 'endpoint' in self.config['aeid']:
          aeid_endpoint = self.config['aeid']['endpoint']
 
-      self.connection = AsyncApiConnection(
+      self.connection = AuthApiConnection(
          api_endpoint=leverexConfig['api_endpoint'],
          login_endpoint=leverexConfig['login_endpoint'],
          key_file_path=keyPath,
@@ -58,7 +58,7 @@ class LeverexBaseClient(object):
          target_product=self.product,
          callback=self.on_positions_loaded)
 
-   async def subscribe(self):
+   async def subscribeToProductData(self):
       await self.connection.subscribe_session_open(self.product)
       await self.connection.subscribe_to_product(self.product)
 

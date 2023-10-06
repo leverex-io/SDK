@@ -5,7 +5,7 @@ import sys
 
 sys.path.append('..')
 
-from trader_core.api_connection import AsyncApiConnection
+from trader_core.api_connection import AuthApiConnection
 
 
 class WithdrawMaker():
@@ -13,7 +13,7 @@ class WithdrawMaker():
       self._withdraw_amount = withdraw_amount
       self._withdraw_address = withdraw_address
 
-      self._leverex_connection = AsyncApiConnection(customer_email='test@email.com',
+      self._leverex_connection = AuthApiConnection(customer_email='test@email.com',
                                                     api_endpoint='wss://api-dev.leverex.io',
                                                     login_endpoint='wss://login-dev.leverex.io/ws/v1/websocket',
                                                     key_file_path=key_file)
