@@ -466,3 +466,22 @@ def checkConfig(config, requiredSetting):
          for kk in requiredSetting[k]:
             if kk not in config[k]:
                raise ConfigException(f'Missing \"{kk}\" in config group \"{k}\"')
+
+########
+def double_eq(a, b, deviation_pct=0.01):
+   #edge case
+   if a == 0 or b == 0:
+      return Decimal(abs(a)) + Decimal(abs(b)) < Decimal(0.00000001)
+
+   a = Decimal(a)
+   b = Decimal(b)
+   if a * b < 0:
+      return False
+
+   #returns true if a and b are within 0.01% of each other
+   diff = Decimal(1) - Decimal(a) / Decimal(b)
+   result = abs(diff) <= Decimal(deviation_pct / 100)
+
+   #if not result:
+   #   print (f"double_eq error: {str(a)}, {str(b)}")
+   return result

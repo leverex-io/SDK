@@ -20,8 +20,11 @@ from .utils import PriceOffer, \
 ####
 PriceOffers = list[PriceOffer]
 
+def generateReferenceId():
+   return str(random.randint(0, 2**32-1))
+
 ################################################################################
-class AsyncApiConnection(object):
+class AuthApiConnection(object):
    def __init__(self, api_endpoint, login_endpoint,
       key_file_path=None,
       dump_communication=False,
@@ -60,11 +63,8 @@ class AsyncApiConnection(object):
       else:
          logging.error(f'{method_name} not defined in listener')
 
-   def _generate_reference_id(self):
-      return str(random.randint(0, 2**32-1))
-
    async def load_deposit_address(self, callback: Callable = None):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       load_deposit_address_request = {
          'load_deposit_address' : {
@@ -83,11 +83,38 @@ class AsyncApiConnection(object):
 
    async def load_trade_history(self, target_product,
       limit=0, offset=0, start_time: datetime = None,
-      end_time: datetime = None, callback: Callable = None):
+      end_time: datetime = None, no_rolls: bool = False,
+      callback: Callable = None):
 
-      reference = self._generate_reference_id()
+      if not callback:
+         raise Exception("load_trade_history needs a callback")
+
+      reference = generateReferenceId()
       load_trades_request = {
          'trade_history': {
+            'limit': limit,
+            'offset': offset,
+            'start_time': (int(start_time.timestamp()) if start_time is not None else 0),
+            'end_time': (int(end_time.timestamp()) if end_time is not None else 0),
+            'product_type': target_product,
+            'no_rolls': no_rolls,
+            'reference': reference
+         }
+      }
+
+      self._requests_cb[reference] = callback
+      await self.websocket.send(json.dumps(load_trades_request))
+
+   async def load_session_history(self, target_product,
+      limit=0, offset=0, start_time: datetime = None,
+      end_time: datetime = None, callback: Callable = None):
+
+      if not callback:
+         raise Exception("load_session_history needs a callback")
+
+      reference = generateReferenceId()
+      load_trades_request = {
+         'session_history': {
             'limit': limit,
             'offset': offset,
             'start_time': (int(start_time.timestamp()) if start_time is not None else 0),
@@ -97,17 +124,11 @@ class AsyncApiConnection(object):
          }
       }
 
-      if callback is not None:
-         self._requests_cb[reference] = callback
-      else:
-         listener_cb = getattr(self.listener, 'on_trade_history_loaded', None)
-         if callable(listener_cb):
-            self._requests_cb[reference] = listener_cb
-
+      self._requests_cb[reference] = callback
       await self.websocket.send(json.dumps(load_trades_request))
 
    async def load_withdrawals_history(self, callback: Callable = None):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       load_withdrawals_history_request = {
          'load_withdrawals': {
@@ -124,7 +145,7 @@ class AsyncApiConnection(object):
       await self.websocket.send(json.dumps(load_withdrawals_history_request))
 
    async def load_deposits_history(self, callback: Callable = None):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       load_deposits_history_request = {
          'load_deposits': {
@@ -142,7 +163,7 @@ class AsyncApiConnection(object):
       await self.websocket.send(json.dumps(load_deposits_history_request))
 
    async def withdraw_liquid(self, *, address, currency, amount, callback: Callable = None):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       withdraw_request = {
             'withdraw_liquid': {
@@ -165,7 +186,7 @@ class AsyncApiConnection(object):
       await self.websocket.send(json.dumps(withdraw_request))
 
    async def cancel_withdraw(self, *, id, callback: Callable = None):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       cancel_withdraw = {
          'cancel_withdraw': {
@@ -178,7 +199,7 @@ class AsyncApiConnection(object):
       await self.websocket.send(json.dumps(cancel_withdraw))
 
    async def load_whitelisted_addresses(self, callback: Callable = None):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       load_whitelisted_addresses_request = {
          'load_addresses': {
@@ -197,7 +218,7 @@ class AsyncApiConnection(object):
 
    # callback(orders: list[Order] )
    async def load_open_positions(self, target_product, callback: Callable = None):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       load_positions_request = {
          'load_orders': {
@@ -213,10 +234,10 @@ class AsyncApiConnection(object):
 
       await self.websocket.send(json.dumps(load_positions_request))
 
-   async def submit_offers(self, target_product: str, offers: PriceOffers, callback: Callable = None):
+   async def submit_prices(self, target_product: str, offers: PriceOffers, callback: Callable = None):
       price_offers = [offer.to_map() for offer in offers if offer.to_map() is not None]
 
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
 
       submit_prices_request = {
          'submit_prices': {
@@ -270,7 +291,7 @@ class AsyncApiConnection(object):
          if reply['success'] == False:
             print (f"order failed with error: {reply['error_msg']}")
 
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
       market_order = {
          'market_order' : {
             'amount': str(amount),
@@ -284,7 +305,7 @@ class AsyncApiConnection(object):
       await self.websocket.send(json.dumps(market_order))
 
    async def product_fee(self, product: str, cb):
-      reference = self._generate_reference_id()
+      reference = generateReferenceId()
       product_fee = {
          'product_fee' : {
             'product_type': product,
@@ -318,11 +339,6 @@ class AsyncApiConnection(object):
 
    async def run(self, listener):
       self.listener = listener
-
-      def send_data(data):
-         self.write_queue.put_nowait(json.dumps(data))
-      self.listener.send = send_data
-
       try:
          async with websockets.connect(self._api_endpoint) as self.websocket:
             await self._call_listener_method('on_connected')
@@ -331,16 +347,13 @@ class AsyncApiConnection(object):
                await self.login()
                await self._call_listener_method('on_authorized')
 
-            # start the loops
-            readTask = asyncio.create_task(self.readLoop(), name="Leverex Read task")
-            if self._login_client is not None:
-               cycleTask = asyncio.create_task(self.cycleSession(), name="Leverex login cycle task")
-            await readTask
+            # start read and token cycling loops, they will be awaited on TaskGroup scopes out
+            async with asyncio.TaskGroup() as tg:
+               readTask = tg.create_task(self.readLoop(), name="Leverex Read task")
+               cycleTask = tg.create_task(self.cycleSession(), name="Leverex login cycle task")
 
-            if self._login_client is not None:
-               await cycleTask
       except Exception as e:
-         print(f"leverex_core/api_connection failed with error: {e}")
+         print(f"leverex_core/AuthApiConnection failed with error: {e}")
          loop = asyncio.get_running_loop()
          loop.stop()
          return
@@ -416,12 +429,20 @@ class AsyncApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-
                trade_history = TradeHistory(update['trade_history'])
-
                await self._call_listener_cb(cb, trade_history)
             else:
                logging.error(f'trade_history response with unregistered request reference:{reference}')
+
+         elif 'session_history' in update:
+            reference = update['session_history']['reference']
+
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               session_history = SessionHistory(update['session_history'])
+               await self._call_listener_cb(cb, session_history)
+            else:
+               logging.error(f'session_history response with unregistered request reference:{reference}')
 
          elif 'load_withdrawals' in update:
             reference = update['load_withdrawals']['reference']
@@ -524,3 +545,120 @@ class AsyncApiConnection(object):
          }
 
          await self.websocket.send(json.dumps(auth_request))
+
+################################################################################
+class PublicApiConnection(object):
+   def __init__(self, endpoint):
+      self.endpoint = endpoint
+      self.websocket = None
+      self.listener = None
+      self._requests_cb = {}
+
+   async def _call_listener_cb(self, cb, *args, **kwargs):
+      if asyncio.iscoroutinefunction(cb):
+         await cb(*args, **kwargs)
+      else:
+         cb(*args, **kwargs)
+
+   async def _call_listener_method(self, method_name: str, *args, **kwargs):
+      listener_cb = getattr(self.listener, method_name, None)
+      if callable(listener_cb):
+         await self._call_listener_cb(listener_cb, *args, **kwargs)
+      else:
+         logging.error(f'{method_name} not defined in listener')
+
+   async def run(self, listener):
+      try:
+         self.listener = listener
+
+         async with websockets.connect(self.endpoint) as self.websocket:
+            await self._call_listener_method('on_public_connected')
+            await self.readLoop()
+      except Exception as e:
+         print(f"leverex_core/PublicApiConnection failed with error: {e}")
+         loop = asyncio.get_running_loop()
+         loop.stop()
+         return
+
+   async def subscribe_session_open(self, target_product: str):
+      subscribe_request = {
+         'session_open' : {
+            'product_type' : target_product
+         }
+      }
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def subscribe_to_product(self, target_product: str):
+      subscribe_request = {
+         'subscribe': {
+            'product_type': target_product
+         }
+      }
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def subscribe_dealer_offers(self, product: str):
+      subscribe_request = {
+         'subscribe_dealer_offers' : {
+            'product_type': product,
+      }}
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def product_fee(self, product: str, cb):
+      reference = generateReferenceId()
+      product_fee = {
+         'product_fee' : {
+            'product_type': product,
+            'reference' : reference
+         }
+      }
+      self._requests_cb[reference] = cb
+      await self.websocket.send(json.dumps(product_fee))
+
+   async def subscribe_to_announcements(self):
+      subscribe_request = {
+         'get_chyrons' : {}
+      }
+      await self.websocket.send(json.dumps(subscribe_request))
+
+   async def readLoop(self):
+      while True:
+         data = await self.websocket.recv()
+         if data is None:
+            continue
+         update = json.loads(data)
+
+         if 'market_data' in update:
+            await self.listener.on_market_data(update['market_data'])
+
+         elif 'subscribe' in update:
+            if not update['subscribe']['success']:
+               raise Exception('Failed to subscribe to prices: {}'.format(update['subscribe']['error_msg']))
+
+         elif 'session_open' in update:
+            await self._call_listener_cb(self.listener.on_session_open, SessionOpenInfo(update['session_open']))
+
+         elif 'session_closed' in update:
+            await self._call_listener_cb(self.listener.on_session_closed, SessionCloseInfo(update['session_closed']))
+
+         elif 'subscribe_dealer_offers' in update:
+            sub_reply = update['subscribe_dealer_offers']
+            if sub_reply['success'] != True:
+               logging.warning(f"failed to subcribe to dealer offers with error: {sub_reply['error']}")
+
+         elif 'dealer_offers' in update:
+            dealer_offers = DealerOffers(update['dealer_offers'])
+            await self._call_listener_method('on_dealer_offers', dealer_offers)
+
+         elif 'product_fee' in update:
+            fee_reply = update['product_fee']
+            reference = fee_reply['reference']
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               await self._call_listener_cb(cb, fee_reply)
+
+         elif 'chyrons' in update:
+            announcements = update['chyrons']
+            await self._call_listener_method('on_announcement', announcements)
+
+         else:
+            logging.warning('!!! Ignore update\n{} !!!'.format(update))

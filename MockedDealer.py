@@ -6,7 +6,7 @@ import websockets.exceptions
 import random
 import argparse
 
-from leverex_core.api_connection import AsyncApiConnection
+from leverex_core.api_connection import AuthApiConnection
 from leverex_core.login_connection import LoginServiceClientWS
 
 ################################################################################
@@ -151,7 +151,7 @@ if __name__ == '__main__':
    logging.info(auth_type_string)
 
    dealer = SampleDealer()
-   connection = AsyncApiConnection(login_client, dealer)
+   connection = AuthApiConnection(login_client, dealer)
 
    while True:
       try:

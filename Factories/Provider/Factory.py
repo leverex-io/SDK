@@ -216,7 +216,7 @@ class Factory(object):
    def getPendingWithdrawals(self):
       pass
 
-   async def submitOffers(self, offers):
+   async def submitPrices(self, offers):
       #push price offers to service
       #typically a maker feature, called from hedger
       pass
@@ -253,12 +253,12 @@ class Factory(object):
       if not self.isReady():
          if not self._connected:
             return "awaiting login..."
-         if not self._balanceInitialized:
+         if self._balanceInitialized != INITIALIZED:
             return "awaiting balance snapshot..."
-         if not self._positionsInitialized:
-            return "awaiting orders snapshot..."
+         if self._positionsInitialized != INITIALIZED:
+            return "awaiting positions snapshot..."
 
-      return "N/A"
+      return "N/a"
 
    @property
    def name(self):

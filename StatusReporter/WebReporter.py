@@ -41,7 +41,6 @@ class WebReporter(Factory):
                 while True:
                     try:
                         message = await self._connection.recv()
-                        logging.info(message)
                     except websockets.exceptions.ConnectionClosed:
                         logging.warning('ConnectionClosed')
                         break

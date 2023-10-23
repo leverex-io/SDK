@@ -9,8 +9,9 @@ import sys
 
 from leverex_core.utils import LeverexOpenVolume, SessionOrders, \
    SessionInfo, SIDE_BUY, SIDE_SELL, ORDER_ACTION_CREATED, \
-   round_down
+   round_down, Announcements
 from leverex_core.base_client import LeverexBaseClient
+from leverex_core.api_connection import PublicApiConnection
 
 ################################################################################
 class LeverexClient(LeverexBaseClient):
@@ -18,10 +19,18 @@ class LeverexClient(LeverexBaseClient):
       super().__init__(config)
       self.setupConnection()
       self.takerFee = None
+      self.public_connection = PublicApiConnection(
+         config['leverex']['public_endpoint'])
+      self.announcements = Announcements()
 
    async def subscribe(self):
-      await super().subscribe()
-      await self.connection.subscribe_dealer_offers(self.product)
+      await super().subscribeToInitialData()
+
+   async def public_subscribe(self):
+      await self.public_connection.subscribe_session_open(self.product)
+      await self.public_connection.subscribe_to_product(self.product)
+      await self.public_connection.subscribe_dealer_offers(self.product)
+      await self.public_connection.subscribe_to_announcements()
 
    ## asyncio loops
    async def parseCommand(self, command):
@@ -94,6 +103,18 @@ class LeverexClient(LeverexBaseClient):
       elif command == 'session':
          self.printSession()
 
+      elif command.startswith('announcements'):
+         displayAll = False
+         value = command[13:].strip()
+         if value == 'all':
+            displayAll = True
+         elif value == 'max' or len(value) == 0:
+            displayAll = False
+         else:
+            print ("invalid command")
+            pass
+         self.printAnnouncements(displayAll)
+
       elif command == 'help':
          helpStr = "- commands:\n"
          helpStr += "  . address: show deposit address\n"
@@ -101,8 +122,12 @@ class LeverexClient(LeverexBaseClient):
          helpStr += "  . positions: show positions, net exposure and pnl\n"
          helpStr += "  . price: show index price and offer streams\n"
          helpStr += "  . session: current session info\n"
+         helpStr += "  . announcements [new/all]: display announcements.\n" \
+            "      new: display only new/updated announcements\n" \
+            "      all: display all announcements\n" \
+            "      passing no arguments will default to new\n"
          helpStr += "  . max: show maximum buyable and sellable exposure\n"
-         helpStr += "  . buy/sell XXX: place a long/short market order for XXX amount\n" \
+         helpStr += "  . [buy/sell] [XXX]: place a long/short market order for XXX amount\n" \
             "      XXX is in XBT. Enter a max position with XXX set to [max], e.g.:\n" \
             "        buy 0.1: go long for 0.1 XBT\n" \
             "        sell 2: go short for 2 XBT\n" \
@@ -130,6 +155,7 @@ class LeverexClient(LeverexBaseClient):
 
    async def run(self):
       tasks = [asyncio.create_task(self.connection.run(self))]
+      tasks.append(asyncio.create_task(self.public_connection.run(self)))
 
       done, pending = await asyncio.wait(
          tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -138,8 +164,12 @@ class LeverexClient(LeverexBaseClient):
    def on_connected(self):
       print (f"connected to {self.config['leverex']['api_endpoint']}")
 
+   def on_public_connected(self):
+      print (f"connected to {self.config['leverex']['public_endpoint']}")
+
    async def on_authorized(self):
       await self.subscribe()
+      await self.public_subscribe()
 
       loop = asyncio.get_event_loop()
       asyncio.ensure_future(self.inputLoop(loop))
@@ -154,6 +184,10 @@ class LeverexClient(LeverexBaseClient):
 
    async def on_dealer_offers(self, offers):
       self.offers = offers
+
+   async def on_announcement(self, announcements):
+      self.announcements.processUpdate(announcements)
+      print ("new announcements!")
 
    ## max calcs
    def getMaxVolume(self):
@@ -279,6 +313,9 @@ class LeverexClient(LeverexBaseClient):
 
       prefix = "    "
       print (f" - Session:\n{self.currentSession.prettyPrint(prefix)}\n")
+
+   def printAnnouncements(self, displayAll):
+      print (self.announcements.toString(displayAll))
 
 ################################################################################
 if __name__ == '__main__':

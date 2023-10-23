@@ -4,9 +4,10 @@ from typing import Callable
 import time
 from decimal import Decimal
 
-from .tools import TestTaker, price, double_eq
+from .tools import TestTaker, price
 from Hedger.SimpleHedger import SimpleHedger
 from Factories.Dealer.Factory import DealerFactory
+from Factories.Definitions import double_eq
 
 from leverex_core.utils import SessionInfo, \
    SessionOpenInfo, SessionCloseInfo, \
@@ -43,7 +44,7 @@ class MockedLeverexConnectionClass(object):
       self.listener = listener
       pass
 
-   async def submit_offers(self, target_product, offers, callback):
+   async def submit_prices(self, target_product, offers, callback):
       self.offers.append(offers)
 
    async def subscribe_to_balance_updates(self, target_product):
@@ -301,10 +302,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
    '''
 
    #load position reply last
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_bootstrap_1(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -326,7 +327,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == None
 
       await taker.populateOrderBook(10)
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
       assert maker.isReady() == False
       assert dealer.isReady() == False
 
@@ -335,7 +337,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert dealer.isReady() == False
       assert maker._connected == True
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #provider shouldn't be able to return exposure until it's ready
       assert maker.getExposure() == None
@@ -347,7 +350,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          10000, #open price
          0 #open timestamp
       )
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
       assert maker.isReady() == False
       assert dealer.isReady() == False
 
@@ -361,7 +365,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert dealer.isReady() == False
       assert maker._balanceInitialized == 2
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #provider shouldn't be able to return exposure until it's ready
       assert maker.getExposure() == None
@@ -376,8 +381,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback == None
       assert maker.getExposure() == 0
 
-      assert len(mockedConnection.offers) == 1
-      offers0 = mockedConnection.offers[0]
+      assert len(mockedConnection.offers) == 2
+      offers0 = mockedConnection.offers[1]
       assert len(offers0) == 1
       assert double_eq(offers0[0].volume, 0.8)
       assert double_eq(offers0[0].bid, 9989.58  * 0.99)
@@ -385,14 +390,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(3) #session_id
-      assert len(mockedConnection.offers) == 2
-      assert len(mockedConnection.offers[1]) == 0
+      assert len(mockedConnection.offers) == 3
+      assert len(mockedConnection.offers[2]) == 0
 
    #load balances reply last
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_bootstrap_2(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -414,14 +419,16 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.getExposure() == None
 
       await taker.populateOrderBook(10)
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #Leverex authorized event (login successful)
       await maker.on_authorized()
       assert maker.isReady() == False
       assert dealer.isReady() == False
       assert maker._connected == True
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to session sub
       assert mockedConnection.session_product != None
@@ -431,7 +438,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
          0 #open timestamp
       )
       assert maker.isReady() == False
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #provider shouldn't be able to return exposure until it's ready
       assert maker.getExposure() == None
@@ -443,7 +451,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.isReady() == False
       assert dealer.isReady() == False
       assert maker._positionsInitialized == 2
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #provider shouldn't be able to return exposure until it's ready
       assert maker.getExposure() == None
@@ -459,8 +468,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert maker.balances['USDT'] == 1000
       assert maker.getExposure() == 0
 
-      assert len(mockedConnection.offers) == 1
-      offers0 = mockedConnection.offers[0]
+      assert len(mockedConnection.offers) == 2
+      offers0 = mockedConnection.offers[1]
       assert len(offers0) == 1
       assert double_eq(offers0[0].volume, 0.8)
       assert double_eq(offers0[0].bid, 9989.58  * 0.99)
@@ -468,14 +477,14 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
       #close session, should pull offers
       await mockedConnection.notifySessionClose(4) #session_id
-      assert len(mockedConnection.offers) == 2
-      assert len(mockedConnection.offers[1]) == 0
+      assert len(mockedConnection.offers) == 3
+      assert len(mockedConnection.offers[2]) == 0
 
    #cover new order handling and exposure signals
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_exposure_sync(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -513,7 +522,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to load balances request
       assert len(maker.balances) == 0
@@ -590,7 +600,7 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos2.trade_pnl == 25
 
    #cover exposure sync at startup with existing maker orders
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_exposure_sync_startup(self, MockedLeverexConnObj):
       #setup mocked leverex connections
       mockedConnection = MockedLeverexConnectionClass(1000)
@@ -683,7 +693,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions(orders)
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
       assert maker.isReady() == True
       assert dealer.isReady() == True
 
@@ -732,10 +743,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos12.trade_pnl == -50
 
    #cover session end and roll overs
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_session_roll(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -770,7 +781,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to load balances request
       assert len(maker.balances) == 0
@@ -909,10 +921,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert pos3.trade_pnl == -50
 
    #break session, taker exposure should go to 0
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_unhealthy_session(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -951,7 +963,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to load balances request
       assert len(maker.balances) == 0
@@ -1027,10 +1040,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
 
    #counterparty provider collateral should adjust to expected value
    #even though positions are opened at a different leverage
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_adjust_collateral(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1065,7 +1078,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to load balances request
       assert len(maker.balances) == 0
@@ -1163,10 +1177,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert double_eq(taker.targetCollateral, 765)
 
    #cover open volume asymetry
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_open_volume(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1201,7 +1215,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to load balances request
       assert len(maker.balances) == 0
@@ -1313,10 +1328,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert double_eq(vol['bid'], 0.98)
 
    #cover withdrawal code, triggered by hedger rebalancing
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_rebalance_withdrawals(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1351,7 +1366,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to load balances request
       assert len(maker.balances) == 0
@@ -1426,10 +1442,10 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert len(mockedConnection.pendingWtdr) == 0
 
    #cover withdrawal code, triggered by hedger rebalancing
-   @patch('leverex_core.base_client.AsyncApiConnection')
+   @patch('leverex_core.base_client.AuthApiConnection')
    async def test_rebalance_withdrawals_with_cancel(self, MockedLeverexConnObj):
       #return mocked leverex connection object instead of an instance
-      #of leverex_core.api_connection.AsyncApiConnection
+      #of leverex_core.api_connection.AuthApiConnection
       mockedConnection = MockedLeverexConnectionClass(1000)
       MockedLeverexConnObj.return_value = mockedConnection
 
@@ -1464,7 +1480,8 @@ class TestLeverexProvider(unittest.IsolatedAsyncioTestCase):
       assert mockedConnection.positions_callback != None
       await mockedConnection.replyLoadPositions([])
       assert mockedConnection.positions_callback == None
-      assert len(mockedConnection.offers) == 0
+      assert len(mockedConnection.offers) == 1
+      assert mockedConnection.offers[0] == []
 
       #reply to load balances request
       assert len(maker.balances) == 0

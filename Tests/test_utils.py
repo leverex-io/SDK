@@ -6,7 +6,7 @@ from leverex_core.utils import LeverexOrder, \
    ORDER_STATUS_FILLED, SIDE_BUY, SIDE_SELL, ORDER_TYPE_TRADE_POSITION, \
    SessionInfo, SessionOpenInfo, LeverexOpenVolume, SessionOrders, \
    ORDER_ACTION_CREATED, round_down
-from .tools import double_eq
+from Factories.Definitions import double_eq
 
 ################################################################################
 ##
@@ -36,6 +36,23 @@ class MockedLeverexProvider(object):
       self.orderData[10].setSessionObj(self.currentSession)
 
 class TestUtils(unittest.TestCase):
+   def test_double_eq(self):
+      assert double_eq(1, 1)
+      assert double_eq(1, 1.00)
+      assert not double_eq(1, -1)
+      assert not double_eq(-1, 1)
+      assert not double_eq(0, 0.1)
+      assert not double_eq(-1.2, 0)
+
+      assert double_eq(0.1, 0.1)
+      assert not double_eq(0.1, -0.1)
+
+      assert double_eq(1, 0.99999999)
+      assert not double_eq(1, 0.9999)
+      assert double_eq(1, 0.9999, 0.1)
+      assert double_eq(0.9999, 1, 0.1)
+      assert not double_eq(-0.9999, 1, 0.1)
+
    def testMargins(self):
       order1 = LeverexOrder({
          "id": 1234,

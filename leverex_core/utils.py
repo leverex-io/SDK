@@ -1,5 +1,6 @@
 import time
 import copy
+import logging
 from datetime import datetime
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 
@@ -44,12 +45,17 @@ def round_up(val, precision):
    return num.quantize(\
       Decimal('0.' + '0' * precision), rounding=ROUND_UP)
 
+def round_flat(val, precision):
+   num = Decimal(val)
+   return num.quantize(\
+      Decimal('0.' + '0' * precision))
+
 ### session info ###
 class SessionOpenInfo():
    def __init__(self, data):
       self.product_type = data['product_type']
       self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
-      self.last_cut_off_price = round_down(data['last_cut_off_price'], 2)
+      self.last_cut_off_price = round_flat(data['last_cut_off_price'], 2)
       self.session_id = int(data['session_id'])
       self.previous_session_id = data['previous_session_id']
       self._healthy = data['healthy']
@@ -134,6 +140,23 @@ class SessionInfo():
 
       return result
 
+### SessionsHistory
+class HistoricalSession(object):
+   def __init__(self, jsonObj):
+      self.id           = jsonObj['id']
+      self.open         = round_flat(jsonObj['open'], 2)
+      self.close        = round_flat(jsonObj['close'], 2)
+      self.time_start   = jsonObj['time_start']
+      self.time_end     = jsonObj['time_end']
+
+####
+class SessionsHistory(object):
+   def __init__(self, jsonObj):
+      self._sessions = {}
+      for session in jsonObj['sessions']:
+         sessionObj = HistoricalSession(session)
+         self._sessions[sessionObj.id] = sessionObj
+
 ### offers ###
 class PriceOffer():
    def __init__(self, volume, ask=None, bid=None, isLast=False):
@@ -179,10 +202,6 @@ class PriceOffer():
       return result
 
    def compare(self, offer, delay_ms):
-      if offer._timestamp <= self._timestamp + delay_ms:
-         #return false if delay is met
-         return False
-
       if self._volume != offer._volume:
          return False
       if self._ask != offer._ask or self._bid != offer._bid:
@@ -191,7 +210,7 @@ class PriceOffer():
       return True
 
    def __str__(self):
-      return f"vol: {self.volume} - ask: {self.ask}, bid: {self.bid}"
+      return f"vol: {self.volume} - ask: {self.ask}, \tbid: {self.bid}"
 
    def isValid(self):
       return self._volume != None and self._volume > 0
@@ -275,15 +294,15 @@ class LeverexOrder(Order):
    def __init__(self, data):
       super().__init__(data['id'],
          data['timestamp'],
-         round_down(data['quantity'], 8),
-         round_down(data['price'], 2),
+         round_flat(data['quantity'], 8),
+         round_flat(data['price'], 2),
          int(data['side'])
       )
 
       self._status = int(data['status'])
       self._product_type = data['product_type']
       self._trade_pnl = None
-      self._reference_exposure = round_down(data['reference_exposure'], 8)
+      self._reference_exposure = round_flat(data['reference_exposure'], 8)
       self._session_id = int(data['session_id'])
       self._rollover_type = data['rollover_type']
       self._fee = data['fee']
@@ -348,13 +367,25 @@ class LeverexOrder(Order):
       if self.is_sell():
          vol *= -1
 
-      text = f"<id: {self.id} -- vol: {vol}, price: {self.price}, pnl: {pl}, fee: {self.fee}"
+      #body
+      text = f"<id: {self.id}, {datetime.fromtimestamp(self.timestamp)} -- vol: {vol}, price: {self.price}, fee: {self.fee}"
+      if pl:
+         text += f", pnl: {pl}"
+
+      #order type
       tradeType = self.tradeTypeStr(self._rollover_type)
       if tradeType:
          text += " -- ROLL, {}: {}".format(tradeType, \
             abs(self._reference_exposure) - self.quantity)
       elif not self.is_trade_position():
          text += " -- ROLL"
+      else:
+         side = "TAKER" if self.is_taker else "MAKER"
+         text += f" -- {side}"
+
+      #debug
+      if self._reference_exposure != 0:
+         text += f" -- refExp: {self._reference_exposure}"
       text += ">"
 
       return text
@@ -411,6 +442,15 @@ class LeverexOrder(Order):
 
       sign = Decimal(-1) if self.is_sell() else Decimal(1)
       return round_down(self.quantity * (price - self.price) * sign, 6)
+
+   def fromNullExposure(self):
+      '''
+      Reference exposure presents the user's net exposure after the order
+      is booked. If it matches the order's volume, then it was pushed when
+      the user had no exposure.
+      '''
+      vol = self.qty if not self.is_sell() else -self.qty
+      return vol == self._reference_exposure
 
 ####
 class SessionOrders(object):
@@ -846,6 +886,24 @@ class TradeHistory():
    def orders(self):
       return self._orders
 
+   #yes, my naming sense is shit, sue me!
+   def getTradesUntilNullExposure(self):
+      result = []
+      for order in self._orders:
+         result.append(order)
+         if order.fromNullExposure():
+            break
+      return result
+
+   def mergeOrders(self, toMerge):
+      pass
+
+   def toString(self):
+      result = ""
+      for order in self._orders:
+         result += f"  - {str(order)}\n"
+      return result
+
 ### product info helper ###
 class ProductInfo():
    def __init__(self, *, product_name, cash_ccy, margin_ccy, crypto_ccy, margin_rate = 10, rolling):
@@ -892,3 +950,76 @@ def get_product_info(product_name):
 ###
 def get_platform_products():
    return ['xbtusd_rf', 'ethusd_rf']
+
+### announcements ###
+class Chyron(object):
+   def __init__(self, jsonDict):
+      if not 'id' in jsonDict or not 'message' in jsonDict:
+         raise Exception("invalid chryon")
+
+      self.id = int(jsonDict['id'])
+      self.message = jsonDict['message']
+
+      self.priority = 0
+      if 'priority' in jsonDict:
+         self.priority = jsonDict['priority']
+
+      self.endTime = 0
+      if 'end_time' in jsonDict:
+         self.endTime = jsonDict['end_time']
+
+      self.seen = False
+
+   def __str__(self):
+      statusStr = 'Active' if self.endTime < time.time() else 'Expired'
+      return f"[{statusStr}] - \"{self.message}\""
+
+class Announcements(object):
+   def __init__(self):
+      self.chyrons = {}
+
+   def processUpdate(self, chyronsJson):
+      if not 'items' in chyronsJson:
+         return
+
+      for chyronJson in chyronsJson['items']:
+         try:
+            newChyron = Chyron(chyronJson)
+         except:
+            logging.warning(f'invalid chyron: {chyronJson}')
+            continue
+         self.chyrons[newChyron.id] = newChyron
+
+   def toString(self, displayAll):
+      if len(self.chyrons) == 0:
+         return "N/A"
+
+      #sort announcements by priority
+      priorityMap = {}
+      for id in self.chyrons:
+         chyron = self.chyrons[id]
+
+         #skip seen chyrons if we only want new/updated ones
+         if chyron.seen and not displayAll:
+            continue
+
+         #flag it
+         chyron.seen = True
+
+         if chyron.priority not in priorityMap:
+            priorityMap[chyron.priority] = {}
+         priorityMap[chyron.priority][chyron.id] = chyron
+
+      #skip if we have no new/updated chyrons
+      if len(priorityMap) == 0:
+         return "no new/updated announcements"
+
+      result = ""
+      descendingPrio = sorted(list(priorityMap.keys()), reverse=True)
+      for prio in descendingPrio:
+         chyrons = priorityMap[prio]
+         for id in chyrons:
+            result += f"   {str(chyrons[id])}\n"
+
+      return result
+
