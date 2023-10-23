@@ -86,6 +86,9 @@ class AuthApiConnection(object):
       end_time: datetime = None, no_rolls: bool = False,
       callback: Callable = None):
 
+      if not callback:
+         raise Exception("load_trade_history needs a callback")
+
       reference = generateReferenceId()
       load_trades_request = {
          'trade_history': {
@@ -99,13 +102,29 @@ class AuthApiConnection(object):
          }
       }
 
-      if callback is not None:
-         self._requests_cb[reference] = callback
-      else:
-         listener_cb = getattr(self.listener, 'on_trade_history_loaded', None)
-         if callable(listener_cb):
-            self._requests_cb[reference] = listener_cb
+      self._requests_cb[reference] = callback
+      await self.websocket.send(json.dumps(load_trades_request))
 
+   async def load_session_history(self, target_product,
+      limit=0, offset=0, start_time: datetime = None,
+      end_time: datetime = None, callback: Callable = None):
+
+      if not callback:
+         raise Exception("load_session_history needs a callback")
+
+      reference = generateReferenceId()
+      load_trades_request = {
+         'session_history': {
+            'limit': limit,
+            'offset': offset,
+            'start_time': (int(start_time.timestamp()) if start_time is not None else 0),
+            'end_time': (int(end_time.timestamp()) if end_time is not None else 0),
+            'product_type': target_product,
+            'reference': reference
+         }
+      }
+
+      self._requests_cb[reference] = callback
       await self.websocket.send(json.dumps(load_trades_request))
 
    async def load_withdrawals_history(self, callback: Callable = None):
@@ -328,7 +347,7 @@ class AuthApiConnection(object):
                await self.login()
                await self._call_listener_method('on_authorized')
 
-            # start read and token cycling loops, they will be awaited when the TaskGroup scopes out
+            # start read and token cycling loops, they will be awaited on TaskGroup scopes out
             async with asyncio.TaskGroup() as tg:
                readTask = tg.create_task(self.readLoop(), name="Leverex Read task")
                cycleTask = tg.create_task(self.cycleSession(), name="Leverex login cycle task")
@@ -410,12 +429,20 @@ class AuthApiConnection(object):
 
             if reference in self._requests_cb:
                cb = self._requests_cb.pop(reference)
-
                trade_history = TradeHistory(update['trade_history'])
-
                await self._call_listener_cb(cb, trade_history)
             else:
                logging.error(f'trade_history response with unregistered request reference:{reference}')
+
+         elif 'session_history' in update:
+            reference = update['session_history']['reference']
+
+            if reference in self._requests_cb:
+               cb = self._requests_cb.pop(reference)
+               session_history = SessionHistory(update['session_history'])
+               await self._call_listener_cb(cb, session_history)
+            else:
+               logging.error(f'session_history response with unregistered request reference:{reference}')
 
          elif 'load_withdrawals' in update:
             reference = update['load_withdrawals']['reference']
@@ -609,6 +636,9 @@ class PublicApiConnection(object):
 
          elif 'session_open' in update:
             await self._call_listener_cb(self.listener.on_session_open, SessionOpenInfo(update['session_open']))
+
+         elif 'session_closed' in update:
+            await self._call_listener_cb(self.listener.on_session_closed, SessionCloseInfo(update['session_closed']))
 
          elif 'subscribe_dealer_offers' in update:
             sub_reply = update['subscribe_dealer_offers']

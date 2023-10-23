@@ -45,12 +45,17 @@ def round_up(val, precision):
    return num.quantize(\
       Decimal('0.' + '0' * precision), rounding=ROUND_UP)
 
+def round_flat(val, precision):
+   num = Decimal(val)
+   return num.quantize(\
+      Decimal('0.' + '0' * precision))
+
 ### session info ###
 class SessionOpenInfo():
    def __init__(self, data):
       self.product_type = data['product_type']
       self.cut_off_at = datetime.fromtimestamp(data['cut_off_at'])
-      self.last_cut_off_price = round_down(data['last_cut_off_price'], 2)
+      self.last_cut_off_price = round_flat(data['last_cut_off_price'], 2)
       self.session_id = int(data['session_id'])
       self.previous_session_id = data['previous_session_id']
       self._healthy = data['healthy']
@@ -134,6 +139,23 @@ class SessionInfo():
          )
 
       return result
+
+### SessionsHistory
+class HistoricalSession(object):
+   def __init__(self, jsonObj):
+      self.id           = jsonObj['id']
+      self.open         = round_flat(jsonObj['open'], 2)
+      self.close        = round_flat(jsonObj['close'], 2)
+      self.time_start   = jsonObj['time_start']
+      self.time_end     = jsonObj['time_end']
+
+####
+class SessionsHistory(object):
+   def __init__(self, jsonObj):
+      self._sessions = {}
+      for session in jsonObj['sessions']:
+         sessionObj = HistoricalSession(session)
+         self._sessions[sessionObj.id] = sessionObj
 
 ### offers ###
 class PriceOffer():
@@ -272,15 +294,15 @@ class LeverexOrder(Order):
    def __init__(self, data):
       super().__init__(data['id'],
          data['timestamp'],
-         round_down(data['quantity'], 8),
-         round_down(data['price'], 2),
+         round_flat(data['quantity'], 8),
+         round_flat(data['price'], 2),
          int(data['side'])
       )
 
       self._status = int(data['status'])
       self._product_type = data['product_type']
       self._trade_pnl = None
-      self._reference_exposure = round_down(data['reference_exposure'], 8)
+      self._reference_exposure = round_flat(data['reference_exposure'], 8)
       self._session_id = int(data['session_id'])
       self._rollover_type = data['rollover_type']
       self._fee = data['fee']
@@ -345,13 +367,25 @@ class LeverexOrder(Order):
       if self.is_sell():
          vol *= -1
 
-      text = f"<id: {self.id} -- vol: {vol}, price: {self.price}, pnl: {pl}, fee: {self.fee}"
+      #body
+      text = f"<id: {self.id}, {datetime.fromtimestamp(self.timestamp)} -- vol: {vol}, price: {self.price}, fee: {self.fee}"
+      if pl:
+         text += f", pnl: {pl}"
+
+      #order type
       tradeType = self.tradeTypeStr(self._rollover_type)
       if tradeType:
          text += " -- ROLL, {}: {}".format(tradeType, \
             abs(self._reference_exposure) - self.quantity)
       elif not self.is_trade_position():
          text += " -- ROLL"
+      else:
+         side = "TAKER" if self.is_taker else "MAKER"
+         text += f" -- {side}"
+
+      #debug
+      if self._reference_exposure != 0:
+         text += f" -- refExp: {self._reference_exposure}"
       text += ">"
 
       return text
@@ -408,6 +442,15 @@ class LeverexOrder(Order):
 
       sign = Decimal(-1) if self.is_sell() else Decimal(1)
       return round_down(self.quantity * (price - self.price) * sign, 6)
+
+   def fromNullExposure(self):
+      '''
+      Reference exposure presents the user's net exposure after the order
+      is booked. If it matches the order's volume, then it was pushed when
+      the user had no exposure.
+      '''
+      vol = self.qty if not self.is_sell() else -self.qty
+      return vol == self._reference_exposure
 
 ####
 class SessionOrders(object):
@@ -842,6 +885,24 @@ class TradeHistory():
    @property
    def orders(self):
       return self._orders
+
+   #yes, my naming sense is shit, sue me!
+   def getTradesUntilNullExposure(self):
+      result = []
+      for order in self._orders:
+         result.append(order)
+         if order.fromNullExposure():
+            break
+      return result
+
+   def mergeOrders(self, toMerge):
+      pass
+
+   def toString(self):
+      result = ""
+      for order in self._orders:
+         result += f"  - {str(order)}\n"
+      return result
 
 ### product info helper ###
 class ProductInfo():

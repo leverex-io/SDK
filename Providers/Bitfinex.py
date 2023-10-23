@@ -191,7 +191,7 @@ class BfxBalanceReport(BalanceReport):
       result = " +- {}:\n".format(self.name)
       if not self.balances:
          result += " +  <N/A>"
-         return
+         return result
 
       for acc in self.balances:
          result += " +--- Account: {}\n".format(acc)
