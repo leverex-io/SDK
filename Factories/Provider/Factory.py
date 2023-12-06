@@ -191,6 +191,8 @@ class Factory(object):
       await self.dealerCallback(self, Definitions.Position)
 
    async def onBalanceUpdate(self):
+      print (f" - onBalanceUpdate - Provider: {self._name}")
+
       #progress current cash operations
       await self.cashOps.process()
 
