@@ -12,9 +12,9 @@ from Factories.Definitions import ProviderException, \
    checkConfig, double_eq
 from leverex_core.utils import round_down
 
-from Providers.bfxapi.bfxapi import Client
-from Providers.bfxapi.bfxapi import Order
-import Providers.bfxapi.bfxapi.models as bfx_models
+from bfxapi import Client
+from bfxapi import Order
+import bfxapi.models as bfx_models
 
 
 ################################################################################
